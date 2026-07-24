@@ -65,6 +65,11 @@ An authorized patched-kernel boot must verify:
   remain clean;
 - no CA0132, HDA, ALSA, codec, or DSP warning appears.
 
+The integrated physical validation below now covers the What U Hear fixture,
+normal headphone playback, Front-muted negative control, clean shutdown, and
+exact guest/host restoration. Analog input controls, speaker/line-out and
+digital playback, suspend/resume, and maintained-kernel repetition remain.
+
 ## Wedge Angle default
 
 `ca0132-wedge-angle-default.patch` fixes an invalid ALSA control value present
@@ -323,15 +328,17 @@ The exact powered-off guest state was flattened into a standalone image and
 that image itself passed a second boot/module smoke test and `qemu-img check`.
 It had no emulated audio or passed-through PCI device. This validates the
 combined build, kernel boot, and module dependency path. Physical
-initialization and reset recovery were subsequently validated below; playback,
-capture, routing, and suspend remain required.
+initialization, reset recovery, headphone playback, and What U Hear capture
+were subsequently validated below; the remaining route and power-management
+gates are stated there.
 
 ## Integrated physical AE-5 validation
 
-On 2026-07-24, libvirt passed the isolated physical `1102:0012/1102:0051`
-function to the powered-off system guest for three managed test cycles. The
-guest booted `7.2.0-rc2-ae5-integrated+`, bound the card at `0000:07:00.0` to
-`snd_hda_intel`, and reported `ca0132 DSP downloaded and running`.
+On 2026-07-24 and 2026-07-25, libvirt passed the isolated physical
+`1102:0012/1102:0051` function to the powered-off system guest for four
+managed test cycles. The guest booted `7.2.0-rc2-ae5-integrated+`, bound the
+card at `0000:07:00.0` to `snd_hda_intel`, and reported
+`ca0132 DSP downloaded and running`.
 
 The first cycle was read-only:
 
@@ -374,15 +381,33 @@ initial raw and simple-mixer values were both `30`; writes of `20`, `30`, and
 same complete guest mixer hash. No PCM stream was open, no systemd unit failed,
 and no CA0132, DSP, or timeout warning appeared.
 
+The fourth cycle exercised real playback and capture with a two-second,
+48 kHz, 24-bit stereo 997 Hz fixture at -18 dBFS. Headphone output used Low
+gain, output effects off, and a bounded Master ramp. At Master 65, a host
+Fifine capture measured mean 987–1007 Hz power 21.75 dB above baseline and
+19.59 dB above the same stream with Front muted. A second positive capture
+repeated within 1.04 dB. Front remained off during the negative stream and was
+restored immediately afterward.
+
+With Front muted to keep the headphones silent, the retained
+`CA0132 What U Hear` PCM captured the same fixture at 48 kHz, signed 32-bit
+stereo. The capture measured -21.26 dBFS RMS with its strongest analyzed bin
+at 996.09375 Hz, while the ineffective mixer controls remained absent. The
+complete guest mixer returned exactly to
+`c5d3a2673054ea6b71b562e3f12923c51c00af9c79af17137948e4474818de68`,
+no unit failed, and no matching driver warning appeared.
+
 Each guest shutdown returned the card automatically to the host
 `snd_hda_intel` driver in about two seconds. Before each handoff the host audio
 services had no open stream and were stopped. After each handoff, the complete
 saved Creative ALSA state matched without a fallback restore, the card-scoped
 WirePlumber headphone port returned, and VFIO preflight passed again. The
-hostdev was removed from the powered-off domain after each cycle.
+hostdev was removed from the powered-off domain after each cycle. After the
+fourth cycle, the powered-off qcow2 passed `qemu-img check` with SHA-256
+`09cef6f66dd01b449cedbc940cf5255a8ccca14a517b0e65b8d605d34872fa22`.
 
-This evidence does not yet cover Voice Focus recording, a patched What U Hear
-capture, analog or digital playback, suspend/resume, or repeated cold-start
+This evidence does not yet cover Voice Focus recording, analog input,
+speaker/line-out or digital playback, suspend/resume, or repeated cold-start
 acceptance.
 
 ## Read-only SpeakerEQ address probe

@@ -276,7 +276,7 @@ the routing state, and a full Linux report. The profile passed
 `profile-check --allow-high-gain`. PipeWire and WirePlumber were then stopped,
 and `fuser` confirmed that no process had an ALSA device open.
 
-In all three cycles, managed startup rebound host `0000:29:00.0` from
+In all four cycles, managed startup rebound host `0000:29:00.0` from
 `snd_hda_intel` to `vfio-pci`. The guest received the exact
 `1102:0012/1102:0051` function at `0000:07:00.0`, bound it to
 `snd_hda_intel`, loaded the integrated CA0132 module, and reported
@@ -304,6 +304,23 @@ initial raw and simple-mixer values were both `30`; writes of `20`, `30`, and
 complete guest mixer hash. No PCM stream was open, no guest unit failed, and
 no CA0132, DSP, or timeout warning appeared.
 
+The fourth cycle selected Headphone, Low gain, disabled output effects, and
+played the hash-verified two-second 997 Hz fixture through direct ALSA. With
+the headphones beside the host's Fifine microphone and not worn, Master 65
+raised mean 987–1007 Hz power by 21.75 dB over the quiet baseline and 19.59 dB
+over a Front-muted negative control. A second positive capture repeated within
+1.04 dB. Front was confirmed off during the negative-control stream and
+restored by an exit guard.
+
+With Front still guarded off, the guest's physical `CA0132 What U Hear` PCM
+captured the same fixture at 48 kHz, signed 32-bit stereo. Its measured RMS was
+-21.26 dBFS and its strongest analyzed bin was 996.09375 Hz. The ineffective
+What U Hear mixer controls remained absent. Restoring the saved guest ALSA
+state returned the complete mixer hash to
+`c5d3a2673054ea6b71b562e3f12923c51c00af9c79af17137948e4474818de68`;
+no unit failed and no matching CA0132, HDA, DSP, firmware, or timeout warning
+appeared.
+
 Each clean shutdown returned the card automatically to host `snd_hda_intel`
 and recreated readable ALSA controls in about two seconds. The complete raw
 Creative state matched the saved file after every cycle, so no fallback
@@ -312,15 +329,17 @@ default sink on the card-specific headphone port, the Fifine remained the
 default source, and the full host mixer hash returned to
 `3e595532348efe1e2e9c066039131e97505cb9b71bc6bfd8fa8a59301091e802`.
 VFIO preflight passed again, the hostdev was removed, and no QEMU process
-remained.
+remained. The fourth cycle also preserved the exact WirePlumber default-node
+and route files. Ambient captures were deleted after retaining fixture and
+capture hashes plus the derived measurements.
 
-The powered-off system volume passed `qemu-img check` after all three cycles
+The powered-off system volume passed `qemu-img check` after all four cycles
 and had SHA-256
-`73cd247efcfcbdb116a1f3e434bb3e19cbbc498247990bbd893ce0373b3b9687`.
+`09cef6f66dd01b449cedbc940cf5255a8ccca14a517b0e65b8d605d34872fa22`.
 The untouched standalone recovery image retained SHA-256
 `bfca0fdfa57cc7b9fab13c91a2a58584233c257638f636573b85a29c1d091637`.
-No playback, capture, Voice Focus recording, guest suspend, or host cold boot
-was part of these first three cycles.
+Voice Focus recording, speaker/line-out and digital playback, guest suspend,
+and repeated host cold boots remain separate gates.
 
 ## Per-kernel test matrix
 

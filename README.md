@@ -324,15 +324,16 @@ carries minimal Wedge Angle and EQ cache fixes, a separately reviewable
 parser-hardening candidate with KUnit coverage, and the build-only read probe.
 Evidence, proposed commit messages, and validation steps are in
 [kernel/README.md](kernel/README.md). The four functional patches now build
-and boot together in both session and system Fedora KVM guests. Three managed
+and boot together in both session and system Fedora KVM guests. Four managed
 physical-card cycles also passed: the DSP firmware loaded, Wedge initialized
 to `30` and read back at both boundaries, the ineffective What U Hear control
 disappeared while its PCM remained, every factory EQ cache vector and
-notification matched, and the host recovered exactly after every shutdown.
-The diagnostic read probe remains separate and unloaded. Because the host
-still runs the unpatched Nobara kernel, AE-5 Control continues to display its
-invalid Wedge value as a driver warning and excludes it from newly captured
-profiles.
+notification matched, and low-gain headphone playback measured 19.59 dB above
+a Front-muted control. The patched What U Hear PCM captured the same fixture,
+and the guest and host recovered their exact mixer hashes after shutdown. The
+diagnostic read probe remains separate and unloaded. Because the host still
+runs the unpatched Nobara kernel, AE-5 Control continues to display its invalid
+Wedge value as a driver warning and excludes it from newly captured profiles.
 
 Objective Windows/Linux level, frequency-response, and noise comparison is
 documented in

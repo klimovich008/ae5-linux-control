@@ -7,9 +7,11 @@ Creative `1102:0012/1102:0051` card:
 - the CA0132 digital `What U Hear` PCM;
 - PipeWire ACP ports presented to the desktop.
 
-The tests ran on Nobara kernel `7.1.4-200.nobara.fc44.x86_64`. Every guarded
-write restored the complete starting profile. No kernel module was loaded or
-replaced.
+The initial control characterization ran on Nobara kernel
+`7.1.4-200.nobara.fc44.x86_64`. The candidate was later exercised on the
+physical card in a guarded Fedora guest running
+`7.2.0-rc2-ae5-integrated+`. Every guarded write restored the complete
+starting profile.
 
 ## What U Hear volume and mute do not affect the AE-5 stream
 
@@ -75,6 +77,27 @@ values from newly captured profiles, and ignores them in legacy profiles. The
 same profiles therefore work before and after the kernel candidate removes the
 mixer elements.
 
+## Patched-kernel physical capture
+
+The integrated candidate received the physical `1102:0012/1102:0051` AE-5
+through managed VFIO. It exposed 72 raw and 46 simple controls: the What U
+Hear volume/mute elements were absent, while `CA0132 What U Hear` remained
+capture device 2.
+
+With output effects disabled and Front muted, direct ALSA played the
+hash-verified 997 Hz fixture while `hw:Creative,2` recorded four seconds at
+48 kHz, signed 32-bit stereo. Front was read back off during the open stream.
+The capture measured -21.26 dBFS RMS and its strongest analyzed bin was
+996.09375 Hz. The guest mixer then returned to SHA-256
+`c5d3a2673054ea6b71b562e3f12923c51c00af9c79af17137948e4474818de68`
+exactly, with no failed unit or matching CA0132, HDA, DSP, firmware, or timeout
+warning.
+
+Guest shutdown returned the card to host `snd_hda_intel`; the host mixer,
+default devices, and fixed headphone port recovered exactly without a fallback
+restore. The raw capture was deleted after retaining its SHA-256 and derived
+measurements.
+
 ## Exact PipeWire input routes
 
 The generic ACP profile initially exposed only Microphone and Line In. Its
@@ -113,10 +136,7 @@ mixer and retained route-state hashes.
   input and verify each physical path.
 - Measure analog `Capture` level, mute, and microphone boost for gain, noise
   floor, and clipping. Do not infer their behavior from the digital loopback.
-- Repeat the What U Hear fixture under the patched kernel. Its first physical
-  boot already confirmed that the ineffective mixer control disappears while
-  the PCM and every analog capture control remain, with clean DSP
-  initialization; playback, routing, suspend/resume, and profile compatibility
-  still require patched-kernel exercise.
+- Repeat the patched What U Hear capture on maintained kernels and across
+  suspend/resume.
 - Add an explicit software volume/mute substitute only at the recording-stream
   layer; do not relabel it as hardware gain.

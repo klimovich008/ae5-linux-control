@@ -87,6 +87,28 @@ cargo run -- profile-check headphones.json
 cargo run -- profile-apply headphones.json
 ```
 
+AE-5 Control also exposes an evidence-based Linux-driver processing baseline.
+It is not labeled as Creative's factory reset because Sound Blaster Command's
+exact reset semantics are undocumented. Previewing and checking are read-only:
+
+```sh
+cargo run -- linux-defaults-show
+cargo run -- linux-defaults-check
+```
+
+An apply requires both an explicit confirmation flag and a new backup path.
+The previous valid mixer state is saved before the first write, and the normal
+profile transaction verifies or rolls back the reset:
+
+```sh
+cargo run -- linux-defaults-apply before-reset.json --confirm
+```
+
+Routing, speaker layout, mixer volumes and mutes, and PipeWire settings are
+preserved. The exact values, source provenance, exclusions, and validation
+status are in
+[docs/LINUX_DRIVER_DEFAULTS.md](docs/LINUX_DRIVER_DEFAULTS.md).
+
 `profile-export` takes a library filename shown by `profile-library`, writes a
 standalone copy anywhere, and refuses to overwrite an existing file:
 
@@ -203,6 +225,8 @@ The **Profiles** page can:
   desktop Trash;
 - save the current hardware state as a native JSON profile;
 - validate and preview a native profile before applying it transactionally;
+- preview and restore source-derived Linux driver processing defaults after
+  automatically saving a native recovery profile;
 - import the active setup from a mounted Windows `user.config` and AE-5 product
   folder, or choose Sound Blaster Command profile and EQ JSON files manually;
 - review exact, approximate, and unsupported mappings for headphones or

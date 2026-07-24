@@ -1,9 +1,11 @@
 use ae5_control::{
-    Ae5Device, Ae5Mixer, PipeWireNode, Profile, SbCommandImportReport, SbCommandTarget, ae5_input,
-    ae5_output, discover_sbcommand_installation, export_library_profile,
+    Ae5Device, Ae5Mixer, LINUX_DRIVER_DEFAULTS_PRESERVED, PipeWireNode, Profile,
+    SbCommandImportReport, SbCommandTarget, ae5_input, ae5_output, apply_linux_driver_defaults,
+    discover_sbcommand_installation, export_library_profile,
     import_active_sbcommand_profile_with_report, import_sbcommand_profile_with_report,
-    native_rates_config, profile_library, profile_library_directory, set_ae5_default_input,
-    set_ae5_default_output, set_native_rates_enabled, snapshot_controls,
+    linux_driver_defaults, linux_driver_defaults_for, native_rates_config, profile_library,
+    profile_library_directory, set_ae5_default_input, set_ae5_default_output,
+    set_native_rates_enabled, snapshot_controls,
 };
 use std::error::Error;
 use std::io;
@@ -73,6 +75,11 @@ fn run() -> Result<(), Box<dyn Error>> {
         [command, path] if command == "profile-apply" => apply_profile(path, false),
         [command, path, flag] if command == "profile-apply" && flag == "--allow-high-gain" => {
             apply_profile(path, true)
+        }
+        [command] if command == "linux-defaults-show" => show_linux_driver_defaults(),
+        [command] if command == "linux-defaults-check" => check_linux_driver_defaults(),
+        [command, backup, flag] if command == "linux-defaults-apply" && flag == "--confirm" => {
+            apply_linux_defaults(backup)
         }
         [command, name, profile, eq, target, output] if command == "sbcommand-import" => {
             import_sbcommand(name, profile, eq, target, output)
@@ -409,6 +416,41 @@ fn apply_profile(path: &str, allow_high_gain: bool) -> Result<(), Box<dyn Error>
     Ok(())
 }
 
+fn show_linux_driver_defaults() -> Result<(), Box<dyn Error>> {
+    let profile = linux_driver_defaults()?;
+    println!("Profile: {}", profile.name);
+    println!("Target: {}", profile.target);
+    println!("Controls reset: {}", profile.controls.len());
+    println!("Conditional: X-Bass is disabled for a preserved LFE speaker layout.");
+    println!("Preserved:");
+    for item in LINUX_DRIVER_DEFAULTS_PRESERVED {
+        println!("  - {item}");
+    }
+    println!();
+    println!("{}", serde_json::to_string_pretty(&profile.controls)?);
+    Ok(())
+}
+
+fn check_linux_driver_defaults() -> Result<(), Box<dyn Error>> {
+    let mixer = mixer()?;
+    let profile = linux_driver_defaults_for(&mixer.snapshots()?)?;
+    profile.check(&mixer, false)?;
+    println!(
+        "compatible: {} Linux-driver default controls are available; no hardware values were changed",
+        profile.controls.len()
+    );
+    Ok(())
+}
+
+fn apply_linux_defaults(backup: &str) -> Result<(), Box<dyn Error>> {
+    let report = apply_linux_driver_defaults(&mixer()?, Path::new(backup))?;
+    println!(
+        "reset {} Linux-driver default controls after saving the previous valid state to {backup}",
+        report.controls_applied
+    );
+    Ok(())
+}
+
 fn import_sbcommand(
     name: &str,
     profile_path: &str,
@@ -557,6 +599,9 @@ fn print_help() {
          \x20 profile-show FILE\n\
          \x20 profile-check FILE [--allow-high-gain]\n\
          \x20 profile-apply FILE [--allow-high-gain]\n\
+         \x20 linux-defaults-show\n\
+         \x20 linux-defaults-check  Validate the reset without changing hardware\n\
+         \x20 linux-defaults-apply BACKUP_FILE --confirm\n\
          \x20 sbcommand-import NAME PROFILE_JSON EQ_JSON speaker|headphone OUTPUT\n\
          \x20 sbcommand-import-user NAME WINDOWS_USER_DIR speaker|headphone OUTPUT\n\
          \x20 sbcommand-import-active NAME USER_CONFIG AE5_PRODUCT_DIR speaker|headphone OUTPUT\n\

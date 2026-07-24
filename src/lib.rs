@@ -14,7 +14,10 @@ pub use pipewire::{
     NativeRatesConfig, PipeWireNode, ae5_input, ae5_output, native_rates_config,
     set_ae5_default_input, set_ae5_default_output, set_native_rates_enabled,
 };
-pub use profile::{ApplyReport, Profile, ProfileControl, ProfileError};
+pub use profile::{
+    ApplyReport, LINUX_DRIVER_DEFAULTS_PRESERVED, Profile, ProfileControl, ProfileError,
+    apply_linux_driver_defaults, linux_driver_defaults, linux_driver_defaults_for,
+};
 pub use profile_library::{
     ProfileLibrary, StoredProfile, export_library_profile, library_profile, profile_library,
     profile_library_directory, rename_library_profile,

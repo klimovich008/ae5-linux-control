@@ -1,11 +1,13 @@
 use ae5_control::{
-    Ae5Device, Ae5Mixer, ChannelLevel, ControlError, ControlSnapshot, Level, NativeRatesConfig,
-    PipeWireNode, Profile, ProfileControl, SbCommandImport, SbCommandTarget, ae5_input, ae5_output,
-    discover_sbcommand_installation, equalizer_band_block_reason, export_library_profile,
-    import_active_sbcommand_profile_with_report, import_sbcommand_profile_with_report,
-    library_profile, native_rates_config, playback_switch_block_reason, profile_library,
-    profile_library_directory, rename_library_profile, set_ae5_default_input,
-    set_ae5_default_output, set_native_rates_enabled, snapshot_controls,
+    Ae5Device, Ae5Mixer, ChannelLevel, ControlError, ControlSnapshot,
+    LINUX_DRIVER_DEFAULTS_PRESERVED, Level, NativeRatesConfig, PipeWireNode, Profile,
+    ProfileControl, SbCommandImport, SbCommandTarget, ae5_input, ae5_output,
+    apply_linux_driver_defaults, discover_sbcommand_installation, equalizer_band_block_reason,
+    export_library_profile, import_active_sbcommand_profile_with_report,
+    import_sbcommand_profile_with_report, library_profile, linux_driver_defaults_for,
+    native_rates_config, playback_switch_block_reason, profile_library, profile_library_directory,
+    rename_library_profile, set_ae5_default_input, set_ae5_default_output,
+    set_native_rates_enabled, snapshot_controls,
 };
 use gtk::prelude::*;
 use gtk::{gdk::Display, gio};
@@ -19,7 +21,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const APP_ID: &str = "io.github.klimovich008.ae5control";
 const MAIN_STACK_NAME: &str = "main-navigation";
@@ -706,6 +708,22 @@ fn profile_page(
         &native_actions,
     ));
 
+    let reset = gtk::Button::with_label("Preview & reset processing");
+    reset.add_css_class("destructive-action");
+    reset.set_tooltip_text(Some(
+        "Preserves routing, speaker layout, mixer volumes, mutes, and PipeWire settings.",
+    ));
+    let reset_actions = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+    reset_actions.append(&reset);
+    page.append(&profile_card(
+        "03",
+        "Linux driver defaults",
+        "Restore the CA0132 processing values initialized by the Linux driver. \
+         A native backup is saved before the first mixer write; this is not claimed \
+         to reproduce Sound Blaster Command's undocumented factory reset.",
+        &reset_actions,
+    ));
+
     let import_active = gtk::Button::with_label("Import active Windows setup");
     import_active.add_css_class("suggested-action");
     let import = gtk::Button::with_label("Choose profile & EQ files");
@@ -713,7 +731,7 @@ fn profile_page(
     import_actions.append(&import_active);
     import_actions.append(&import);
     page.append(&profile_card(
-        "03",
+        "04",
         "Sound Blaster Command",
         "Choose a mounted Windows user folder to discover and import its active setup, \
          or choose Creative profile and EQ files manually. Review every mapping before saving.",
@@ -750,6 +768,23 @@ fn profile_page(
                     }
                     Ok(None) => {}
                     Err(error) => set_status(&status, false, &format!("Apply failed: {error}")),
+                }
+            });
+        });
+    }
+    {
+        let window = window.clone();
+        let status = status.clone();
+        reset.connect_clicked(move |_| {
+            let window = window.clone();
+            let status = status.clone();
+            gtk::glib::spawn_future_local(async move {
+                match reset_linux_driver_defaults(&window, card_index).await {
+                    Ok(Some(message)) => {
+                        let _ = refresh_window(&window, Some(&message));
+                    }
+                    Ok(None) => {}
+                    Err(error) => set_status(&status, false, &format!("Reset failed: {error}")),
                 }
             });
         });
@@ -1061,6 +1096,33 @@ async fn apply_profile_path(
     )))
 }
 
+async fn reset_linux_driver_defaults(
+    window: &gtk::ApplicationWindow,
+    card_index: i32,
+) -> Result<Option<String>, String> {
+    let mixer = Ae5Mixer::open(card_index).map_err(|error| error.to_string())?;
+    let defaults =
+        linux_driver_defaults_for(&mixer.snapshots().map_err(|error| error.to_string())?)
+            .map_err(|error| error.to_string())?;
+    defaults
+        .check(&mixer, false)
+        .map_err(|error| error.to_string())?;
+    let library = profile_library_directory().map_err(|error| error.to_string())?;
+
+    if !confirm_linux_driver_defaults(window, &defaults, &library).await? {
+        return Ok(None);
+    }
+
+    std::fs::create_dir_all(&library).map_err(|error| error.to_string())?;
+    let backup = linux_driver_defaults_backup_path(&library)?;
+    let report = apply_linux_driver_defaults(&mixer, &backup).map_err(|error| error.to_string())?;
+    Ok(Some(format!(
+        "Restored {} Linux-driver processing controls. Previous valid state saved as {}.",
+        report.controls_applied,
+        backup.display()
+    )))
+}
+
 async fn import_windows_profile(
     window: &gtk::ApplicationWindow,
     card_index: i32,
@@ -1252,6 +1314,49 @@ async fn confirm_profile(
         Err(error) if is_cancelled(&error) => Ok(false),
         Err(error) => Err(error.to_string()),
     }
+}
+
+async fn confirm_linux_driver_defaults(
+    window: &gtk::ApplicationWindow,
+    profile: &Profile,
+    backup_directory: &Path,
+) -> Result<bool, String> {
+    let dialog = gtk::AlertDialog::builder()
+        .modal(true)
+        .message("Reset to AE-5 Linux driver defaults?")
+        .detail(linux_driver_defaults_preview(profile, backup_directory))
+        .buttons(["Cancel", "Save backup & reset"])
+        .cancel_button(0)
+        .default_button(0)
+        .build();
+    match dialog.choose_future(Some(window)).await {
+        Ok(1) => Ok(true),
+        Ok(_) => Ok(false),
+        Err(error) if is_cancelled(&error) => Ok(false),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+fn linux_driver_defaults_preview(profile: &Profile, backup_directory: &Path) -> String {
+    let preserved = LINUX_DRIVER_DEFAULTS_PRESERVED
+        .iter()
+        .map(|item| format!("• {item}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!(
+        "{}\n\nPreserved:\n{}\n\nBefore the first write, a restorable native profile will be saved in {}.",
+        profile_preview(profile),
+        preserved,
+        backup_directory.display()
+    )
+}
+
+fn linux_driver_defaults_backup_path(directory: &Path) -> Result<PathBuf, String> {
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| error.to_string())?
+        .as_millis();
+    Ok(directory.join(format!("before-linux-driver-defaults-{timestamp}.json")))
 }
 
 async fn confirm_import(
@@ -2261,6 +2366,18 @@ mod tests {
         assert!(profile_requires_high_gain(&profile));
         assert!(profile_preview(&profile).contains("High (150-600 Ohms)"));
         assert!(profile_preview(&profile).contains("Front Right=82"));
+    }
+
+    #[test]
+    fn linux_default_preview_names_preserved_state_and_backup_location() {
+        let profile = linux_driver_defaults_for(&[]).unwrap();
+        let preview =
+            linux_driver_defaults_preview(&profile, Path::new("/tmp/ae5-control/profiles"));
+
+        assert!(preview.contains("29 validated Linux controls"));
+        assert!(preview.contains("output selection and headphone auto-detect"));
+        assert!(preview.contains("playback and capture volumes"));
+        assert!(preview.contains("/tmp/ae5-control/profiles"));
     }
 
     #[test]

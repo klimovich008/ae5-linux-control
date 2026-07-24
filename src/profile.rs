@@ -18,6 +18,14 @@ const MAX_PROFILE_BYTES: u64 = 1024 * 1024;
 const MAX_CONTROLS: usize = 128;
 static NEXT_TEMP_FILE: AtomicU64 = AtomicU64::new(0);
 
+pub const LINUX_DRIVER_DEFAULTS_PRESERVED: &[&str] = &[
+    "output selection and headphone auto-detect",
+    "input selection and microphone boost",
+    "speaker layout, full-range flags, and bass redirection",
+    "playback and capture volumes, balances, and mutes",
+    "PipeWire routing and sample-rate configuration",
+];
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Profile {
     pub format_version: u32,
@@ -348,6 +356,132 @@ impl Profile {
             return Err(ProfileError::Invalid(reason.to_owned()));
         }
         Ok(before)
+    }
+}
+
+pub fn linux_driver_defaults() -> Result<Profile, ProfileError> {
+    let mut controls = BTreeMap::from([
+        (
+            "AE-5: Headphone Gain".to_owned(),
+            choice("Low (16-31  Ohms)"),
+        ),
+        ("AE-5: Sound Filter".to_owned(), choice("Slow Roll Off")),
+        ("Enable InFX".to_owned(), capture_effect(false, None)),
+        ("Enable OutFX".to_owned(), playback_effect(true, None)),
+        (
+            "FX: Crystalizer".to_owned(),
+            playback_effect(true, Some(65)),
+        ),
+        (
+            "FX: Dialog Plus".to_owned(),
+            playback_effect(false, Some(50)),
+        ),
+        ("FX: Equalizer".to_owned(), playback_effect(false, None)),
+        (EQUALIZER_PRESET_CONTROL.to_owned(), choice("Flat")),
+        ("FX: Mic SVM".to_owned(), capture_effect(false, None)),
+        ("FX: Noise Reduction".to_owned(), capture_effect(true, None)),
+        (
+            "FX: Smart Volume".to_owned(),
+            playback_effect(true, Some(74)),
+        ),
+        ("FX: Smart Volume Setting".to_owned(), choice("Normal")),
+        ("FX: Surround".to_owned(), playback_effect(true, Some(67))),
+        ("FX: Voice Focus".to_owned(), capture_effect(true, None)),
+        ("FX: X-Bass".to_owned(), playback_effect(true, Some(50))),
+        ("FX: X-Bass Crossover".to_owned(), playback_level(8)),
+        ("SVM Level".to_owned(), capture_level(74)),
+        ("VoiceFX".to_owned(), choice("Neutral")),
+        ("Wedge Angle".to_owned(), capture_level(30)),
+    ]);
+    for band in 0..10 {
+        controls.insert(format!("EQ Band{band}"), playback_level(24));
+    }
+    Profile::new("AE-5 Linux driver defaults", controls)
+}
+
+pub fn linux_driver_defaults_for(
+    current_controls: &[ControlSnapshot],
+) -> Result<Profile, ProfileError> {
+    let mut profile = linux_driver_defaults()?;
+    let speakers_with_lfe = current_controls.iter().any(|control| {
+        control.name == "Output Select" && control.selected.as_deref() == Some("Speakers")
+    }) && current_controls.iter().any(|control| {
+        control.name == "Surround Channel Config"
+            && control
+                .selected
+                .as_deref()
+                .is_some_and(|layout| layout.ends_with(".1"))
+    });
+    if speakers_with_lfe {
+        profile
+            .controls
+            .get_mut("FX: X-Bass")
+            .expect("the built-in baseline always contains X-Bass")
+            .playback_switch = Some(false);
+    }
+    Ok(profile)
+}
+
+pub fn apply_linux_driver_defaults(
+    mixer: &Ae5Mixer,
+    backup_path: &Path,
+) -> Result<ApplyReport, ProfileError> {
+    let defaults = linux_driver_defaults_for(&mixer.snapshots().map_err(ControlError::from)?)?;
+    apply_with_backup(
+        &defaults,
+        mixer,
+        "Before AE-5 Linux driver defaults",
+        backup_path,
+        false,
+    )
+}
+
+fn apply_with_backup(
+    profile: &Profile,
+    mixer: &impl ProfileMixer,
+    backup_name: &str,
+    backup_path: &Path,
+    allow_high_gain: bool,
+) -> Result<ApplyReport, ProfileError> {
+    profile.validate_against(mixer, allow_high_gain)?;
+    Profile::capture(backup_name, mixer.snapshots()?)?.save_new(backup_path)?;
+    profile.apply_to(mixer, allow_high_gain)
+}
+
+fn choice(value: &str) -> ProfileControl {
+    ProfileControl {
+        choice: Some(value.to_owned()),
+        ..ProfileControl::default()
+    }
+}
+
+fn playback_effect(enabled: bool, level: Option<i64>) -> ProfileControl {
+    ProfileControl {
+        playback_switch: Some(enabled),
+        playback_level: level,
+        ..ProfileControl::default()
+    }
+}
+
+fn capture_effect(enabled: bool, level: Option<i64>) -> ProfileControl {
+    ProfileControl {
+        capture_switch: Some(enabled),
+        capture_level: level,
+        ..ProfileControl::default()
+    }
+}
+
+fn playback_level(value: i64) -> ProfileControl {
+    ProfileControl {
+        playback_level: Some(value),
+        ..ProfileControl::default()
+    }
+}
+
+fn capture_level(value: i64) -> ProfileControl {
+    ProfileControl {
+        capture_level: Some(value),
+        ..ProfileControl::default()
     }
 }
 
@@ -904,6 +1038,145 @@ mod tests {
         );
         let json = serde_json::to_string(&profile).unwrap();
         assert_eq!(serde_json::from_str::<Profile>(&json).unwrap(), profile);
+    }
+
+    #[test]
+    fn linux_driver_defaults_match_ca0132_and_preserve_user_routing() {
+        let profile = linux_driver_defaults().unwrap();
+
+        assert_eq!(profile.controls.len(), 29);
+        assert_eq!(
+            profile.controls["AE-5: Headphone Gain"].choice.as_deref(),
+            Some("Low (16-31  Ohms)")
+        );
+        assert_eq!(
+            profile.controls["AE-5: Sound Filter"].choice.as_deref(),
+            Some("Slow Roll Off")
+        );
+        assert_eq!(profile.controls["Enable OutFX"].playback_switch, Some(true));
+        assert_eq!(profile.controls["Enable InFX"].capture_switch, Some(false));
+        for (name, enabled, level) in [
+            ("FX: Surround", true, 67),
+            ("FX: Crystalizer", true, 65),
+            ("FX: Dialog Plus", false, 50),
+            ("FX: Smart Volume", true, 74),
+            ("FX: X-Bass", true, 50),
+        ] {
+            assert_eq!(
+                profile.controls[name].playback_switch,
+                Some(enabled),
+                "{name}"
+            );
+            assert_eq!(profile.controls[name].playback_level, Some(level), "{name}");
+        }
+        assert_eq!(
+            profile.controls["FX: Equalizer"].playback_switch,
+            Some(false)
+        );
+        assert_eq!(
+            profile.controls[EQUALIZER_PRESET_CONTROL].choice.as_deref(),
+            Some("Flat")
+        );
+        for band in 0..10 {
+            assert_eq!(
+                profile.controls[&format!("EQ Band{band}")].playback_level,
+                Some(24)
+            );
+        }
+        assert_eq!(
+            profile.controls["FX: Smart Volume Setting"]
+                .choice
+                .as_deref(),
+            Some("Normal")
+        );
+        assert_eq!(
+            profile.controls["FX: X-Bass Crossover"].playback_level,
+            Some(8)
+        );
+        for (name, enabled) in [
+            ("FX: Voice Focus", true),
+            ("FX: Mic SVM", false),
+            ("FX: Noise Reduction", true),
+        ] {
+            assert_eq!(
+                profile.controls[name].capture_switch,
+                Some(enabled),
+                "{name}"
+            );
+        }
+        assert_eq!(profile.controls["SVM Level"].capture_level, Some(74));
+        assert_eq!(profile.controls["Wedge Angle"].capture_level, Some(30));
+        assert_eq!(
+            profile.controls["VoiceFX"].choice.as_deref(),
+            Some("Neutral")
+        );
+
+        for preserved in [
+            "Output Select",
+            "HP/Speaker Auto Detect",
+            "Input Source",
+            "Mic Boost",
+            "Surround Channel Config",
+            "Full-Range Front Speakers",
+            "Full-Range Rear Speakers",
+            "Bass Redirection",
+            "Bass Redirection Crossover",
+            "Master",
+            "Front",
+            "Capture",
+            "What U Hear",
+        ] {
+            assert!(!profile.controls.contains_key(preserved), "{preserved}");
+        }
+    }
+
+    #[test]
+    fn linux_driver_defaults_disable_xbass_for_preserved_lfe_layouts() {
+        let lfe_speakers = [
+            choice_snapshot("Output Select", "Speakers"),
+            choice_snapshot("Surround Channel Config", "5.1"),
+        ];
+        let profile = linux_driver_defaults_for(&lfe_speakers).unwrap();
+
+        assert_eq!(profile.controls["FX: X-Bass"].playback_switch, Some(false));
+        assert!(!profile.controls.contains_key("Output Select"));
+        assert!(!profile.controls.contains_key("Surround Channel Config"));
+
+        let headphones = [
+            choice_snapshot("Output Select", "Headphone"),
+            choice_snapshot("Surround Channel Config", "5.1"),
+        ];
+        assert_eq!(
+            linux_driver_defaults_for(&headphones).unwrap().controls["FX: X-Bass"].playback_switch,
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn backup_failure_prevents_profile_writes() {
+        let mixer = FakeMixer::new();
+        let profile = Profile::new(
+            "Reset target",
+            BTreeMap::from([(
+                "FX: Surround".to_owned(),
+                ProfileControl {
+                    playback_switch: Some(true),
+                    ..ProfileControl::default()
+                },
+            )]),
+        )
+        .unwrap();
+        let backup = test_path();
+        fs::write(&backup, b"do not overwrite").unwrap();
+
+        assert!(matches!(
+            apply_with_backup(&profile, &mixer, "Before reset", &backup, false),
+            Err(ProfileError::Io(error)) if error.kind() == io::ErrorKind::AlreadyExists
+        ));
+        assert!(!mixer.surround.get());
+        assert!(mixer.writes.borrow().is_empty());
+        assert_eq!(fs::read(&backup).unwrap(), b"do not overwrite");
+        fs::remove_file(backup).unwrap();
     }
 
     #[test]

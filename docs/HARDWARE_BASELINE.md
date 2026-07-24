@@ -56,3 +56,18 @@ The same transaction passed for capture: `What U Hear` changed from
 `Front Left=90, Front Right=90` to `Front Left=90, Front Right=89` and back to
 the exact original snapshot. Its capture switch remained on, and the kernel
 journal again recorded no warning or error.
+
+## Native profile round trip
+
+A named profile captured 47 valid controls from the physical card; the invalid
+running Wedge Angle value was excluded as designed. Separate `ae5ctl`
+processes then:
+
+1. found the profile in the standard per-user library;
+2. loaded and validated every control against the live AE-5;
+3. applied all 47 controls with hardware readback verification.
+
+The profile's SHA-256 and the complete `controls` output were identical before
+and after apply. The kernel journal recorded no warning or error. The test
+profile was then moved to recoverable desktop Trash, and a fresh library scan
+again reported no saved profiles.

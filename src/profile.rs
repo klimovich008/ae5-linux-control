@@ -58,6 +58,86 @@ pub enum ProfileError {
     },
 }
 
+trait ProfileMixer {
+    fn snapshots(&self) -> Result<Vec<ControlSnapshot>, ControlError>;
+    fn snapshot(&self, name: &str) -> Result<ControlSnapshot, ControlError>;
+    fn set_choice(
+        &self,
+        name: &str,
+        choice: &str,
+        allow_high_gain: bool,
+    ) -> Result<(), ControlError>;
+    fn set_playback_switch(&self, name: &str, enabled: bool) -> Result<(), ControlError>;
+    fn set_capture_switch(&self, name: &str, enabled: bool) -> Result<(), ControlError>;
+    fn set_playback_level(&self, name: &str, value: i64) -> Result<(), ControlError>;
+    fn set_capture_level(&self, name: &str, value: i64) -> Result<(), ControlError>;
+    fn set_playback_channel_level(
+        &self,
+        name: &str,
+        channel: &str,
+        value: i64,
+    ) -> Result<(), ControlError>;
+    fn set_capture_channel_level(
+        &self,
+        name: &str,
+        channel: &str,
+        value: i64,
+    ) -> Result<(), ControlError>;
+}
+
+impl ProfileMixer for Ae5Mixer {
+    fn snapshots(&self) -> Result<Vec<ControlSnapshot>, ControlError> {
+        Ae5Mixer::snapshots(self).map_err(Into::into)
+    }
+
+    fn snapshot(&self, name: &str) -> Result<ControlSnapshot, ControlError> {
+        Ae5Mixer::snapshot(self, name)
+    }
+
+    fn set_choice(
+        &self,
+        name: &str,
+        choice: &str,
+        allow_high_gain: bool,
+    ) -> Result<(), ControlError> {
+        Ae5Mixer::set_choice_checked(self, name, choice, allow_high_gain).map(drop)
+    }
+
+    fn set_playback_switch(&self, name: &str, enabled: bool) -> Result<(), ControlError> {
+        Ae5Mixer::set_playback_switch(self, name, enabled).map(drop)
+    }
+
+    fn set_capture_switch(&self, name: &str, enabled: bool) -> Result<(), ControlError> {
+        Ae5Mixer::set_capture_switch(self, name, enabled).map(drop)
+    }
+
+    fn set_playback_level(&self, name: &str, value: i64) -> Result<(), ControlError> {
+        Ae5Mixer::set_playback_level(self, name, value).map(drop)
+    }
+
+    fn set_capture_level(&self, name: &str, value: i64) -> Result<(), ControlError> {
+        Ae5Mixer::set_capture_level(self, name, value).map(drop)
+    }
+
+    fn set_playback_channel_level(
+        &self,
+        name: &str,
+        channel: &str,
+        value: i64,
+    ) -> Result<(), ControlError> {
+        Ae5Mixer::set_playback_channel_level(self, name, channel, value).map(drop)
+    }
+
+    fn set_capture_channel_level(
+        &self,
+        name: &str,
+        channel: &str,
+        value: i64,
+    ) -> Result<(), ControlError> {
+        Ae5Mixer::set_capture_channel_level(self, name, channel, value).map(drop)
+    }
+}
+
 impl Profile {
     pub fn new(
         name: &str,
@@ -167,6 +247,14 @@ impl Profile {
         mixer: &Ae5Mixer,
         allow_high_gain: bool,
     ) -> Result<ApplyReport, ProfileError> {
+        self.apply_to(mixer, allow_high_gain)
+    }
+
+    fn apply_to(
+        &self,
+        mixer: &impl ProfileMixer,
+        allow_high_gain: bool,
+    ) -> Result<ApplyReport, ProfileError> {
         let before = self.validate_against(mixer, allow_high_gain)?;
         if let Err(failure) = apply_controls(mixer, &self.controls, allow_high_gain) {
             let rollback_failure = apply_controls(mixer, &before, true)
@@ -220,11 +308,11 @@ impl Profile {
 
     fn validate_against(
         &self,
-        mixer: &Ae5Mixer,
+        mixer: &impl ProfileMixer,
         allow_high_gain: bool,
     ) -> Result<BTreeMap<String, ProfileControl>, ProfileError> {
         self.validate_structure()?;
-        let current_controls = mixer.snapshots().map_err(ControlError::from)?;
+        let current_controls = mixer.snapshots()?;
         let mut before = BTreeMap::new();
         for (name, requested) in &self.controls {
             let current = current_controls
@@ -435,7 +523,7 @@ fn validate_channels(
 }
 
 fn apply_controls(
-    mixer: &Ae5Mixer,
+    mixer: &impl ProfileMixer,
     controls: &BTreeMap<String, ProfileControl>,
     allow_high_gain: bool,
 ) -> Result<(), ControlError> {
@@ -450,7 +538,7 @@ fn apply_controls(
                 .as_ref()
                 .is_none_or(|value| !value.eq_ignore_ascii_case(choice))
         {
-            mixer.set_choice_checked(name, choice, allow_high_gain)?;
+            mixer.set_choice(name, choice, allow_high_gain)?;
         }
     }
 
@@ -479,7 +567,7 @@ fn apply_controls(
 }
 
 fn apply_switches(
-    mixer: &Ae5Mixer,
+    mixer: &impl ProfileMixer,
     controls: &BTreeMap<String, ProfileControl>,
     enabled: bool,
 ) -> Result<(), ControlError> {
@@ -571,9 +659,106 @@ impl From<ControlError> for ProfileError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::{Cell, RefCell};
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static NEXT_FILE: AtomicU64 = AtomicU64::new(0);
+
+    struct FakeMixer {
+        surround: Cell<bool>,
+        front: Cell<i64>,
+        writes: RefCell<Vec<String>>,
+    }
+
+    impl FakeMixer {
+        fn new() -> Self {
+            Self {
+                surround: Cell::new(false),
+                front: Cell::new(20),
+                writes: RefCell::new(Vec::new()),
+            }
+        }
+
+        fn record(&self, action: String) -> usize {
+            let mut writes = self.writes.borrow_mut();
+            writes.push(action);
+            writes.len()
+        }
+    }
+
+    impl ProfileMixer for FakeMixer {
+        fn snapshots(&self) -> Result<Vec<ControlSnapshot>, ControlError> {
+            Ok(vec![
+                switch_snapshot("FX: Surround", self.surround.get()),
+                level_snapshot("Front", self.front.get()),
+            ])
+        }
+
+        fn snapshot(&self, name: &str) -> Result<ControlSnapshot, ControlError> {
+            match name {
+                "FX: Surround" => Ok(switch_snapshot(name, self.surround.get())),
+                "Front" => Ok(level_snapshot(name, self.front.get())),
+                _ => Err(ControlError::Missing(name.to_owned())),
+            }
+        }
+
+        fn set_choice(
+            &self,
+            _name: &str,
+            _choice: &str,
+            _allow_high_gain: bool,
+        ) -> Result<(), ControlError> {
+            unreachable!("this rollback scenario has no choice writes")
+        }
+
+        fn set_playback_switch(&self, name: &str, enabled: bool) -> Result<(), ControlError> {
+            if name != "FX: Surround" {
+                return Err(ControlError::Missing(name.to_owned()));
+            }
+            self.record(format!("{name} playback switch={enabled}"));
+            self.surround.set(enabled);
+            Ok(())
+        }
+
+        fn set_capture_switch(&self, _name: &str, _enabled: bool) -> Result<(), ControlError> {
+            unreachable!("this rollback scenario has no capture-switch writes")
+        }
+
+        fn set_playback_level(&self, name: &str, value: i64) -> Result<(), ControlError> {
+            if name != "Front" {
+                return Err(ControlError::Missing(name.to_owned()));
+            }
+            if self.record(format!("{name} playback level={value}")) == 2 {
+                return Err(ControlError::Verification(
+                    "injected write failure".to_owned(),
+                ));
+            }
+            self.front.set(value);
+            Ok(())
+        }
+
+        fn set_capture_level(&self, _name: &str, _value: i64) -> Result<(), ControlError> {
+            unreachable!("this rollback scenario has no capture-level writes")
+        }
+
+        fn set_playback_channel_level(
+            &self,
+            _name: &str,
+            _channel: &str,
+            _value: i64,
+        ) -> Result<(), ControlError> {
+            unreachable!("this rollback scenario has no channel writes")
+        }
+
+        fn set_capture_channel_level(
+            &self,
+            _name: &str,
+            _channel: &str,
+            _value: i64,
+        ) -> Result<(), ControlError> {
+            unreachable!("this rollback scenario has no channel writes")
+        }
+    }
 
     fn sample_profile() -> Profile {
         Profile {
@@ -614,6 +799,27 @@ mod tests {
             playback_level: None,
             capture_level: None,
             playback_channels: Vec::new(),
+            capture_channels: Vec::new(),
+        }
+    }
+
+    fn level_snapshot(name: &str, value: i64) -> ControlSnapshot {
+        ControlSnapshot {
+            name: name.to_owned(),
+            selected: None,
+            choices: Vec::new(),
+            playback_switch: None,
+            capture_switch: None,
+            playback_level: Some(crate::Level {
+                value,
+                min: 0,
+                max: 100,
+            }),
+            capture_level: None,
+            playback_channels: vec![crate::ChannelLevel {
+                name: "Front Left".to_owned(),
+                value,
+            }],
             capture_channels: Vec::new(),
         }
     }
@@ -739,6 +945,53 @@ mod tests {
         let mut projected = current;
         project_controls(&mut projected, &safe_route);
         assert_eq!(invalid_bass_state_reason(&projected), None);
+    }
+
+    #[test]
+    fn failed_profile_write_rolls_back_prior_changes_in_order() {
+        let mixer = FakeMixer::new();
+        let initial = mixer.snapshots().unwrap();
+        let profile = Profile::new(
+            "Rollback",
+            BTreeMap::from([
+                (
+                    "FX: Surround".to_owned(),
+                    ProfileControl {
+                        playback_switch: Some(true),
+                        ..ProfileControl::default()
+                    },
+                ),
+                (
+                    "Front".to_owned(),
+                    ProfileControl {
+                        playback_level: Some(75),
+                        ..ProfileControl::default()
+                    },
+                ),
+            ]),
+        )
+        .unwrap();
+
+        let error = profile.apply_to(&mixer, false).unwrap_err();
+        match error {
+            ProfileError::Apply {
+                failure,
+                rollback_failure,
+            } => {
+                assert_eq!(failure, "injected write failure");
+                assert_eq!(rollback_failure, None);
+            }
+            other => panic!("expected an apply failure, got {other}"),
+        }
+        assert_eq!(mixer.snapshots().unwrap(), initial);
+        assert_eq!(
+            *mixer.writes.borrow(),
+            [
+                "FX: Surround playback switch=true",
+                "Front playback level=75",
+                "FX: Surround playback switch=false",
+            ]
+        );
     }
 
     #[test]

@@ -3,7 +3,7 @@
 Linux control software and upstream driver fixes for the Creative Sound
 BlasterX AE-5, developed from public source and reproducible hardware evidence.
 
-## Current milestone: Windows migration and routing diagnosis
+## Current milestone: desktop profile workflows and routing diagnosis
 
 The first Rust slice detects the audited AE-5 revision by its PCI and subsystem
 IDs, opens the matching ALSA mixer through `libasound`, and reads its live
@@ -69,15 +69,27 @@ interface cannot represent that setting safely.
 
 ## Native desktop application
 
-The GTK 4 application groups every live control into playback, effects,
-equalizer, and recording pages. Selectors, switches, and bounded sliders write
-through the verified ALSA backend; high headphone gain requires an explicit
-opt-in:
+The GTK 4 application groups every live control into profiles, playback,
+effects, equalizer, and recording pages. Selectors, switches, and bounded
+sliders write through the verified ALSA backend; high headphone gain requires
+an explicit opt-in:
 
 ```sh
 sudo dnf install gtk4-devel
 cargo run --features gui --bin ae5-control
 ```
+
+The **Profiles** page can:
+
+- save the current hardware state as a native JSON profile;
+- validate and preview a native profile before applying it transactionally;
+- import real Sound Blaster Command profile and EQ JSON files for headphones
+  or speakers, preview the mapped Linux controls, and save a native copy.
+
+The Windows source files are only read. Importing does not change the hardware;
+the converted profile must be applied separately. Existing destination files
+are never overwritten, and a profile requesting high headphone gain requires
+a dedicated confirmation.
 
 ## Hardware audit
 

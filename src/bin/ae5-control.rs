@@ -1,7 +1,11 @@
-use ae5_control::{Ae5Device, Ae5Mixer, ControlError, ControlSnapshot, Level};
-use gtk::gdk::Display;
+use ae5_control::{
+    Ae5Device, Ae5Mixer, ControlError, ControlSnapshot, Level, Profile, ProfileControl,
+    SbCommandTarget, import_sbcommand_profile, snapshot_controls,
+};
 use gtk::prelude::*;
+use gtk::{gdk::Display, gio};
 use std::cell::{Cell, RefCell};
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -23,11 +27,17 @@ fn build_window(application: &gtk::Application) {
         .default_height(680)
         .build();
 
+    refresh_window(&window, None);
+    window.present();
+}
+
+fn refresh_window(window: &gtk::ApplicationWindow, message: Option<&str>) {
     match load_hardware() {
-        Ok((device, controls)) => window.set_child(Some(&content(&device, &controls))),
+        Ok((device, controls)) => {
+            window.set_child(Some(&content(window, &device, &controls, message)))
+        }
         Err(error) => window.set_child(Some(&error_view(&error))),
     }
-    window.present();
 }
 
 fn load_hardware() -> Result<(Ae5Device, Vec<ControlSnapshot>), String> {
@@ -40,13 +50,19 @@ fn load_hardware() -> Result<(Ae5Device, Vec<ControlSnapshot>), String> {
     Ok((device, controls))
 }
 
-fn content(device: &Ae5Device, controls: &[ControlSnapshot]) -> gtk::Box {
+fn content(
+    window: &gtk::ApplicationWindow,
+    device: &Ae5Device,
+    controls: &[ControlSnapshot],
+    message: Option<&str>,
+) -> gtk::Box {
     let root = gtk::Box::new(gtk::Orientation::Vertical, 0);
     root.append(&hero(device, controls));
     let status = gtk::Label::new(Some(
-        "Ready — every change is verified against the hardware.",
+        message.unwrap_or("Ready — every change is verified against the hardware."),
     ));
     status.set_xalign(0.0);
+    status.set_wrap(true);
     status.add_css_class("operation-status");
     root.append(&status);
 
@@ -56,6 +72,11 @@ fn content(device: &Ae5Device, controls: &[ControlSnapshot]) -> gtk::Box {
         .vexpand(true)
         .build();
 
+    stack.add_titled(
+        &profile_page(window, device.card_index, &status),
+        Some("profiles"),
+        "Profiles",
+    );
     for category in Category::ALL {
         let page = control_page(
             device.card_index,
@@ -112,6 +133,386 @@ fn hero(device: &Ae5Device, controls: &[ControlSnapshot]) -> gtk::Box {
     status.set_hexpand(true);
     header.append(&status);
     header
+}
+
+fn profile_page(
+    window: &gtk::ApplicationWindow,
+    card_index: i32,
+    status: &gtk::Label,
+) -> gtk::ScrolledWindow {
+    let page = gtk::Box::new(gtk::Orientation::Vertical, 18);
+    page.add_css_class("profile-page");
+
+    let heading = gtk::Label::new(Some("Profiles & migration"));
+    heading.set_xalign(0.0);
+    heading.add_css_class("page-title");
+    page.append(&heading);
+
+    let intro = gtk::Label::new(Some(
+        "Capture the live card, preview transactional changes, or convert your \
+         Sound Blaster Command JSON without altering the source files.",
+    ));
+    intro.set_xalign(0.0);
+    intro.set_wrap(true);
+    intro.add_css_class("dim-label");
+    page.append(&intro);
+
+    let native_actions = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+    let save = gtk::Button::with_label("Save current state");
+    save.add_css_class("suggested-action");
+    let apply = gtk::Button::with_label("Preview & apply profile");
+    native_actions.append(&save);
+    native_actions.append(&apply);
+    page.append(&profile_card(
+        "01",
+        "Native profiles",
+        "Portable JSON uses semantic ALSA names. Applying validates every value, \
+         verifies readback, and rolls back the targeted controls on failure.",
+        &native_actions,
+    ));
+
+    let import = gtk::Button::with_label("Import Windows profile");
+    let import_actions = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+    import_actions.append(&import);
+    page.append(&profile_card(
+        "02",
+        "Sound Blaster Command",
+        "Choose the Creative profile and EQ JSON files, select headphones or \
+         speakers, inspect the mapped Linux controls, then save a native copy.",
+        &import_actions,
+    ));
+
+    {
+        let window = window.clone();
+        let status = status.clone();
+        save.connect_clicked(move |_| {
+            let window = window.clone();
+            let status = status.clone();
+            gtk::glib::spawn_future_local(async move {
+                match save_current_profile(&window, card_index).await {
+                    Ok(Some(message)) => set_status(&status, true, &message),
+                    Ok(None) => {}
+                    Err(error) => set_status(&status, false, &format!("Save failed: {error}")),
+                }
+            });
+        });
+    }
+    {
+        let window = window.clone();
+        let status = status.clone();
+        apply.connect_clicked(move |_| {
+            let window = window.clone();
+            let status = status.clone();
+            gtk::glib::spawn_future_local(async move {
+                match apply_native_profile(&window, card_index).await {
+                    Ok(Some(message)) => refresh_window(&window, Some(&message)),
+                    Ok(None) => {}
+                    Err(error) => set_status(&status, false, &format!("Apply failed: {error}")),
+                }
+            });
+        });
+    }
+    {
+        let window = window.clone();
+        let status = status.clone();
+        import.connect_clicked(move |_| {
+            let window = window.clone();
+            let status = status.clone();
+            gtk::glib::spawn_future_local(async move {
+                match import_windows_profile(&window, card_index).await {
+                    Ok(Some(message)) => set_status(&status, true, &message),
+                    Ok(None) => {}
+                    Err(error) => set_status(&status, false, &format!("Import failed: {error}")),
+                }
+            });
+        });
+    }
+
+    gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .child(&page)
+        .build()
+}
+
+fn profile_card(index: &str, title: &str, description: &str, actions: &gtk::Box) -> gtk::Box {
+    let card = gtk::Box::new(gtk::Orientation::Vertical, 10);
+    card.add_css_class("profile-card");
+
+    let heading = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    let index = gtk::Label::new(Some(index));
+    index.add_css_class("section-index");
+    let title = gtk::Label::new(Some(title));
+    title.set_xalign(0.0);
+    title.add_css_class("section-title");
+    heading.append(&index);
+    heading.append(&title);
+    card.append(&heading);
+
+    let description = gtk::Label::new(Some(description));
+    description.set_xalign(0.0);
+    description.set_wrap(true);
+    description.add_css_class("dim-label");
+    card.append(&description);
+    card.append(actions);
+    card
+}
+
+async fn save_current_profile(
+    window: &gtk::ApplicationWindow,
+    card_index: i32,
+) -> Result<Option<String>, String> {
+    let Some(path) = save_json_path(window, "Save native AE-5 profile", "ae5-profile.json").await?
+    else {
+        return Ok(None);
+    };
+    let name = profile_name_from_path(&path)?;
+    let profile = Profile::capture(
+        &name,
+        snapshot_controls(card_index).map_err(|error| error.to_string())?,
+    )
+    .map_err(|error| error.to_string())?;
+    profile.save_new(&path).map_err(|error| error.to_string())?;
+    Ok(Some(format!(
+        "Saved “{}” with {} controls to {}.",
+        profile.name,
+        profile.controls.len(),
+        path.display()
+    )))
+}
+
+async fn apply_native_profile(
+    window: &gtk::ApplicationWindow,
+    card_index: i32,
+) -> Result<Option<String>, String> {
+    let Some(path) = open_json_path(window, "Open native AE-5 profile").await? else {
+        return Ok(None);
+    };
+    let profile = Profile::load(&path).map_err(|error| error.to_string())?;
+    let mixer = Ae5Mixer::open(card_index).map_err(|error| error.to_string())?;
+    profile
+        .check(&mixer, true)
+        .map_err(|error| error.to_string())?;
+
+    let high_gain = profile_requires_high_gain(&profile);
+    if !confirm_profile(window, &profile, high_gain, "Apply profile").await? {
+        return Ok(None);
+    }
+    let report = profile
+        .apply(&mixer, high_gain)
+        .map_err(|error| error.to_string())?;
+    Ok(Some(format!(
+        "Applied “{}”; {} controls were verified against the hardware.",
+        profile.name, report.controls_applied
+    )))
+}
+
+async fn import_windows_profile(
+    window: &gtk::ApplicationWindow,
+    card_index: i32,
+) -> Result<Option<String>, String> {
+    let Some(profile_path) =
+        open_json_path(window, "Choose Sound Blaster Command profile JSON").await?
+    else {
+        return Ok(None);
+    };
+    let Some(eq_path) = open_json_path(window, "Choose Sound Blaster Command EQ JSON").await?
+    else {
+        return Ok(None);
+    };
+    let Some(target) = choose_import_target(window).await? else {
+        return Ok(None);
+    };
+    let initial_name = format!("windows-{}.json", target);
+    let Some(output) =
+        save_json_path(window, "Save converted native profile", &initial_name).await?
+    else {
+        return Ok(None);
+    };
+    let name = profile_name_from_path(&output)?;
+    let profile = import_sbcommand_profile(&name, &profile_path, &eq_path, target)
+        .map_err(|error| error.to_string())?;
+    profile
+        .check(
+            &Ae5Mixer::open(card_index).map_err(|error| error.to_string())?,
+            false,
+        )
+        .map_err(|error| error.to_string())?;
+
+    if !confirm_profile(window, &profile, false, "Save converted profile").await? {
+        return Ok(None);
+    }
+    profile
+        .save_new(&output)
+        .map_err(|error| error.to_string())?;
+    Ok(Some(format!(
+        "Converted {} Windows settings to “{}” with {} mapped controls at {}.",
+        target,
+        profile.name,
+        profile.controls.len(),
+        output.display()
+    )))
+}
+
+async fn choose_import_target(
+    window: &gtk::ApplicationWindow,
+) -> Result<Option<SbCommandTarget>, String> {
+    let dialog = gtk::AlertDialog::builder()
+        .modal(true)
+        .message("Which Windows output should be imported?")
+        .detail("Sound Blaster Command stores separate speaker and headphone settings.")
+        .buttons(["Cancel", "Headphones", "Speakers"])
+        .cancel_button(0)
+        .default_button(1)
+        .build();
+    match dialog.choose_future(Some(window)).await {
+        Ok(1) => Ok(Some(SbCommandTarget::Headphone)),
+        Ok(2) => Ok(Some(SbCommandTarget::Speaker)),
+        Ok(_) => Ok(None),
+        Err(error) if is_cancelled(&error) => Ok(None),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+async fn confirm_profile(
+    window: &gtk::ApplicationWindow,
+    profile: &Profile,
+    high_gain: bool,
+    action: &str,
+) -> Result<bool, String> {
+    let action_label = if high_gain {
+        "Apply with high gain"
+    } else {
+        action
+    };
+    let warning = if high_gain {
+        "\n\nWarning: this profile requests 150–600 Ω headphone gain."
+    } else {
+        ""
+    };
+    let dialog = gtk::AlertDialog::builder()
+        .modal(true)
+        .message(format!("Preview “{}”", profile.name))
+        .detail(format!("{}{warning}", profile_preview(profile)))
+        .buttons(["Cancel", action_label])
+        .cancel_button(0)
+        .default_button(0)
+        .build();
+    match dialog.choose_future(Some(window)).await {
+        Ok(1) => Ok(true),
+        Ok(_) => Ok(false),
+        Err(error) if is_cancelled(&error) => Ok(false),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+fn json_dialog(title: &str) -> gtk::FileDialog {
+    let filter = gtk::FileFilter::new();
+    filter.set_name(Some("JSON profiles"));
+    filter.add_mime_type("application/json");
+    filter.add_pattern("*.json");
+    let filters = gio::ListStore::new::<gtk::FileFilter>();
+    filters.append(&filter);
+    gtk::FileDialog::builder()
+        .title(title)
+        .modal(true)
+        .filters(&filters)
+        .default_filter(&filter)
+        .build()
+}
+
+async fn open_json_path(
+    window: &gtk::ApplicationWindow,
+    title: &str,
+) -> Result<Option<PathBuf>, String> {
+    match json_dialog(title).open_future(Some(window)).await {
+        Ok(file) => file
+            .path()
+            .map(Some)
+            .ok_or_else(|| "only local files are supported".to_owned()),
+        Err(error) if is_cancelled(&error) => Ok(None),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+async fn save_json_path(
+    window: &gtk::ApplicationWindow,
+    title: &str,
+    initial_name: &str,
+) -> Result<Option<PathBuf>, String> {
+    let dialog = json_dialog(title);
+    dialog.set_initial_name(Some(initial_name));
+    match dialog.save_future(Some(window)).await {
+        Ok(file) => file
+            .path()
+            .map(Some)
+            .ok_or_else(|| "only local files are supported".to_owned()),
+        Err(error) if is_cancelled(&error) => Ok(None),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+fn is_cancelled(error: &gtk::glib::Error) -> bool {
+    error.matches(gio::IOErrorEnum::Cancelled)
+}
+
+fn profile_name_from_path(path: &Path) -> Result<String, String> {
+    path.file_stem()
+        .and_then(|name| name.to_str())
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_owned)
+        .ok_or_else(|| "the selected filename has no usable profile name".to_owned())
+}
+
+fn profile_requires_high_gain(profile: &Profile) -> bool {
+    profile.controls.iter().any(|(name, control)| {
+        name == "AE-5: Headphone Gain"
+            && control
+                .choice
+                .as_deref()
+                .is_some_and(|choice| choice.to_ascii_lowercase().starts_with("high"))
+    })
+}
+
+fn profile_preview(profile: &Profile) -> String {
+    const SHOWN_CONTROLS: usize = 18;
+    let mut lines = profile
+        .controls
+        .iter()
+        .take(SHOWN_CONTROLS)
+        .map(|(name, control)| format!("{name}: {}", profile_control_summary(control)))
+        .collect::<Vec<_>>();
+    if profile.controls.len() > SHOWN_CONTROLS {
+        lines.push(format!(
+            "…and {} more controls",
+            profile.controls.len() - SHOWN_CONTROLS
+        ));
+    }
+    format!(
+        "{} validated Linux controls:\n\n{}",
+        profile.controls.len(),
+        lines.join("\n")
+    )
+}
+
+fn profile_control_summary(control: &ProfileControl) -> String {
+    let mut values = Vec::new();
+    if let Some(choice) = &control.choice {
+        values.push(choice.clone());
+    }
+    if let Some(enabled) = control.playback_switch {
+        values.push(format!("playback {}", if enabled { "on" } else { "off" }));
+    }
+    if let Some(level) = control.playback_level {
+        values.push(format!("playback level {level}"));
+    }
+    if let Some(enabled) = control.capture_switch {
+        values.push(format!("capture {}", if enabled { "on" } else { "off" }));
+    }
+    if let Some(level) = control.capture_level {
+        values.push(format!("capture level {level}"));
+    }
+    values.join(", ")
 }
 
 fn control_page<'a>(
@@ -565,6 +966,24 @@ fn install_css() {
         .operation-ok { color: #8ee3c5; }
         .operation-error, .warning-value { color: #ffb4a9; }
         .navigation-sidebar { background: #141b22; padding: 12px 8px; }
+        .profile-page { padding: 26px 30px; }
+        .page-title { font-size: 22px; font-weight: 700; }
+        .profile-card {
+            background: #151d25;
+            border: 1px solid alpha(#ffffff, 0.10);
+            border-left: 3px solid #39d0aa;
+            border-radius: 4px;
+            padding: 20px;
+        }
+        .section-index {
+            background: #173d35;
+            color: #8ee3c5;
+            border-radius: 3px;
+            padding: 4px 7px;
+            font-family: monospace;
+            font-weight: 700;
+        }
+        .section-title { font-size: 17px; font-weight: 700; }
         .control-list { background: transparent; }
         .control-row {
             padding: 14px 16px;
@@ -600,5 +1019,28 @@ mod tests {
                 1
             );
         }
+    }
+
+    #[test]
+    fn profile_helpers_name_preview_and_protect_high_gain() {
+        let profile = Profile {
+            format_version: 1,
+            name: "Test".to_owned(),
+            target: "1102:0012/1102:0051".to_owned(),
+            controls: std::collections::BTreeMap::from([(
+                "AE-5: Headphone Gain".to_owned(),
+                ProfileControl {
+                    choice: Some("High (150-600 Ohms)".to_owned()),
+                    ..ProfileControl::default()
+                },
+            )]),
+        };
+
+        assert_eq!(
+            profile_name_from_path(Path::new("/tmp/Studio headphones.json")).unwrap(),
+            "Studio headphones"
+        );
+        assert!(profile_requires_high_gain(&profile));
+        assert!(profile_preview(&profile).contains("High (150-600 Ohms)"));
     }
 }

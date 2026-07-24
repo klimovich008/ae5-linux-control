@@ -45,6 +45,21 @@ not generate a second set.
 The tone and sweep fixtures begin with a loud 997 Hz synchronization marker.
 The analyzer removes leading capture latency from that marker before measuring.
 
+For a Linux-only native-rate comparison, generate separate directories and
+pass the same rate to the analyzer:
+
+```sh
+AE5_SAMPLE_RATE=44100 bash scripts/audio-parity.sh generate fixtures-44100
+AE5_SAMPLE_RATE=96000 bash scripts/audio-parity.sh generate fixtures-96000
+
+AE5_SAMPLE_RATE=96000 bash scripts/audio-parity.sh compare-tones \
+  direct-96000.wav pipewire-96000.wav
+```
+
+Only 44.1, 48, and 96 kHz are accepted. The 48 kHz reference set remains the
+required Windows/Linux comparison unless matching Windows captures are
+deliberately collected at another rate.
+
 ## Capture matrix
 
 Start with all output DSP processing disabled or flat, a fixed safe output
@@ -135,3 +150,9 @@ The same loopback path was subsequently used to isolate Surround, Crystalizer,
 Dialog Plus, Smart Volume, X-Bass, Equalizer Flat, and all ten individual EQ
 bands. Results, repeat deltas, and the two edge-band gain shortfalls are in
 [`DSP_EFFECT_MEASUREMENT.md`](DSP_EFFECT_MEASUREMENT.md).
+
+Separate neutral 44.1 and 96 kHz captures later matched direct ALSA and
+PipeWire by `0.00 dB` in level and maximum response delta when the PCM mixer
+was at 0 dB. Digital-silence captures were byte-identical. The guarded method,
+mixer-gain diagnosis, and limitations are in
+[`PIPEWIRE_RATE_PARITY.md`](PIPEWIRE_RATE_PARITY.md).

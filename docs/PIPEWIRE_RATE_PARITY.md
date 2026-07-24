@@ -34,6 +34,61 @@ Temporarily allowing 44.1, 48, and 96 kHz made the same node negotiate
 `S32LE/44100` and `S32LE/96000` for matching silent streams. The temporary
 metadata was then restored to its original `[ 48000 ]` value.
 
+## Physical native-rate parity
+
+The earlier checks proved format negotiation but did not compare audio at the
+two alternative rates. A later guarded test generated separate 44.1 and
+96 kHz versions of the project's tone and digital-silence fixtures, played
+them through direct ALSA and PipeWire, and recorded the physical `CA0132 What
+U Hear` PCM at the matching rate in `S32_LE`.
+
+The card remained on Headphone, low gain, Slow Roll Off, and 2.0 channels.
+`Master` was temporarily set to 0 so the analog output was silent,
+`Enable OutFX` was off, and `PCM` was set to its 0 dB value of 255. PipeWire's
+allowed-rate metadata temporarily contained `[ 44100 48000 96000 ]`. Its live
+AE-5 sink reported `S32LE/44100` and `S32LE/96000` during the corresponding
+streams.
+
+| Rate | Direct 1 kHz | PipeWire 1 kHz | Level delta | Maximum response delta | Digital silence |
+|---:|---:|---:|---:|---:|---:|
+| 44.1 kHz | -21.32 dBFS | -21.32 dBFS | +0.00 dB | 0.00 dB | both `-inf` RMS |
+| 96 kHz | -21.11 dBFS | -21.11 dBFS | +0.00 dB | 0.00 dB | both `-inf` RMS |
+
+The response comparison covers the ten fixture frequencies from 31 Hz through
+16 kHz. The direct and PipeWire silence WAV files were byte-identical at each
+rate:
+
+| Rate | Shared direct/PipeWire silence SHA-256 |
+|---:|---|
+| 44.1 kHz | `60367f62f9b57e5be734926a15991380b4fdd2f7d39d3553392aa53b7aef40bb` |
+| 96 kHz | `b7e45dd6f47fdb0be4e8a6895179362e1eaaf507331e0fa3bb2faf172335616c` |
+
+### Desktop mixer level diagnosis
+
+The first PipeWire captures used the pre-test `PCM` value of 251, whose ALSA
+dB metadata is `-0.80 dB`. They preserved the direct-ALSA response within
+0.01 dB but measured `-0.81 dB` at 44.1 kHz and `-0.80 dB` at 96 kHz. This
+matched the control exactly: the PipeWire sink's `-23.80 dB` gain was the sum
+of `Master` at `-23.00 dB` and `PCM` at `-0.80 dB`.
+
+Repeating only the PipeWire captures with `PCM` at 255 removed the complete
+offset at both rates. The discrepancy was therefore normal desktop mixer
+gain, not rate conversion or a CA0132 frequency-response defect. AE-5 Control
+does not force PCM to 0 dB because doing so would change the user's volume.
+
+The complete 48-control mixer snapshot had SHA-256
+`7a61ac34dbca132e929806a1198a61f9334c5241bcb83e9da205152008ffea6e`
+before and after every sequence. The original 47-control recovery profile had
+SHA-256
+`7039ee6c0d71eddb82c5d99c61eacd42a655563364037e9e1158fab26eb1d1c6`.
+Allowed-rate metadata returned to `[ 48000 ]`, native-rate switching remained
+disabled, and the kernel journal contained no matching CA0132, HDA, ALSA,
+codec, or DSP warning.
+
+This proves the target's neutral digital path at 44.1 and 96 kHz. It does not
+measure the analog DAC/output stage, distortion, DAC-filter response, or
+Windows parity.
+
 ## Optional persistent configuration
 
 AE-5 Control can create this user-owned PipeWire fragment:

@@ -1,11 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-readonly sample_rate=48000
+readonly sample_rate=${AE5_SAMPLE_RATE:-48000}
 readonly bit_depth=24
 readonly channels=2
 readonly sync_threshold=${AE5_SYNC_THRESHOLD:-1%}
 readonly -a frequencies=(31 62 125 250 500 1000 2000 4000 8000 16000)
+
+case $sample_rate in
+44100 | 48000 | 96000) ;;
+*)
+	printf 'error: AE5_SAMPLE_RATE must be 44100, 48000, or 96000\n' >&2
+	exit 2
+	;;
+esac
 
 usage() {
 	cat >&2 <<'EOF'
@@ -18,6 +26,7 @@ usage:
   audio-parity.sh --self-test
 
 Set AE5_SYNC_THRESHOLD to override the default 1% marker threshold.
+Set AE5_SAMPLE_RATE to 44100, 48000, or 96000; the default is 48000.
 EOF
 }
 
@@ -143,7 +152,8 @@ generate() (
 			parity-silence.wav > SHA256SUMS
 	)
 
-	printf 'generated 48 kHz, 24-bit stereo fixtures in %s\n' "$output_root"
+	printf 'generated %s Hz, 24-bit stereo fixtures in %s\n' \
+		"$sample_rate" "$output_root"
 	printf 'copy these exact files to Windows; do not regenerate them there\n'
 )
 
@@ -337,7 +347,7 @@ compare_noise() {
 }
 
 self_test() (
-	local test_root before_hash after_hash mismatch
+	local test_root before_hash after_hash mismatch wrong_rate
 
 	test_root=$(mktemp -d "${TMPDIR:-/tmp}/ae5-audio-parity-test.XXXXXX")
 	trap 'rm -rf -- "$test_root"' EXIT
@@ -387,10 +397,12 @@ self_test() (
 	grep -q '^level_delta_1khz_db=-1.00$' <<< "$mismatch"
 	grep -q '^parity_result=investigate$' <<< "$mismatch"
 
+	wrong_rate=44100
+	[[ $sample_rate == "$wrong_rate" ]] && wrong_rate=48000
 	sox "$test_root/fixtures/parity-tones.wav" \
-		-r 44100 "$test_root/wrong-rate.wav"
+		-r "$wrong_rate" "$test_root/wrong-rate.wav"
 	if analyze_tones "$test_root/wrong-rate.wav" >/dev/null 2>&1; then
-		printf 'self-test: 44.1 kHz capture unexpectedly passed\n' >&2
+		printf 'self-test: wrong-rate capture unexpectedly passed\n' >&2
 		return 1
 	fi
 

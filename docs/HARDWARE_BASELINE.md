@@ -110,6 +110,25 @@ processing switch, and neutral 48 kHz direct-ALSA/PipeWire digital equivalence.
 It does not compare Windows, measure the analog output, or cover 44.1 and
 96 kHz.
 
+## Native 44.1 and 96 kHz digital path
+
+Later physical What U Hear captures closed the digital part of that rate gap.
+With output processing disabled and PCM at its 0 dB value, direct ALSA and
+PipeWire matched by `0.00 dB` at 1 kHz and by `0.00 dB` maximum normalized
+response delta at both 44.1 and 96 kHz. Digital-silence captures were
+byte-identical for each API at each rate.
+
+PipeWire's live AE-5 sink reported the requested hardware rate during both
+streams. A separate controlled run reproduced a uniform 0.8 dB offset when
+the PCM mixer was set to its saved `-0.80 dB` value, then removed it by
+returning PCM to 0 dB. This distinguishes normal desktop mixer gain from a
+sample-rate or response defect.
+
+Every temporary mixer and PipeWire change was restored exactly and the kernel
+journal remained clean. The full method, hashes, tables, and remaining analog
+and Windows limits are in
+[`PIPEWIRE_RATE_PARITY.md`](PIPEWIRE_RATE_PARITY.md).
+
 ## Isolated output effects
 
 Separate physical What U Hear captures verified repeatable DSP changes from

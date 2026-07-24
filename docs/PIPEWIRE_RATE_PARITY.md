@@ -153,6 +153,35 @@ The active format should report `S32LE` and `96000`. Repeat with `44100`, then
 stop the silent stream. If Bluetooth or another device regresses, disable the
 managed fragment and restart PipeWire.
 
+## Managed reload acceptance
+
+The complete enable/reload/disable path was exercised on the target host on
+2026-07-24 while no audio stream was active:
+
+1. `native-rates-enable` created the exact managed fragment, SHA-256
+   `6db1406a9518122966ed223f21857586b6f5e097351360eed5838dd7e0965e09`.
+2. PipeWire, PipeWire Pulse, and WirePlumber were restarted as user services.
+3. All three returned active, `pw-config` contained the managed property, and
+   live metadata reported `[ 44100, 48000, 96000 ]`.
+4. Timed raw streams made the live AE-5 sink report `S32LE/44100` and
+   `S32LE/96000`.
+5. `native-rates-disable` removed the fragment, and a second user-service
+   restart removed the property from merged configuration.
+6. Metadata returned to `[ 48000 ]`; requesting a 96 kHz stream then left the
+   live AE-5 sink at `S32LE/48000`, proving the optional behavior was removed.
+
+The AE-5 remained the default playback device, the FiFine remained the default
+recording device, and the complete mixer hash remained
+`7a61ac34dbca132e929806a1198a61f9334c5241bcb83e9da205152008ffea6e`.
+The managed file is absent after the test, all user audio services are active,
+and the kernel journal contains no matching CA0132, HDA, ALSA, codec, or DSP
+warning.
+
+The CLI and GUI describe an existing fragment as enabled in PipeWire
+configuration. They deliberately do not claim that a running PipeWire process
+has reloaded it; the enable and disable actions continue to instruct the user
+to restart PipeWire or log in again.
+
 Frequency response, noise, distortion, effects, and output-level matching still
 require the loopback procedure in
 [`AUDIO_PARITY_MEASUREMENT.md`](AUDIO_PARITY_MEASUREMENT.md).

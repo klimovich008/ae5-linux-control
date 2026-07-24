@@ -503,7 +503,7 @@ fn native_rates_card(status: &gtk::Label, current: std::io::Result<NativeRatesCo
 
 fn native_rates_summary(config: &NativeRatesConfig) -> String {
     if config.enabled {
-        "Enabled for the next PipeWire start\n44.1, 48, and 96 kHz".to_owned()
+        "Enabled in PipeWire configuration\n44.1, 48, and 96 kHz".to_owned()
     } else {
         "Disabled\nUsing the distribution PipeWire defaults".to_owned()
     }
@@ -2327,7 +2327,7 @@ mod tests {
         config.enabled = true;
         assert_eq!(
             native_rates_summary(&config),
-            "Enabled for the next PipeWire start\n44.1, 48, and 96 kHz"
+            "Enabled in PipeWire configuration\n44.1, 48, and 96 kHz"
         );
     }
 

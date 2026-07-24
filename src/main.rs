@@ -198,7 +198,7 @@ fn print_native_rates_status() -> Result<(), Box<dyn Error>> {
     println!(
         "PipeWire native-rate switching: {}\n  {}",
         if config.enabled {
-            "enabled for the next PipeWire start"
+            "enabled in PipeWire configuration"
         } else {
             "disabled"
         },

@@ -82,10 +82,17 @@ Creative firmware:
 The Creative firmware licence permits unmodified binary redistribution for
 use with an open-source operating system, but prohibits reverse engineering,
 decompilation, and disassembly. The firmware may be loaded and its externally
-observable behavior measured; it must not be disassembled. The upstream driver
-also explicitly says that `ctspeq.bin` is currently unused and associates it
-with a speaker/headphone EQ upload path seen on Windows. That is a measurement
-hypothesis, not permission to inspect the firmware.
+observable behavior measured; it must not be disassembled.
+
+The
+[ALSA firmware commit that added `ctspeq.bin`](https://github.com/alsa-project/alsa-firmware/commit/cbb9d36a7cdb36697e0db2f8455465bdaa3008c2)
+identifies it as a SpeakerEQ coefficient preset tuned for Chromebook Pixel
+hardware. A later Linux driver comment associates it with a similar
+speaker/headphone EQ upload path observed on Windows, but explicitly presents
+that association as a belief. It is not evidence that the Chromebook preset is
+an AE-5 headphone profile. The verified conclusion and safe experiment order
+are recorded in
+[`HEADPHONE_TUNING_INVESTIGATION.md`](HEADPHONE_TUNING_INVESTIGATION.md).
 
 ## Additional public references
 

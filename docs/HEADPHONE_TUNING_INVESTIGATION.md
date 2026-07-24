@@ -22,6 +22,12 @@ does not prove that this selection uses `ctspeq.bin`, that it uses the same
 binary format, or that the packaged Chromebook coefficients are safe for an
 AE-5.
 
+The independent fast-load parser hardening from step 3 is now implemented as
+an unsubmitted candidate patch. It validates complete images before DSP reset
+and has build and KUnit coverage, but it has not been loaded into the running
+kernel. Parser safety does not establish the meaning or suitability of any
+headphone coefficient image.
+
 ## Verified public-source behavior
 
 The exact CA0132 source used by the running kernel is byte-identical to Linux
@@ -53,7 +59,7 @@ uploaded data as presumed EQ data. The older, first-party ALSA firmware commit
 gives the binary a narrower Chromebook SpeakerEQ purpose. The first-party
 provenance wins over the later conjecture.
 
-## Why a loader patch is not ready
+## Why a headphone loader patch is not ready
 
 The existing fast-load parser takes a pointer to a `dsp_image_seg`, not the
 firmware byte length. Segment iteration trusts each embedded word count and
@@ -61,10 +67,13 @@ advances until it encounters a zero-count terminator. Its magic and target
 address checks are useful, but they do not prevent an out-of-bounds read from a
 truncated or malformed image.
 
-The current firmware is trusted and packaged, so this is an existing hardening
-gap rather than proof of an exploitable user-controlled path. It still means a
-new optional overlay must not reuse the parser until all traversal is bounded
-by the `struct firmware` size.
+The current firmware is trusted and packaged, so this is a hardening gap rather
+than proof of an exploitable user-controlled path. The upstream source still
+has the gap. The project now carries
+[`ca0132-dsp-image-bounds.patch`](../kernel/ca0132-dsp-image-bounds.patch),
+which passes the firmware size into `dspload_image()` and preflights the whole
+image before resetting the DSP. A new optional overlay must not proceed unless
+that hardening, or an upstream equivalent, is in the kernel being tested.
 
 The driver also has no evidence that a named AE-5 headphone preset has the same
 layout, relocation behavior, or coefficient count as the Chromebook image.
@@ -114,24 +123,32 @@ Acceptance criteria:
 - a control run without the query has an identical neutral frequency response;
 - failures leave normal playback available.
 
-### 3. Bound the existing fast-load parser
+### 3. Bound the existing fast-load parser — candidate implemented
 
-Submit parser hardening independently of headphone tuning. Pass firmware start
-and length through `dspload_image()`, `dspxfr_image()`, and segment helpers,
-then reject:
+The independent candidate passes the firmware length into `dspload_image()` and
+validates every segment before `dsp_reset()`. It rejects:
 
 - a header that does not fit;
 - `count * sizeof(u32)` overflow;
 - a segment extending beyond the firmware;
 - an HCI address/data list with an odd word count;
 - a missing in-bounds terminator;
+- invalid terminator magic, an empty image, and nonzero trailing data;
 - any relocation or word range outside supported DSP memory.
 
-Pure parser tests should cover empty, truncated, oversized, overflow, missing
-terminator, odd HCI, invalid magic, and valid multi-segment images. All three
-currently supported CA0132 firmware images must still validate and load.
+The KUnit suite covers empty, truncated, oversized, overflow, missing
+terminator, odd and consecutive HCI lists, invalid magic, invalid ranges,
+relocation overflow, zero padding, and valid multi-segment images. It passes
+under x86-64 QEMU. A metadata-only compatibility check accepts all three
+currently requested CA0132 firmware images, plus the outer structure of
+`ctspeq.bin`.
 
 This hardening is useful even if no SpeakerEQ loader is ever added.
+
+The remaining acceptance gate is a controlled alternate-kernel test proving
+that normal CA0132 firmware loading, playback, routing, suspend/resume, and
+recovery remain intact on the physical AE-5. That changes the live driver and
+requires an explicit test session.
 
 ### 4. Identify an AE-5 coefficient source lawfully
 
@@ -183,9 +200,10 @@ Final validation must use the physical AE-5 on both operating systems.
 
 ## Current stop condition
 
-No live driver experiment or firmware upload is justified yet. The next safe
-driver action is read-only address-query instrumentation, after the pending
-cold-boot routing capture and with explicit approval for an alternate-module
-test. The next safe application action is objective Windows/Linux response
-measurement followed by an approximate Rust-side preset only if the
-measurements support one.
+No live driver experiment or SpeakerEQ firmware upload is justified yet. The
+bounded-parser candidate is complete at build/KUnit level. After the pending
+cold-boot routing capture, the next safe driver action is read-only
+address-query instrumentation, with explicit approval before loading an
+alternate kernel or module. The next safe application action is objective
+Windows/Linux response measurement followed by an approximate Rust-side preset
+only if the measurements support one.

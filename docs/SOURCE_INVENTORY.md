@@ -67,6 +67,17 @@ when this inventory was recorded. Kernel patches must be rebased onto the
 current sound maintainer tree before submission; this snapshot is not a
 permanent patch base.
 
+The bounded DSP-image candidate was prepared against Takashi Iwai's
+[`sound.git` `for-next` commit
+`61471f29f315`](https://git.kernel.org/pub/scm/linux/kernel/git/tiwai/sound.git/commit/?h=for-next&id=61471f29f3157f33a61194bf82b4a289cc03e1f1).
+At that commit, `ca0132.c` has the same
+`95a23cdef3504d67762b35d3e0fcedf31651233f08477c4dcf56bd436c2552cb`
+SHA-256 as the recorded `master` snapshot. The exact generated diff is stored
+as
+[`kernel/ca0132-dsp-image-bounds.patch`](../kernel/ca0132-dsp-image-bounds.patch);
+its implementation and validation record is in
+[`kernel/README.md`](../kernel/README.md).
+
 ## Firmware already distributed for Linux
 
 Fedora package `alsa-firmware-1.2.4-17.fc44` supplies the target system's

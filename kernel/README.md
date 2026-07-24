@@ -1,5 +1,9 @@
 # CA0132 kernel patches
 
+These patches are independent, reviewable Linux changes. Neither patch has
+been loaded on the target AE-5, and neither changes the running kernel merely
+by being present in this repository.
+
 ## Wedge Angle default
 
 `ca0132-wedge-angle-default.patch` fixes an invalid ALSA control value present
@@ -59,3 +63,103 @@ amixer -c <AE5_CARD> cget "iface=MIXER,name='Wedge Angle Capture Volume'"
 The value must be `30`, remain within the advertised `20..180` range, and
 setting 20, 30, and 180 must read back exactly. Voice Focus recording tests
 must show no new kernel warning or DSP timeout.
+
+## Bounded DSP fast-load images
+
+[`ca0132-dsp-image-bounds.patch`](ca0132-dsp-image-bounds.patch) hardens the
+CA0132 DSP fast-load parser independently of any proposed headphone-tuning
+support. It is based on the ALSA maintainer tree `for-next` commit
+[`61471f29f315`](https://git.kernel.org/pub/scm/linux/kernel/git/tiwai/sound.git/commit/?h=for-next&id=61471f29f3157f33a61194bf82b4a289cc03e1f1).
+
+The existing parser advances through variable-size segments using each
+firmware-provided word count, but its caller does not provide the firmware
+length. A truncated image can therefore move traversal beyond the
+`request_firmware()` buffer. Image validation also occurs only after DSP
+transfer setup has begun.
+
+The patch passes `fw_entry->size` into `dspload_image()` and validates the
+complete immutable image before `dsp_reset()` or transfer setup. It rejects:
+
+- missing, truncated, oversized, or overflowing segments;
+- invalid segment or terminator magic;
+- images with no data segment or no in-bounds terminator;
+- nonzero bytes after the terminator, while retaining the zero padding used by
+  the distributed Recon3D firmware;
+- odd or consecutive HCI programming lists;
+- relocation overflow and targets outside the CA0132 X, Y, or microcode RAM
+  ranges.
+
+The transfer path retains its existing checks, and the HCI writer now rejects
+an odd word count defensively as well.
+
+Suggested upstream commit message:
+
+```text
+ALSA: hda/ca0132: Validate DSP image bounds before loading
+
+The CA0132 fast-load parser advances through variable-length segments using
+the word count stored in each segment, without knowing the size of the
+request_firmware() buffer. A truncated or malformed image can therefore move
+segment traversal beyond the firmware data.
+
+Pass the firmware size to dspload_image() and validate the complete image
+before resetting or programming the DSP. Bound every header and payload,
+require an in-bounds terminator, validate HCI list pairs and DSP address
+ranges, and reject relocation arithmetic overflow. Permit only zero padding
+after the terminator for compatibility with the distributed Recon3D image.
+
+Add KUnit coverage for valid multi-segment images and malformed metadata.
+```
+
+The submitting contributor must add their own Developer Certificate of Origin
+`Signed-off-by` line.
+
+### Validation
+
+The recorded source and test environment was:
+
+- `sound.git` `for-next` at `61471f29f315`;
+- x86-64 GCC kernel build with the production CA0132 codec and DSP enabled;
+- KUnit under QEMU 10.2.2;
+- no module load, reboot, firmware upload, or live hardware write.
+
+The patch passed:
+
+- `git apply --check` and `git diff --check` on a clean worktree at the pinned
+  base;
+- production `ca0132.o` and parser-test compilation with `W=1` and no warning;
+- all four `ca0132-dsp-image` KUnit cases;
+- a metadata-only compatibility scan of the installed `ctefx.bin`,
+  `ctefx-desktop.bin`, `ctefx-r3di.bin`, and `ctspeq.bin`.
+
+The `ctspeq.bin` result proves only that its outer fast-load structure is
+accepted. It is not evidence that the Chromebook SpeakerEQ data is suitable
+for the AE-5, and the patch never requests or loads it.
+
+`checkpatch.pl --strict` reports no errors or code-style checks. Its sole
+warning asks whether new files require a MAINTAINERS update; the existing ALSA
+sound patterns already resolve the new files to the same maintainers and
+mailing lists as `ca0132.c`.
+
+Apply and rerun the build-only validation with:
+
+```sh
+git apply --check /path/to/ae5-linux-control/kernel/ca0132-dsp-image-bounds.patch
+git apply /path/to/ae5-linux-control/kernel/ca0132-dsp-image-bounds.patch
+
+tools/testing/kunit/kunit.py run \
+  --arch=x86_64 \
+  --kconfig_add CONFIG_PCI=y \
+  --kconfig_add CONFIG_SOUND=y \
+  --kconfig_add CONFIG_SND=y \
+  --kconfig_add CONFIG_SND_HDA_INTEL=y \
+  --kconfig_add CONFIG_SND_HDA_CODEC_CA0132=y \
+  --kconfig_add CONFIG_SND_HDA_CODEC_CA0132_DSP=y \
+  --kconfig_add CONFIG_SND_HDA_CODEC_CA0132_DSP_IMAGE_KUNIT_TEST=y \
+  ca0132-dsp-image
+```
+
+QEMU must be installed for a non-UML architecture. This validates parser logic
+and compilation only. A later alternate-kernel and cold-boot session is still
+required to prove successful firmware loading and playback on the physical
+AE-5.

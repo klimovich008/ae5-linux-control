@@ -1,0 +1,460 @@
+diff --git a/sound/hda/codecs/Kconfig b/sound/hda/codecs/Kconfig
+index dcf340e5a..746baa8be 100644
+--- a/sound/hda/codecs/Kconfig
++++ b/sound/hda/codecs/Kconfig
+@@ -90,6 +90,16 @@ config SND_HDA_CODEC_CA0132_DSP
+ 	  Note that this option requires the external firmware file
+ 	  (ctefx.bin).
+ 
++config SND_HDA_CODEC_CA0132_DSP_IMAGE_KUNIT_TEST
++	tristate "KUnit test for CA0132 DSP image parser" if !KUNIT_ALL_TESTS
++	depends on SND_HDA_CODEC_CA0132 && KUNIT
++	default KUNIT_ALL_TESTS
++	help
++	  This builds KUnit tests for the CA0132 DSP fast-load image parser.
++	  For more information on KUnit and unit tests in general, please
++	  refer to the KUnit documentation in Documentation/dev-tools/kunit/.
++	  If in doubt, say "N".
++
+ config SND_HDA_CODEC_CMEDIA
+ 	tristate "Build C-Media HD-audio codec support"
+ 	select SND_HDA_GENERIC
+diff --git a/sound/hda/codecs/Makefile b/sound/hda/codecs/Makefile
+index 88d2f8a79..a955e0601 100644
+--- a/sound/hda/codecs/Makefile
++++ b/sound/hda/codecs/Makefile
+@@ -25,6 +25,7 @@ obj-$(CONFIG_SND_HDA_CODEC_CM9825) += snd-hda-codec-cm9825.o
+ obj-$(CONFIG_SND_HDA_CODEC_ANALOG) += snd-hda-codec-analog.o
+ obj-$(CONFIG_SND_HDA_CODEC_CA0110) += snd-hda-codec-ca0110.o
+ obj-$(CONFIG_SND_HDA_CODEC_CA0132) += snd-hda-codec-ca0132.o
++obj-$(CONFIG_SND_HDA_CODEC_CA0132_DSP_IMAGE_KUNIT_TEST) += ca0132_dsp_image_test.o
+ obj-$(CONFIG_SND_HDA_CODEC_CONEXANT) += snd-hda-codec-conexant.o
+ obj-$(CONFIG_SND_HDA_CODEC_SIGMATEL) += snd-hda-codec-idt.o
+ obj-$(CONFIG_SND_HDA_CODEC_SENARYTECH) += snd-hda-codec-senarytech.o
+diff --git a/sound/hda/codecs/ca0132.c b/sound/hda/codecs/ca0132.c
+index 3fe11983d..b6d0bd805 100644
+--- a/sound/hda/codecs/ca0132.c
++++ b/sound/hda/codecs/ca0132.c
+@@ -26,6 +26,7 @@
+ #include "hda_jack.h"
+ #include "generic.h"
+ 
++#include "ca0132_dsp_image.h"
+ #include "ca0132_regs.h"
+ 
+ /* Enable this to see controls for tuning purpose. */
+@@ -3111,42 +3112,6 @@ static unsigned int dma_get_stream_id(struct dma_engine *dma)
+ 	return spec->dsp_stream_id;
+ }
+ 
+-struct dsp_image_seg {
+-	u32 magic;
+-	u32 chip_addr;
+-	u32 count;
+-	u32 data[];
+-};
+-
+-static const u32 g_magic_value = 0x4c46584d;
+-static const u32 g_chip_addr_magic_value = 0xFFFFFF01;
+-
+-static bool is_valid(const struct dsp_image_seg *p)
+-{
+-	return p->magic == g_magic_value;
+-}
+-
+-static bool is_hci_prog_list_seg(const struct dsp_image_seg *p)
+-{
+-	return g_chip_addr_magic_value == p->chip_addr;
+-}
+-
+-static bool is_last(const struct dsp_image_seg *p)
+-{
+-	return p->count == 0;
+-}
+-
+-static size_t dsp_sizeof(const struct dsp_image_seg *p)
+-{
+-	return struct_size(p, data, p->count);
+-}
+-
+-static const struct dsp_image_seg *get_next_seg_ptr(
+-				const struct dsp_image_seg *p)
+-{
+-	return (struct dsp_image_seg *)((unsigned char *)(p) + dsp_sizeof(p));
+-}
+-
+ /*
+  * CA0132 chip DSP transfer stuffs.  For DSP download.
+  */
+@@ -3164,7 +3129,9 @@ static int dspxfr_hci_write(struct hda_codec *codec,
+ 	const u32 *data;
+ 	unsigned int count;
+ 
+-	if (fls == NULL || fls->chip_addr != g_chip_addr_magic_value) {
++	if (!fls ||
++	    fls->chip_addr != CA0132_DSP_IMAGE_HCI_ADDRESS ||
++	    fls->count % 2) {
+ 		codec_dbg(codec, "hci_write invalid params\n");
+ 		return -EINVAL;
+ 	}
+@@ -3227,12 +3194,12 @@ static int dspxfr_one_seg(struct hda_codec *codec,
+ 
+ 	if (fls == NULL)
+ 		return -EINVAL;
+-	if (is_hci_prog_list_seg(fls)) {
++	if (ca0132_dsp_image_seg_is_hci(fls)) {
+ 		hci_write = fls;
+-		fls = get_next_seg_ptr(fls);
++		fls = ca0132_dsp_image_next_seg(fls);
+ 	}
+ 
+-	if (hci_write && (!fls || is_last(fls))) {
++	if (hci_write && (!fls || ca0132_dsp_image_seg_is_last(fls))) {
+ 		codec_dbg(codec, "hci_write\n");
+ 		return dspxfr_hci_write(codec, hci_write);
+ 	}
+@@ -3471,8 +3438,8 @@ static int dspxfr_image(struct hda_codec *codec,
+ 		goto exit;
+ 	}
+ 
+-	while ((fls_data != NULL) && !is_last(fls_data)) {
+-		if (!is_valid(fls_data)) {
++	while (fls_data && !ca0132_dsp_image_seg_is_last(fls_data)) {
++		if (!ca0132_dsp_image_seg_is_valid(fls_data)) {
+ 			codec_dbg(codec, "FLS check fail\n");
+ 			status = -EINVAL;
+ 			goto exit;
+@@ -3483,11 +3450,11 @@ static int dspxfr_image(struct hda_codec *codec,
+ 		if (status < 0)
+ 			break;
+ 
+-		if (is_hci_prog_list_seg(fls_data))
+-			fls_data = get_next_seg_ptr(fls_data);
++		if (ca0132_dsp_image_seg_is_hci(fls_data))
++			fls_data = ca0132_dsp_image_next_seg(fls_data);
+ 
+-		if ((fls_data != NULL) && !is_last(fls_data))
+-			fls_data = get_next_seg_ptr(fls_data);
++		if (fls_data && !ca0132_dsp_image_seg_is_last(fls_data))
++			fls_data = ca0132_dsp_image_next_seg(fls_data);
+ 	}
+ 
+ 	if (port_map_mask != 0)
+@@ -3533,6 +3500,7 @@ static void dspload_post_setup(struct hda_codec *codec)
+  *
+  * @codec: the HDA codec
+  * @fls: pointer to a fast load image
++ * @fls_size: size of the fast load image
+  * @ovly: TRUE if overlay format is required
+  * @reloc: Relocation address for loading single-segment overlays, or 0 for
+  *	   no relocation
+@@ -3548,6 +3516,7 @@ static void dspload_post_setup(struct hda_codec *codec)
+  */
+ static int dspload_image(struct hda_codec *codec,
+ 			const struct dsp_image_seg *fls,
++			size_t fls_size,
+ 			bool ovly,
+ 			unsigned int reloc,
+ 			bool autostart,
+@@ -3558,6 +3527,12 @@ static int dspload_image(struct hda_codec *codec,
+ 	unsigned short channels;
+ 
+ 	codec_dbg(codec, "---- dspload_image begin ------\n");
++	status = ca0132_dsp_image_validate(fls, fls_size, reloc);
++	if (status < 0) {
++		codec_dbg(codec, "Invalid DSP image\n");
++		return status;
++	}
++
+ 	if (router_chans == 0) {
+ 		if (!ovly)
+ 			router_chans = DMA_TRANSFER_FRAME_SIZE_NWORDS;
+@@ -8571,7 +8546,7 @@ static bool ca0132_download_dsp_images(struct hda_codec *codec)
+ 	}
+ 
+ 	dsp_os_image = (struct dsp_image_seg *)(fw_entry->data);
+-	if (dspload_image(codec, dsp_os_image, 0, 0, true, 0)) {
++	if (dspload_image(codec, dsp_os_image, fw_entry->size, 0, 0, true, 0)) {
+ 		codec_err(codec, "ca0132 DSP load image failed\n");
+ 		goto exit_download;
+ 	}
+diff --git a/sound/hda/codecs/ca0132_dsp_image.h b/sound/hda/codecs/ca0132_dsp_image.h
+new file mode 100644
+index 000000000..503d16ab3
+--- /dev/null
++++ b/sound/hda/codecs/ca0132_dsp_image.h
+@@ -0,0 +1,123 @@
++/* SPDX-License-Identifier: GPL-2.0-or-later */
++#ifndef __SOUND_HDA_CODEC_CA0132_DSP_IMAGE_H
++#define __SOUND_HDA_CODEC_CA0132_DSP_IMAGE_H
++
++#include <linux/errno.h>
++#include <linux/overflow.h>
++#include <linux/string.h>
++#include <linux/types.h>
++
++#include "ca0132_regs.h"
++
++#define CA0132_DSP_IMAGE_MAGIC		0x4c46584d
++#define CA0132_DSP_IMAGE_HCI_ADDRESS	0xffffff01
++
++struct dsp_image_seg {
++	u32 magic;
++	u32 chip_addr;
++	u32 count;
++	u32 data[];
++};
++
++static inline bool
++ca0132_dsp_image_seg_is_valid(const struct dsp_image_seg *seg)
++{
++	return seg->magic == CA0132_DSP_IMAGE_MAGIC;
++}
++
++static inline bool
++ca0132_dsp_image_seg_is_hci(const struct dsp_image_seg *seg)
++{
++	return seg->chip_addr == CA0132_DSP_IMAGE_HCI_ADDRESS;
++}
++
++static inline bool
++ca0132_dsp_image_seg_is_last(const struct dsp_image_seg *seg)
++{
++	return seg->count == 0;
++}
++
++static inline size_t
++ca0132_dsp_image_seg_size(const struct dsp_image_seg *seg)
++{
++	return struct_size(seg, data, seg->count);
++}
++
++static inline const struct dsp_image_seg *
++ca0132_dsp_image_next_seg(const struct dsp_image_seg *seg)
++{
++	return (const void *)((const u8 *)seg +
++			      ca0132_dsp_image_seg_size(seg));
++}
++
++static inline bool
++ca0132_dsp_image_range_valid(const struct dsp_image_seg *seg, u32 reloc)
++{
++	u32 chip_addr = seg->chip_addr;
++	u32 last;
++	u32 reloc_bytes;
++	u32 span;
++
++	if (reloc) {
++		if (check_mul_overflow(reloc, (u32)sizeof(u32), &reloc_bytes) ||
++		    check_add_overflow(chip_addr & 0xfffc0000U, reloc_bytes,
++				       &chip_addr))
++			return false;
++	}
++
++	if (check_mul_overflow(seg->count - 1, (u32)sizeof(u32), &span) ||
++	    check_add_overflow(chip_addr, span, &last))
++		return false;
++
++	return UC_RANGE(chip_addr, seg->count) ||
++	       X_RANGE_ALL(chip_addr, seg->count) ||
++	       Y_RANGE_ALL(chip_addr, seg->count);
++}
++
++static inline int
++ca0132_dsp_image_validate(const void *data, size_t size, u32 reloc)
++{
++	const struct dsp_image_seg *seg;
++	const u8 *position = data;
++	size_t remaining = size;
++	size_t seg_size;
++	bool hci_pending = false;
++	bool saw_segment = false;
++
++	if (!data)
++		return -EINVAL;
++
++	while (remaining >= sizeof(*seg)) {
++		seg = (const void *)position;
++		if (!ca0132_dsp_image_seg_is_valid(seg))
++			return -EINVAL;
++		if (ca0132_dsp_image_seg_is_last(seg)) {
++			position += sizeof(*seg);
++			remaining -= sizeof(*seg);
++			return !saw_segment ||
++			       memchr_inv(position, 0, remaining) ? -EINVAL : 0;
++		}
++
++		seg_size = ca0132_dsp_image_seg_size(seg);
++		if (seg_size > remaining)
++			return -EINVAL;
++
++		if (ca0132_dsp_image_seg_is_hci(seg)) {
++			if (hci_pending || seg->count % 2)
++				return -EINVAL;
++			hci_pending = true;
++		} else {
++			if (!ca0132_dsp_image_range_valid(seg, reloc))
++				return -EINVAL;
++			hci_pending = false;
++		}
++
++		position += seg_size;
++		remaining -= seg_size;
++		saw_segment = true;
++	}
++
++	return -EINVAL;
++}
++
++#endif
+diff --git a/sound/hda/codecs/ca0132_dsp_image_test.c b/sound/hda/codecs/ca0132_dsp_image_test.c
+new file mode 100644
+index 000000000..be62e1f54
+--- /dev/null
++++ b/sound/hda/codecs/ca0132_dsp_image_test.c
+@@ -0,0 +1,145 @@
++// SPDX-License-Identifier: GPL-2.0-or-later
++
++#include <kunit/test.h>
++
++#include "ca0132_dsp_image.h"
++
++static void ca0132_dsp_image_valid_test(struct kunit *test)
++{
++	static const u32 image[] = {
++		CA0132_DSP_IMAGE_MAGIC, CA0132_DSP_IMAGE_HCI_ADDRESS, 2,
++		0x100, 0x200,
++		CA0132_DSP_IMAGE_MAGIC, XRAM_CHIP_OFFSET, 2, 1, 2,
++		CA0132_DSP_IMAGE_MAGIC, YRAM_CHIP_OFFSET, 1, 3,
++		CA0132_DSP_IMAGE_MAGIC, 0, 0,
++	};
++	static const u32 padded_image[] = {
++		CA0132_DSP_IMAGE_MAGIC, XRAM_CHIP_OFFSET, 1, 1,
++		CA0132_DSP_IMAGE_MAGIC, 0, 0, 0, 0,
++	};
++
++	KUNIT_EXPECT_EQ(test,
++			ca0132_dsp_image_validate(image, sizeof(image), 0), 0);
++	KUNIT_EXPECT_EQ(test,
++			ca0132_dsp_image_validate(padded_image,
++						  sizeof(padded_image), 0),
++			0);
++}
++
++static void ca0132_dsp_image_truncated_test(struct kunit *test)
++{
++	static const u32 header[] = {
++		CA0132_DSP_IMAGE_MAGIC, XRAM_CHIP_OFFSET, 2,
++	};
++	static const u32 payload[] = {
++		CA0132_DSP_IMAGE_MAGIC, XRAM_CHIP_OFFSET, 2, 1,
++	};
++	static const u32 no_terminator[] = {
++		CA0132_DSP_IMAGE_MAGIC, XRAM_CHIP_OFFSET, 1, 1,
++	};
++	static const u32 oversized[] = {
++		CA0132_DSP_IMAGE_MAGIC, XRAM_CHIP_OFFSET, U32_MAX,
++	};
++
++	KUNIT_EXPECT_EQ(test, ca0132_dsp_image_validate(NULL, 0, 0),
++			-EINVAL);
++	KUNIT_EXPECT_EQ(test,
++			ca0132_dsp_image_validate(header, sizeof(u32) * 2, 0),
++			-EINVAL);
++	KUNIT_EXPECT_EQ(test,
++			ca0132_dsp_image_validate(payload, sizeof(payload), 0),
++			-EINVAL);
++	KUNIT_EXPECT_EQ(test,
++			ca0132_dsp_image_validate(no_terminator,
++						  sizeof(no_terminator), 0),
++			-EINVAL);
++	KUNIT_EXPECT_EQ(test,
++			ca0132_dsp_image_validate(oversized, sizeof(oversized),
++						  0),
++			-EINVAL);
++}
++
++static void ca0132_dsp_image_hci_test(struct kunit *test)
++{
++	static const u32 odd[] = {
++		CA0132_DSP_IMAGE_MAGIC, CA0132_DSP_IMAGE_HCI_ADDRESS, 1, 1,
++		CA0132_DSP_IMAGE_MAGIC, 0, 0,
++	};
++	static const u32 consecutive[] = {
++		CA0132_DSP_IMAGE_MAGIC, CA0132_DSP_IMAGE_HCI_ADDRESS, 2, 1, 2,
++		CA0132_DSP_IMAGE_MAGIC, CA0132_DSP_IMAGE_HCI_ADDRESS, 2, 3, 4,
++		CA0132_DSP_IMAGE_MAGIC, 0, 0,
++	};
++
++	KUNIT_EXPECT_EQ(test,
++			ca0132_dsp_image_validate(odd, sizeof(odd), 0),
++			-EINVAL);
++	KUNIT_EXPECT_EQ(test,
++			ca0132_dsp_image_validate(consecutive,
++						  sizeof(consecutive), 0),
++			-EINVAL);
++}
++
++static void ca0132_dsp_image_metadata_test(struct kunit *test)
++{
++	static const u32 bad_magic[] = {
++		0, XRAM_CHIP_OFFSET, 1, 1,
++		CA0132_DSP_IMAGE_MAGIC, 0, 0,
++	};
++	static const u32 bad_range[] = {
++		CA0132_DSP_IMAGE_MAGIC, UC_END, 1, 1,
++		CA0132_DSP_IMAGE_MAGIC, 0, 0,
++	};
++	static const u32 trailing[] = {
++		CA0132_DSP_IMAGE_MAGIC, 0, 0, 1,
++	};
++	static const u32 bad_terminator[] = {
++		0, 0, 0,
++	};
++	static const u32 empty[] = {
++		CA0132_DSP_IMAGE_MAGIC, 0, 0,
++	};
++	static const u32 reloc[] = {
++		CA0132_DSP_IMAGE_MAGIC, XRAM_CHIP_OFFSET, 1, 1,
++		CA0132_DSP_IMAGE_MAGIC, 0, 0,
++	};
++
++	KUNIT_EXPECT_EQ(test,
++			ca0132_dsp_image_validate(bad_magic,
++						  sizeof(bad_magic), 0),
++			-EINVAL);
++	KUNIT_EXPECT_EQ(test,
++			ca0132_dsp_image_validate(bad_range, sizeof(bad_range),
++						  0),
++			-EINVAL);
++	KUNIT_EXPECT_EQ(test,
++			ca0132_dsp_image_validate(trailing, sizeof(trailing), 0),
++			-EINVAL);
++	KUNIT_EXPECT_EQ(test,
++			ca0132_dsp_image_validate(bad_terminator,
++						  sizeof(bad_terminator), 0),
++			-EINVAL);
++	KUNIT_EXPECT_EQ(test,
++			ca0132_dsp_image_validate(empty, sizeof(empty), 0),
++			-EINVAL);
++	KUNIT_EXPECT_EQ(test,
++			ca0132_dsp_image_validate(reloc, sizeof(reloc), U32_MAX),
++			-EINVAL);
++}
++
++static struct kunit_case ca0132_dsp_image_test_cases[] = {
++	KUNIT_CASE(ca0132_dsp_image_valid_test),
++	KUNIT_CASE(ca0132_dsp_image_truncated_test),
++	KUNIT_CASE(ca0132_dsp_image_hci_test),
++	KUNIT_CASE(ca0132_dsp_image_metadata_test),
++	{}
++};
++
++static struct kunit_suite ca0132_dsp_image_test_suite = {
++	.name = "ca0132-dsp-image",
++	.test_cases = ca0132_dsp_image_test_cases,
++};
++
++kunit_test_suite(ca0132_dsp_image_test_suite);
++
++MODULE_LICENSE("GPL");

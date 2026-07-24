@@ -239,10 +239,13 @@ in
 [docs/HEADPHONE_TUNING_INVESTIGATION.md](docs/HEADPHONE_TUNING_INVESTIGATION.md).
 
 The hardware audit also found an independent upstream CA0132 Wedge Angle
-default bug. A minimal one-line kernel patch, evidence, proposed commit
-message, and validation steps are in [kernel/README.md](kernel/README.md).
-Until a patched kernel is running, AE-5 Control displays the invalid value as
-a driver warning and excludes it from newly captured profiles.
+default bug and an unbounded DSP fast-load parser. The repository carries a
+minimal Wedge Angle fix and a separately reviewable parser-hardening candidate
+with KUnit coverage. Evidence, proposed commit messages, and validation steps
+are in [kernel/README.md](kernel/README.md). Neither patch has been loaded on
+the target system. Until the Wedge Angle fix is running, AE-5 Control displays
+the invalid value as a driver warning and excludes it from newly captured
+profiles.
 
 Objective Windows/Linux level, frequency-response, and noise comparison is
 documented in

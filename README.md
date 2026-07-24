@@ -130,19 +130,24 @@ band counts, and frequencies are still rejected.
 
 ## Native desktop application
 
-The GTK 4 application groups every live control into system audio, profiles,
-playback, effects, equalizer, and recording pages. The **System audio** page can
-make the AE-5 the default PipeWire playback or recording device and opt into
-native-rate switching without changing its ALSA mixer controls. Stereo ALSA
-controls receive separate accessible channel sliders; selectors, switches, and
-bounded sliders write through the verified ALSA backend. High headphone gain
-requires an explicit opt-in. The GUI enables bass redirection only for Speakers
-with an LFE channel and disables X-Bass on those speaker layouts; each
-unavailable switch explains which setting must change. The shared backend
-applies the same guard to CLI and profile writes, so those constraints cannot
-be bypassed outside the GUI. It listens for native ALSA mixer events, so changes
-made by another mixer application or command-line process are reflected without
-a polling loop while the selected page remains open:
+The GTK 4 application groups device diagnostics, system audio, profiles,
+playback, effects, equalizer, and recording into dedicated pages. The
+**Device** page shows the exact detected hardware, live capability counts, and
+driver values outside their advertised ranges. It can save the same
+privacy-conscious diagnostics report as `ae5-collect-report` without invoking a
+shell or requiring root. The **System audio** page can make the AE-5 the default
+PipeWire playback or recording device and opt into native-rate switching
+without changing its ALSA mixer controls.
+
+Stereo ALSA controls receive separate accessible channel sliders; selectors,
+switches, and bounded sliders write through the verified ALSA backend. High
+headphone gain requires an explicit opt-in. The GUI enables bass redirection
+only for Speakers with an LFE channel and disables X-Bass on those speaker
+layouts; each unavailable switch explains which setting must change. The shared
+backend applies the same guard to CLI and profile writes, so those constraints
+cannot be bypassed outside the GUI. It listens for native ALSA mixer events, so
+changes made by another mixer application or command-line process are reflected
+without a polling loop while the selected page remains open:
 
 ```sh
 sudo dnf install gtk4-devel

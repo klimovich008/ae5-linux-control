@@ -8,6 +8,7 @@ use ae5_control::{
 use gtk::prelude::*;
 use gtk::{gdk::Display, gio};
 use std::cell::{Cell, RefCell};
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::{
@@ -104,6 +105,11 @@ fn content(
     stack.set_widget_name(MAIN_STACK_NAME);
 
     stack.add_titled(
+        &device_page(window, device, controls, &status),
+        Some("device"),
+        "Device",
+    );
+    stack.add_titled(
         &routing_page(device.card_index, &status),
         Some("routing"),
         "System audio",
@@ -173,6 +179,132 @@ fn hero(device: &Ae5Device, controls: &[ControlSnapshot]) -> gtk::Box {
     status.set_hexpand(true);
     header.append(&status);
     header
+}
+
+fn device_page(
+    window: &gtk::ApplicationWindow,
+    device: &Ae5Device,
+    controls: &[ControlSnapshot],
+    status: &gtk::Label,
+) -> gtk::ScrolledWindow {
+    let page = gtk::Box::new(gtk::Orientation::Vertical, 18);
+    page.add_css_class("profile-page");
+
+    let heading = gtk::Label::new(Some("Device & diagnostics"));
+    heading.set_xalign(0.0);
+    heading.add_css_class("page-title");
+    page.append(&heading);
+
+    let identity = gtk::Box::new(gtk::Orientation::Vertical, 4);
+    for detail in [
+        format!("ALSA card {} · {}", device.card_index, device.alsa_name),
+        device.alsa_long_name.clone(),
+        format!(
+            "PCI {} · subsystem {}",
+            device.pci_id(),
+            device.subsystem_id()
+        ),
+        format!(
+            "Codec {}",
+            device.codec_name.as_deref().unwrap_or("not reported")
+        ),
+    ] {
+        let label = gtk::Label::new(Some(&detail));
+        label.set_xalign(0.0);
+        label.set_selectable(true);
+        identity.append(&label);
+    }
+    page.append(&profile_card(
+        "01",
+        "Detected hardware",
+        "AE-5 Control matches the PCI and subsystem IDs instead of relying on an unstable ALSA card number.",
+        &identity,
+    ));
+
+    let warnings = driver_range_warnings(controls);
+    let capability_summary = gtk::Box::new(gtk::Orientation::Vertical, 4);
+    let selectable = controls
+        .iter()
+        .filter(|control| control.selected.is_some())
+        .count();
+    let playback = controls
+        .iter()
+        .filter(|control| control.playback_switch.is_some() || control.playback_level.is_some())
+        .count();
+    let recording = controls
+        .iter()
+        .filter(|control| control.capture_switch.is_some() || control.capture_level.is_some())
+        .count();
+    let summary = gtk::Label::new(Some(&format!(
+        "{} live controls · {} selectable · {} playback · {} recording",
+        controls.len(),
+        selectable,
+        playback,
+        recording
+    )));
+    summary.set_xalign(0.0);
+    capability_summary.append(&summary);
+    let health = gtk::Label::new(Some(if warnings.is_empty() {
+        "Driver ranges are internally consistent."
+    } else {
+        "One or more driver values are outside their declared ranges."
+    }));
+    health.set_xalign(0.0);
+    health.add_css_class(if warnings.is_empty() {
+        "operation-ok"
+    } else {
+        "warning-value"
+    });
+    capability_summary.append(&health);
+    for warning in &warnings {
+        let label = gtk::Label::new(Some(warning));
+        label.set_xalign(0.0);
+        label.set_wrap(true);
+        label.add_css_class("warning-value");
+        capability_summary.append(&label);
+    }
+    page.append(&profile_card(
+        "02",
+        "Live capabilities",
+        "Only controls exposed by the running ALSA driver appear in the application.",
+        &capability_summary,
+    ));
+
+    let report_actions = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+    let save_report = gtk::Button::with_label("Save diagnostics report");
+    report_actions.append(&save_report);
+    page.append(&profile_card(
+        "03",
+        "Private diagnostics",
+        "Create a local report without root. Hostname, user, storage, network data, and unrelated PipeWire devices are omitted by default. Review the file before sharing it.",
+        &report_actions,
+    ));
+
+    {
+        let window = window.clone();
+        let status = status.clone();
+        save_report.connect_clicked(move |button| {
+            let window = window.clone();
+            let status = status.clone();
+            let button = button.clone();
+            button.set_sensitive(false);
+            gtk::glib::spawn_future_local(async move {
+                match save_diagnostics_report(&window).await {
+                    Ok(Some(message)) => set_status(&status, true, &message),
+                    Ok(None) => {}
+                    Err(error) => {
+                        set_status(&status, false, &format!("Diagnostics failed: {error}"))
+                    }
+                }
+                button.set_sensitive(true);
+            });
+        });
+    }
+
+    gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .child(&page)
+        .build()
 }
 
 fn routing_page(card_index: i32, status: &gtk::Label) -> gtk::ScrolledWindow {
@@ -363,6 +495,83 @@ fn pipewire_node_summary(node: &PipeWireNode) -> String {
             "not default"
         }
     )
+}
+
+fn driver_range_warnings(controls: &[ControlSnapshot]) -> Vec<String> {
+    controls
+        .iter()
+        .flat_map(|control| {
+            [
+                ("playback", control.playback_level.as_ref()),
+                ("capture", control.capture_level.as_ref()),
+            ]
+            .into_iter()
+            .filter_map(move |(direction, level)| {
+                let level = level?;
+                (!(level.min..=level.max).contains(&level.value)).then(|| {
+                    format!(
+                        "{} {direction} value {} is outside {}..{}",
+                        control.name, level.value, level.min, level.max
+                    )
+                })
+            })
+        })
+        .collect()
+}
+
+async fn save_diagnostics_report(
+    window: &gtk::ApplicationWindow,
+) -> Result<Option<String>, String> {
+    let dialog = gtk::FileDialog::builder()
+        .title("Save private AE-5 diagnostics")
+        .modal(true)
+        .initial_name("ae5-report.txt")
+        .build();
+    let file = match dialog.save_future(Some(window)).await {
+        Ok(file) => file,
+        Err(error) if is_cancelled(&error) => return Ok(None),
+        Err(error) => return Err(error.to_string()),
+    };
+    let path = file
+        .path()
+        .ok_or_else(|| "only local files are supported".to_owned())?;
+    let argv = diagnostics_argv(&path);
+    let argv = argv.iter().map(OsString::as_os_str).collect::<Vec<_>>();
+    let process = gio::Subprocess::newv(
+        &argv,
+        gio::SubprocessFlags::STDOUT_PIPE | gio::SubprocessFlags::STDERR_PIPE,
+    )
+    .map_err(|error| {
+        format!("unable to start ae5-collect-report; install the AE-5 Control package: {error}")
+    })?;
+    let (stdout, stderr) = process
+        .communicate_utf8_future(None)
+        .await
+        .map_err(|error| error.to_string())?;
+    if !process.is_successful() {
+        let detail = stderr
+            .as_deref()
+            .or(stdout.as_deref())
+            .map(str::trim)
+            .filter(|message| !message.is_empty())
+            .unwrap_or("the report command failed without an error message");
+        return Err(format!(
+            "ae5-collect-report exited with status {}: {detail}",
+            process.exit_status()
+        ));
+    }
+
+    Ok(Some(format!(
+        "Diagnostics saved to {}. Review the file before sharing it.",
+        path.display()
+    )))
+}
+
+fn diagnostics_argv(path: &Path) -> [OsString; 2] {
+    [
+        OsString::from("ae5-collect-report"),
+        path.as_os_str().to_owned(),
+    ]
 }
 
 fn profile_page(
@@ -1848,5 +2057,38 @@ mod tests {
 
         assert!(is_cancelled(&gio_cancelled));
         assert!(is_cancelled(&portal_cancelled));
+    }
+
+    #[test]
+    fn diagnostics_path_is_one_literal_process_argument() {
+        let path = Path::new("/tmp/ae5 report;touch nope.txt");
+        let argv = diagnostics_argv(path);
+
+        assert_eq!(argv[0], std::ffi::OsStr::new("ae5-collect-report"));
+        assert_eq!(argv[1], path.as_os_str());
+    }
+
+    #[test]
+    fn reports_driver_values_outside_their_declared_range() {
+        let controls = vec![ControlSnapshot {
+            name: "Wedge Angle".to_owned(),
+            selected: None,
+            choices: Vec::new(),
+            playback_switch: None,
+            capture_switch: None,
+            playback_level: None,
+            capture_level: Some(Level {
+                value: 10,
+                min: 20,
+                max: 180,
+            }),
+            playback_channels: Vec::new(),
+            capture_channels: Vec::new(),
+        }];
+
+        assert_eq!(
+            driver_range_warnings(&controls),
+            ["Wedge Angle capture value 10 is outside 20..180"]
+        );
     }
 }

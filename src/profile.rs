@@ -728,12 +728,13 @@ mod tests {
             if name != "Front" {
                 return Err(ControlError::Missing(name.to_owned()));
             }
-            if self.record(format!("{name} playback level={value}")) == 2 {
+            let write_number = self.record(format!("{name} playback level={value}"));
+            self.front.set(value);
+            if write_number == 2 {
                 return Err(ControlError::Verification(
                     "injected write failure".to_owned(),
                 ));
             }
-            self.front.set(value);
             Ok(())
         }
 
@@ -990,6 +991,7 @@ mod tests {
                 "FX: Surround playback switch=true",
                 "Front playback level=75",
                 "FX: Surround playback switch=false",
+                "Front playback level=20",
             ]
         );
     }

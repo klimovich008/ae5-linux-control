@@ -15,6 +15,11 @@ its active user-owned AE-5 profile and equalizer files.
   the newest numeric Command version, limits each directory to 512 entries,
   ignores symlinked candidates, and rejects multiple newest configs or AE-5
   product directories.
+- On a complete Windows volume, driver discovery compares the installed
+  `CtxHda.sys` with at most 16 matching packages in a 16,384-entry-bounded
+  DriverStore scan. It reads `DriverVer` only from the uniquely matching INF
+  after confirming the exact AE-5 hardware ID. It does not execute, decompile,
+  or disassemble the driver.
 - Source Windows files are read-only inputs. No Creative binaries, firmware,
   configuration files, identifiers, or user profile contents are committed.
 - Conversion creates native profiles but does not apply them to hardware.
@@ -24,8 +29,15 @@ its active user-owned AE-5 profile and equalizer files.
 Selecting the mounted Windows user folder found Command 3.5.10.0 instead of
 the older 3.4.98.0 config and found the single installed AE-5 product
 directory without requiring either internal path from the user. The migration
-report now identifies 3.5.10.0 as the selected active configuration, making
-that automatic choice visible in both the CLI and desktop preview.
+report now identifies 3.5.10.0 as the selected active configuration.
+
+The installed `Windows/System32/drivers/CtxHda.sys` matched only
+`ctxhda.inf_amd64_f05837e20abd2faf` in DriverStore. Its INF contains the exact
+AE-5 ID `PCI\VEN_1102&DEV_0012&SUBSYS_00511102` and declares driver
+`6.0.105.0065` dated 2022-11-24. The active `oem33.inf` is byte-identical to
+that package's INF, and archived Windows setup logs repeatedly select the same
+package. Command and driver versions now appear first in both the CLI report
+and desktop preview.
 
 The active speaker selection now converts to a native profile containing 21 ALSA
 controls. Its Windows channel mask mapped exactly to the AE-5 `5.1` speaker

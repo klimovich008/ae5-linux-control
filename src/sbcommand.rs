@@ -11,6 +11,8 @@ use std::str::FromStr;
 
 const MAX_SOURCE_BYTES: u64 = 1024 * 1024;
 const MAX_DISCOVERY_ENTRIES: usize = 512;
+const MAX_DRIVERSTORE_ENTRIES: usize = 16_384;
+const MAX_DRIVER_PACKAGES: usize = 16;
 const EQ_FREQUENCIES: [u32; 10] = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
 const SOURCE_METADATA_FIELDS: &[&str] = &[
     "CreatorName",
@@ -58,6 +60,7 @@ pub struct SbCommandImport {
 pub struct SbCommandInstallation {
     pub user_config: PathBuf,
     pub product_dir: PathBuf,
+    pub driver_version: Option<String>,
 }
 
 pub fn import_profile(
@@ -129,9 +132,10 @@ pub fn import_active_profile_with_report(
     let mut controls = import.profile.controls;
     let mut report = import.report;
     if let Some(version) = active_command_version(user_config_path) {
-        report.exact.push(format!(
-            "Sound Blaster Command {version} → active configuration"
-        ));
+        report.exact.insert(
+            0,
+            format!("Sound Blaster Command {version} → active configuration"),
+        );
     }
     report.exact.push(format!(
         "{profile_setting} → Profiles/{profile_file} (active {target} profile)"
@@ -163,6 +167,33 @@ pub fn import_active_profile_with_report(
         profile: Profile::new(name, controls)?,
         report,
     })
+}
+
+pub fn import_installation_profile_with_report(
+    name: &str,
+    installation: &SbCommandInstallation,
+    target: SbCommandTarget,
+) -> Result<SbCommandImport, SbCommandError> {
+    let mut import = import_active_profile_with_report(
+        name,
+        &installation.user_config,
+        &installation.product_dir,
+        target,
+    )?;
+    if let Some(version) = &installation.driver_version {
+        let position = usize::from(
+            import
+                .report
+                .exact
+                .first()
+                .is_some_and(|item| item.starts_with("Sound Blaster Command ")),
+        );
+        import.report.exact.insert(
+            position,
+            format!("Creative AE-5 driver {version} → active Windows driver package"),
+        );
+    }
+    Ok(import)
 }
 
 pub fn discover_installation(
@@ -211,6 +242,7 @@ pub fn discover_installation(
     }
 
     let product_root = local.join("Creative");
+    let driver_version = discover_driver_version(windows_user_dir)?;
     let mut product_dirs = subdirectories(&product_root)?
         .into_iter()
         .map(|directory| directory.join("Product").join("AE5"))
@@ -221,6 +253,7 @@ pub fn discover_installation(
         [product_dir] => Ok(SbCommandInstallation {
             user_config: newest[0].1.clone(),
             product_dir: product_dir.clone(),
+            driver_version,
         }),
         [] => Err(invalid(format!(
             "no AE5 product directory was found under '{}'",
@@ -801,6 +834,129 @@ fn active_command_version(user_config_path: &Path) -> Option<&str> {
     version_dir.file_name()?.to_str()
 }
 
+fn discover_driver_version(windows_user_dir: &Path) -> Result<Option<String>, SbCommandError> {
+    let Some(users_dir) = windows_user_dir.parent() else {
+        return Ok(None);
+    };
+    if !users_dir
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.eq_ignore_ascii_case("Users"))
+    {
+        return Ok(None);
+    }
+    let Some(windows_root) = users_dir.parent() else {
+        return Ok(None);
+    };
+    let active_driver = windows_root.join("Windows/System32/drivers/CtxHda.sys");
+    let repository = windows_root.join("Windows/System32/DriverStore/FileRepository");
+    if !is_regular_file(&active_driver) || !is_directory(&repository) {
+        return Ok(None);
+    }
+
+    let mut versions = Vec::new();
+    for package in driver_packages(&repository)? {
+        let packaged_driver = package.join("AMD64/CtxHda.sys");
+        let inf_path = package.join("ctxhda.inf");
+        if !is_regular_file(&packaged_driver)
+            || !is_regular_file(&inf_path)
+            || !files_equal(&active_driver, &packaged_driver)?
+        {
+            continue;
+        }
+        let inf = load_text(&inf_path)?;
+        if !inf.lines().any(|line| {
+            line.to_ascii_uppercase()
+                .contains("PCI\\VEN_1102&DEV_0012&SUBSYS_00511102")
+        }) {
+            continue;
+        }
+        if let Some(version) = driver_version_from_inf(&inf) {
+            versions.push(version.to_owned());
+        }
+    }
+    versions.sort();
+    versions.dedup();
+    match versions.as_slice() {
+        [] => Ok(None),
+        [version] => Ok(Some(version.clone())),
+        _ => Err(invalid(
+            "multiple installed Creative packages match the active AE-5 driver",
+        )),
+    }
+}
+
+fn driver_packages(repository: &Path) -> Result<Vec<PathBuf>, SbCommandError> {
+    let mut packages = Vec::new();
+    for (index, entry) in fs::read_dir(repository)?.enumerate() {
+        if index >= MAX_DRIVERSTORE_ENTRIES {
+            return Err(invalid(format!(
+                "'{}' contains too many entries to scan safely",
+                repository.display()
+            )));
+        }
+        let entry = entry?;
+        if !entry.file_type()?.is_dir()
+            || !entry
+                .file_name()
+                .to_str()
+                .is_some_and(|name| name.to_ascii_lowercase().starts_with("ctxhda.inf_amd64_"))
+        {
+            continue;
+        }
+        if packages.len() >= MAX_DRIVER_PACKAGES {
+            return Err(invalid(format!(
+                "'{}' contains too many Creative driver packages",
+                repository.display()
+            )));
+        }
+        packages.push(entry.path());
+    }
+    packages.sort();
+    Ok(packages)
+}
+
+fn driver_version_from_inf(inf: &str) -> Option<&str> {
+    let value = inf.lines().find_map(|line| {
+        let (key, value) = line.split_once('=')?;
+        key.trim()
+            .eq_ignore_ascii_case("DriverVer")
+            .then_some(value.trim())
+    })?;
+    let (_, version) = value.split_once(',')?;
+    let version = version.trim();
+    let components = version.split('.').collect::<Vec<_>>();
+    (components.len() >= 2
+        && components.iter().all(|component| {
+            !component.is_empty() && component.bytes().all(|byte| byte.is_ascii_digit())
+        }))
+    .then_some(version)
+}
+
+fn files_equal(left: &Path, right: &Path) -> Result<bool, io::Error> {
+    let mut left = fs::File::open(left)?;
+    let mut right = fs::File::open(right)?;
+    let length = left.metadata()?.len();
+    if length != right.metadata()?.len() {
+        return Ok(false);
+    }
+
+    let mut left_buffer = [0_u8; 64 * 1024];
+    let mut right_buffer = [0_u8; 64 * 1024];
+    let mut remaining = length;
+    while remaining > 0 {
+        let amount = usize::try_from(remaining.min(left_buffer.len() as u64))
+            .expect("bounded comparison chunk fits usize");
+        left.read_exact(&mut left_buffer[..amount])?;
+        right.read_exact(&mut right_buffer[..amount])?;
+        if left_buffer[..amount] != right_buffer[..amount] {
+            return Ok(false);
+        }
+        remaining -= amount as u64;
+    }
+    Ok(true)
+}
+
 fn is_regular_file(path: &Path) -> bool {
     fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_file())
 }
@@ -1298,6 +1454,7 @@ mod tests {
             SbCommandInstallation {
                 user_config: newest_config.clone(),
                 product_dir: product,
+                driver_version: None,
             }
         );
         assert_eq!(active_command_version(&newest_config), Some("3.10.0.0"));
@@ -1327,5 +1484,44 @@ mod tests {
         .unwrap();
         assert!(discover_installation(&user).is_err());
         fs::remove_dir_all(user).unwrap();
+    }
+
+    #[test]
+    fn discovers_the_active_ae5_driver_from_the_installed_binary() {
+        let root = std::env::temp_dir().join(format!(
+            "ae5-driver-discovery-test-{}-{}",
+            std::process::id(),
+            NEXT_DIRECTORY.fetch_add(1, Ordering::Relaxed)
+        ));
+        let user = root.join("Users/Max");
+        let active_driver = root.join("Windows/System32/drivers/CtxHda.sys");
+        let active_package =
+            root.join("Windows/System32/DriverStore/FileRepository/ctxhda.inf_amd64_active");
+        let old_package =
+            root.join("Windows/System32/DriverStore/FileRepository/ctxhda.inf_amd64_old");
+        fs::create_dir_all(&user).unwrap();
+        fs::create_dir_all(active_driver.parent().unwrap()).unwrap();
+        fs::create_dir_all(active_package.join("AMD64")).unwrap();
+        fs::create_dir_all(old_package.join("AMD64")).unwrap();
+        fs::write(&active_driver, b"active driver").unwrap();
+        fs::write(active_package.join("AMD64/CtxHda.sys"), b"active driver").unwrap();
+        fs::write(old_package.join("AMD64/CtxHda.sys"), b"older driver").unwrap();
+        fs::write(
+            active_package.join("ctxhda.inf"),
+            "DriverVer=11/24/2022, 6.0.105.0065\nPCI\\VEN_1102&DEV_0012&SUBSYS_00511102\n",
+        )
+        .unwrap();
+        fs::write(
+            old_package.join("ctxhda.inf"),
+            "DriverVer=02/24/2022, 6.0.105.0064\nPCI\\VEN_1102&DEV_0012&SUBSYS_00511102\n",
+        )
+        .unwrap();
+
+        assert_eq!(
+            discover_driver_version(&user).unwrap(),
+            Some("6.0.105.0065".to_owned())
+        );
+        assert_eq!(driver_version_from_inf("DriverVer=invalid"), None);
+        fs::remove_dir_all(root).unwrap();
     }
 }

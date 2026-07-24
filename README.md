@@ -149,12 +149,15 @@ cargo run -- sbcommand-import-user "Windows speakers" \
 cargo run -- profile-check windows-speakers.json
 ```
 
-The importer discovers the newest numeric Sound Blaster Command version,
-identifies that version in the migration report, and requires one unambiguous
-AE-5 product directory. If an installation has multiple candidates,
-`sbcommand-import-active` remains available with explicit `USER_CONFIG` and
-`AE5_PRODUCT_DIR` paths. The desktop performs the same discovery after
-**Import active Windows setup** asks for the mounted Windows user folder.
+The importer discovers the newest numeric Sound Blaster Command version and
+requires one unambiguous AE-5 product directory. When the selected user folder
+is on a complete mounted Windows volume, it also matches the active
+`CtxHda.sys` to its DriverStore package and reads that package's INF version.
+Both versions lead the migration report. If an installation has multiple
+candidates, `sbcommand-import-active` remains available with explicit
+`USER_CONFIG` and `AE5_PRODUCT_DIR` paths. The desktop performs the same
+discovery after **Import active Windows setup** asks for the mounted Windows
+user folder.
 
 This flow follows the selected profile and EQ IDs, preserves the output route,
 and maps standard Windows speaker masks from stereo through 5.1. It reads only

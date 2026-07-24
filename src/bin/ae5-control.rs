@@ -4,7 +4,7 @@ use ae5_control::{
     ProfileControl, SbCommandImport, SbCommandTarget, ae5_input, ae5_output,
     apply_linux_driver_defaults, capture_control_block_reason, discover_sbcommand_installation,
     equalizer_band_block_reason, export_library_profile,
-    import_active_sbcommand_profile_with_report, import_sbcommand_profile_with_report,
+    import_discovered_sbcommand_profile_with_report, import_sbcommand_profile_with_report,
     library_profile, linux_driver_defaults_for, native_rates_config, playback_switch_block_reason,
     profile_library, profile_library_directory, rename_library_profile, set_ae5_default_input,
     set_ae5_default_output, set_native_rates_enabled, snapshot_controls,
@@ -1172,13 +1172,8 @@ async fn import_active_windows_profile(
         return Ok(None);
     };
     let name = profile_name_from_path(&output)?;
-    let import = import_active_sbcommand_profile_with_report(
-        &name,
-        &installation.user_config,
-        &installation.product_dir,
-        target,
-    )
-    .map_err(|error| error.to_string())?;
+    let import = import_discovered_sbcommand_profile_with_report(&name, &installation, target)
+        .map_err(|error| error.to_string())?;
     validate_confirm_save_import(window, card_index, import, target, output).await
 }
 
@@ -2409,7 +2404,13 @@ mod tests {
                 )]),
             },
             report: SbCommandImportReport {
-                exact: vec!["master → output effects".to_owned()],
+                exact: [
+                    "Sound Blaster Command 3.5.10.0 → active configuration".to_owned(),
+                    "Creative AE-5 driver 6.0.105.0065 → active Windows driver package".to_owned(),
+                ]
+                .into_iter()
+                .chain((0..10).map(|index| format!("exact mapping {index}")))
+                .collect(),
                 approximate: vec!["surround 67.5 → 68".to_owned()],
                 unsupported: (0..20)
                     .map(|index| format!("unsupported {index}"))
@@ -2418,7 +2419,9 @@ mod tests {
         };
 
         let preview = migration_preview(&import);
-        assert!(preview.contains("Exact mappings (1)"));
+        assert!(preview.contains("Exact mappings (12)"));
+        assert!(preview.contains("Sound Blaster Command 3.5.10.0"));
+        assert!(preview.contains("Creative AE-5 driver 6.0.105.0065"));
         assert!(preview.contains("Approximate mappings (1)"));
         assert!(preview.contains("Unsupported settings (20)"));
         assert!(preview.contains("unsupported 19"));

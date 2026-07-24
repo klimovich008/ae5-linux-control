@@ -2,10 +2,10 @@ use ae5_control::{
     Ae5Device, Ae5Mixer, LINUX_DRIVER_DEFAULTS_PRESERVED, PipeWireNode, Profile,
     SbCommandImportReport, SbCommandTarget, ae5_input, ae5_output, apply_linux_driver_defaults,
     discover_sbcommand_installation, export_library_profile,
-    import_active_sbcommand_profile_with_report, import_sbcommand_profile_with_report,
-    linux_driver_defaults, linux_driver_defaults_for, native_rates_config, profile_library,
-    profile_library_directory, set_ae5_default_input, set_ae5_default_output,
-    set_native_rates_enabled, snapshot_controls,
+    import_active_sbcommand_profile_with_report, import_discovered_sbcommand_profile_with_report,
+    import_sbcommand_profile_with_report, linux_driver_defaults, linux_driver_defaults_for,
+    native_rates_config, profile_library, profile_library_directory, set_ae5_default_input,
+    set_ae5_default_output, set_native_rates_enabled, snapshot_controls,
 };
 use std::error::Error;
 use std::io;
@@ -518,13 +518,16 @@ fn import_sbcommand_user(
     output: &str,
 ) -> Result<(), Box<dyn Error>> {
     let installation = discover_sbcommand_installation(Path::new(windows_user))?;
-    import_active_sbcommand_paths(
-        name,
-        &installation.user_config,
-        &installation.product_dir,
-        target,
-        output,
-    )
+    let target = target.parse::<SbCommandTarget>()?;
+    let import = import_discovered_sbcommand_profile_with_report(name, &installation, target)?;
+    print_import_report(&import.report);
+    import.profile.save_new(Path::new(output))?;
+    println!(
+        "converted active Sound Blaster Command {target} settings to '{}' ({} controls) at {output}",
+        import.profile.name,
+        import.profile.controls.len()
+    );
+    Ok(())
 }
 
 fn print_import_report(report: &SbCommandImportReport) {

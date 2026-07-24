@@ -42,12 +42,40 @@ The submitting contributor must add their own Developer Certificate of Origin
 
 ### Validation
 
-Apply the patch to a current Linux source tree:
+Run the read-only apply and upstream style checks against a clean Linux source
+tree:
 
 ```sh
-git apply --check /path/to/ae5-linux-control/kernel/ca0132-wedge-angle-default.patch
-git apply /path/to/ae5-linux-control/kernel/ca0132-wedge-angle-default.patch
+bash scripts/check-ca0132-patch.sh /path/to/linux
 ```
+
+To compile the affected object without installing it:
+
+```sh
+linux_source=/path/to/linux
+patch_file=$PWD/kernel/ca0132-wedge-angle-default.patch
+kernel_build=$(mktemp -d "${TMPDIR:-/tmp}/ae5-kernel-build.XXXXXX")
+
+git -C "$linux_source" apply "$patch_file"
+make -C "$linux_source" O="$kernel_build" defconfig
+"$linux_source/scripts/config" --file "$kernel_build/.config" \
+  --enable SND --enable SND_HDA --module SND_HDA_CODEC_CA0132
+make -C "$linux_source" O="$kernel_build" olddefconfig
+make -C "$linux_source" O="$kernel_build" -j"$(nproc)" W=1 \
+  sound/hda/codecs/ca0132.o
+```
+
+On 2026-07-24, the patch applied cleanly to the official ALSA maintainer
+`tiwai/sound.git` `for-next` branch at
+`61471f29f3157f33a61194bf82b4a289cc03e1f1` and the Torvalds tree at
+`48a5a7ab8d6ab7090564339e039c421f315de912`.
+`scripts/checkpatch.pl --no-tree --strict` reported zero errors, warnings, or
+checks. The affected x86-64 object compiled from both trees with `W=1`, GCC
+16.1.1, GNU Make 4.4.1, and `CONFIG_SND_HDA_CODEC_CA0132=m`; both resulting
+144,496-byte `ca0132.o` files had SHA-256
+`dc0fa05f0dc9f27d12e28d593058a09d834e1b123cac82a0201397f9a877a3b8`.
+This source/build validation did not install a kernel, load a module, or write
+the AE-5.
 
 Build and boot the patched kernel or module, then verify before writing the
 control:

@@ -2,8 +2,8 @@ use ae5_control::{
     Ae5Device, Ae5Mixer, ChannelLevel, ControlError, ControlSnapshot, Level, NativeRatesConfig,
     PipeWireNode, Profile, ProfileControl, SbCommandImport, SbCommandTarget, ae5_input, ae5_output,
     import_active_sbcommand_profile_with_report, import_sbcommand_profile_with_report,
-    native_rates_config, profile_library, profile_library_directory, set_ae5_default_input,
-    set_ae5_default_output, set_native_rates_enabled, snapshot_controls,
+    native_rates_config, playback_switch_block_reason, profile_library, profile_library_directory,
+    set_ae5_default_input, set_ae5_default_output, set_native_rates_enabled, snapshot_controls,
 };
 use gtk::prelude::*;
 use gtk::{gdk::Display, gio};
@@ -117,6 +117,7 @@ fn content(
         let page = control_page(
             device.card_index,
             &status,
+            controls,
             controls
                 .iter()
                 .filter(|control| category.matches(&control.name)),
@@ -1054,13 +1055,22 @@ fn format_profile_channels(channels: &std::collections::BTreeMap<String, i64>) -
 fn control_page<'a>(
     card_index: i32,
     status: &gtk::Label,
+    all_controls: &[ControlSnapshot],
     controls: impl Iterator<Item = &'a ControlSnapshot>,
 ) -> gtk::ScrolledWindow {
     let list = gtk::ListBox::new();
     list.set_selection_mode(gtk::SelectionMode::None);
     list.add_css_class("control-list");
     for control in controls {
-        list.append(&control_row(card_index, status, control));
+        let playback_switch_block = (control.playback_switch == Some(false))
+            .then(|| playback_switch_block_reason(&control.name, true, all_controls))
+            .flatten();
+        list.append(&control_row(
+            card_index,
+            status,
+            control,
+            playback_switch_block,
+        ));
     }
 
     let page = gtk::Box::new(gtk::Orientation::Vertical, 0);
@@ -1076,15 +1086,29 @@ fn control_page<'a>(
         .build()
 }
 
-fn control_row(card_index: i32, status: &gtk::Label, control: &ControlSnapshot) -> gtk::ListBoxRow {
+fn control_row(
+    card_index: i32,
+    status: &gtk::Label,
+    control: &ControlSnapshot,
+    playback_switch_block: Option<&str>,
+) -> gtk::ListBoxRow {
     let row = gtk::Box::new(gtk::Orientation::Horizontal, 24);
     row.add_css_class("control-row");
 
+    let labels = gtk::Box::new(gtk::Orientation::Vertical, 3);
+    labels.set_hexpand(true);
     let name = gtk::Label::new(Some(&control.name));
     name.set_xalign(0.0);
-    name.set_hexpand(true);
     name.set_wrap(true);
-    row.append(&name);
+    labels.append(&name);
+    if let Some(message) = playback_switch_block {
+        let explanation = gtk::Label::new(Some(message));
+        explanation.set_xalign(0.0);
+        explanation.set_wrap(true);
+        explanation.add_css_class("dim-label");
+        labels.append(&explanation);
+    }
+    row.append(&labels);
 
     let editors = gtk::Box::new(gtk::Orientation::Horizontal, 12);
     editors.set_halign(gtk::Align::End);
@@ -1109,7 +1133,14 @@ fn control_row(card_index: i32, status: &gtk::Label, control: &ControlSnapshot) 
     if let Some(enabled) = control.playback_switch {
         editors.append(&labelled(
             "Playback",
-            &switch_editor(card_index, status, &control.name, enabled, false),
+            &switch_editor(
+                card_index,
+                status,
+                &control.name,
+                enabled,
+                false,
+                playback_switch_block,
+            ),
         ));
     }
     if let Some(level) = &control.playback_level {
@@ -1125,7 +1156,7 @@ fn control_row(card_index: i32, status: &gtk::Label, control: &ControlSnapshot) 
     if let Some(enabled) = control.capture_switch {
         editors.append(&labelled(
             "Capture",
-            &switch_editor(card_index, status, &control.name, enabled, true),
+            &switch_editor(card_index, status, &control.name, enabled, true, None),
         ));
     }
     if let Some(level) = &control.capture_level {
@@ -1223,11 +1254,16 @@ fn switch_editor(
     name: &str,
     enabled: bool,
     capture: bool,
+    block_reason: Option<&str>,
 ) -> gtk::Switch {
     let control = gtk::Switch::builder()
         .active(enabled)
         .valign(gtk::Align::Center)
         .build();
+    if let Some(reason) = block_reason {
+        control.set_sensitive(false);
+        control.set_tooltip_text(Some(reason));
+    }
     control.update_property(&[gtk::accessible::Property::Label(&format!(
         "{} {} switch",
         name,

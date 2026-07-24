@@ -1,3 +1,4 @@
+use crate::controls::invalid_bass_state_reason;
 use crate::{Ae5Mixer, ControlError, ControlSnapshot};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -179,11 +180,27 @@ impl Profile {
         allow_high_gain: bool,
     ) -> Result<BTreeMap<String, ProfileControl>, ProfileError> {
         self.validate_structure()?;
+        let current_controls = mixer.snapshots().map_err(ControlError::from)?;
         let mut before = BTreeMap::new();
         for (name, requested) in &self.controls {
-            let current = mixer.snapshot(name)?;
+            let current = current_controls
+                .iter()
+                .find(|control| control.name == *name)
+                .cloned()
+                .ok_or_else(|| ControlError::Missing(name.clone()))?;
             validate_control(name, requested, &current, allow_high_gain)?;
             before.insert(name.clone(), ProfileControl::from(current));
+        }
+        let mut projected = current_controls;
+        project_controls(&mut projected, &self.controls);
+        if self.controls.keys().any(|name| {
+            matches!(
+                name.as_str(),
+                "Output Select" | "Surround Channel Config" | "Bass Redirection" | "FX: X-Bass"
+            )
+        }) && let Some(reason) = invalid_bass_state_reason(&projected)
+        {
+            return Err(ProfileError::Invalid(reason.to_owned()));
         }
         Ok(before)
     }
@@ -378,26 +395,25 @@ fn apply_controls(
     controls: &BTreeMap<String, ProfileControl>,
     allow_high_gain: bool,
 ) -> Result<(), ControlError> {
+    // Route changes are safe only after conflicting effects are off; target effects come last.
+    apply_switches(mixer, controls, false)?;
+
     for (name, control) in controls {
-        let current = mixer.snapshot(name)?;
         if let Some(choice) = &control.choice
-            && current
+            && mixer
+                .snapshot(name)?
                 .selected
                 .as_ref()
                 .is_none_or(|value| !value.eq_ignore_ascii_case(choice))
         {
             mixer.set_choice_checked(name, choice, allow_high_gain)?;
         }
-        if let Some(value) = control.playback_switch
-            && current.playback_switch != Some(value)
-        {
-            mixer.set_playback_switch(name, value)?;
-        }
-        if let Some(value) = control.capture_switch
-            && current.capture_switch != Some(value)
-        {
-            mixer.set_capture_switch(name, value)?;
-        }
+    }
+
+    apply_switches(mixer, controls, true)?;
+
+    for (name, control) in controls {
+        let current = mixer.snapshot(name)?;
         if let Some(value) = control.playback_level
             && current.playback_level.as_ref().map(|level| level.value) != Some(value)
         {
@@ -416,6 +432,42 @@ fn apply_controls(
         }
     }
     Ok(())
+}
+
+fn apply_switches(
+    mixer: &Ae5Mixer,
+    controls: &BTreeMap<String, ProfileControl>,
+    enabled: bool,
+) -> Result<(), ControlError> {
+    for (name, control) in controls {
+        let apply_playback = control.playback_switch == Some(enabled);
+        let apply_capture = control.capture_switch == Some(enabled);
+        if !apply_playback && !apply_capture {
+            continue;
+        }
+        let current = mixer.snapshot(name)?;
+        if apply_playback && current.playback_switch != Some(enabled) {
+            mixer.set_playback_switch(name, enabled)?;
+        }
+        if apply_capture && current.capture_switch != Some(enabled) {
+            mixer.set_capture_switch(name, enabled)?;
+        }
+    }
+    Ok(())
+}
+
+fn project_controls(current: &mut [ControlSnapshot], requested: &BTreeMap<String, ProfileControl>) {
+    for control in current {
+        let Some(target) = requested.get(&control.name) else {
+            continue;
+        };
+        if let Some(choice) = &target.choice {
+            control.selected = Some(choice.clone());
+        }
+        if let Some(enabled) = target.playback_switch {
+            control.playback_switch = Some(enabled);
+        }
+    }
 }
 
 impl fmt::Display for ProfileError {
@@ -494,6 +546,34 @@ mod tests {
         }
     }
 
+    fn switch_snapshot(name: &str, enabled: bool) -> ControlSnapshot {
+        ControlSnapshot {
+            name: name.to_owned(),
+            selected: None,
+            choices: Vec::new(),
+            playback_switch: Some(enabled),
+            capture_switch: None,
+            playback_level: None,
+            capture_level: None,
+            playback_channels: Vec::new(),
+            capture_channels: Vec::new(),
+        }
+    }
+
+    fn choice_snapshot(name: &str, selected: &str) -> ControlSnapshot {
+        ControlSnapshot {
+            name: name.to_owned(),
+            selected: Some(selected.to_owned()),
+            choices: Vec::new(),
+            playback_switch: None,
+            capture_switch: None,
+            playback_level: None,
+            capture_level: None,
+            playback_channels: Vec::new(),
+            capture_channels: Vec::new(),
+        }
+    }
+
     #[test]
     fn native_profile_round_trips_as_json() {
         let mut profile = sample_profile();
@@ -563,6 +643,58 @@ mod tests {
         assert_eq!(profile.playback_level, Some(90));
         assert_eq!(profile.playback_channels["Front Left"], 90);
         assert_eq!(profile.playback_channels["Front Right"], 82);
+    }
+
+    #[test]
+    fn projects_a_safe_final_bass_state_before_profile_writes() {
+        let current = vec![
+            switch_snapshot("FX: X-Bass", true),
+            switch_snapshot("Bass Redirection", false),
+            choice_snapshot("Surround Channel Config", "2.0"),
+            choice_snapshot("Output Select", "Headphone"),
+        ];
+        let route = BTreeMap::from([
+            (
+                "Output Select".to_owned(),
+                ProfileControl {
+                    choice: Some("Speakers".to_owned()),
+                    ..ProfileControl::default()
+                },
+            ),
+            (
+                "Surround Channel Config".to_owned(),
+                ProfileControl {
+                    choice: Some("5.1".to_owned()),
+                    ..ProfileControl::default()
+                },
+            ),
+        ]);
+
+        let mut projected = current.clone();
+        project_controls(&mut projected, &route);
+        assert_eq!(
+            invalid_bass_state_reason(&projected),
+            Some("X-Bass is unavailable for speaker layouts with an LFE channel.")
+        );
+
+        let mut safe_route = route;
+        safe_route.insert(
+            "FX: X-Bass".to_owned(),
+            ProfileControl {
+                playback_switch: Some(false),
+                ..ProfileControl::default()
+            },
+        );
+        safe_route.insert(
+            "Bass Redirection".to_owned(),
+            ProfileControl {
+                playback_switch: Some(true),
+                ..ProfileControl::default()
+            },
+        );
+        let mut projected = current;
+        project_controls(&mut projected, &safe_route);
+        assert_eq!(invalid_bass_state_reason(&projected), None);
     }
 
     #[test]

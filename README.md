@@ -72,7 +72,9 @@ indexes or numeric control IDs. Stereo balances are captured and restored
 without breaking profiles created before channel support. Saving refuses to
 overwrite an existing file; checking performs all validation without changing
 hardware; applying verifies every write and rolls back the targeted controls
-if a write fails:
+if a write fails. Profiles validate their projected final bass-routing state
+before the first write, then disable conflicting effects before route changes
+and enable target effects afterward:
 
 ```sh
 cargo run -- profile-library
@@ -134,7 +136,11 @@ make the AE-5 the default PipeWire playback or recording device and opt into
 native-rate switching without changing its ALSA mixer controls. Stereo ALSA
 controls receive separate accessible channel sliders; selectors, switches, and
 bounded sliders write through the verified ALSA backend. High headphone gain
-requires an explicit opt-in. It listens for native ALSA mixer events, so changes
+requires an explicit opt-in. The GUI enables bass redirection only for Speakers
+with an LFE channel and disables X-Bass on those speaker layouts; each
+unavailable switch explains which setting must change. The shared backend
+applies the same guard to CLI and profile writes, so those constraints cannot
+be bypassed outside the GUI. It listens for native ALSA mixer events, so changes
 made by another mixer application or command-line process are reflected without
 a polling loop while the selected page remains open:
 

@@ -75,13 +75,18 @@ band counts, and frequencies are still rejected.
 
 ## Native desktop application
 
-The GTK 4 application groups every live control into profiles, playback,
-effects, equalizer, and recording pages. Stereo ALSA controls receive separate
-accessible channel sliders; selectors, switches, and bounded sliders write
-through the verified ALSA backend. High headphone gain requires an explicit
-opt-in. It listens for native ALSA mixer events, so changes made by another
-mixer application or command-line process are reflected without a polling loop
-while the selected page remains open:
+The GTK 4 application groups device diagnostics, profiles, playback, effects,
+equalizer, and recording into dedicated pages. The **Device** page shows the
+exact detected hardware, live capability counts, and driver values outside
+their advertised ranges. It can save the same privacy-conscious diagnostics
+report as `ae5-collect-report` without invoking a shell or requiring root.
+
+Stereo ALSA controls receive separate accessible channel sliders; selectors,
+switches, and bounded sliders write through the verified ALSA backend. High
+headphone gain requires an explicit opt-in. The app listens for native ALSA
+mixer events, so changes made by another mixer application or command-line
+process are reflected without a polling loop while the selected page remains
+open:
 
 ```sh
 sudo dnf install gtk4-devel

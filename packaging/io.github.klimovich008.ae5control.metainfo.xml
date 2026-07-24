@@ -17,6 +17,10 @@
       Command JSON exports. Hardware writes are range-checked, read back, and
       rolled back when a multi-control profile cannot be applied completely.
     </p>
+    <p>
+      The device page reports live hardware and driver capabilities and can
+      save a privacy-conscious diagnostics report without root privileges.
+    </p>
   </description>
   <launchable type="desktop-id">io.github.klimovich008.ae5control.desktop</launchable>
   <provides>

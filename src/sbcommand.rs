@@ -406,6 +406,16 @@ fn add_eq_controls(
             .exact
             .push("Equalizer.PreAmp 0 dB → no gain adjustment".to_owned());
     }
+    controls.insert(
+        "FX: Equalizer Preset".to_owned(),
+        ProfileControl {
+            choice: Some("Flat".to_owned()),
+            ..ProfileControl::default()
+        },
+    );
+    report
+        .exact
+        .push("Equalizer custom bands → FX: Equalizer Preset Flat".to_owned());
     if settings.bands.len() != EQ_FREQUENCIES.len() {
         return Err(invalid(format!(
             "EQ preset has {} bands; expected {}",
@@ -1131,6 +1141,10 @@ mod tests {
 
         add_eq_controls(&mut controls, &eq, SbCommandTarget::Headphone, &mut report).unwrap();
 
+        assert_eq!(
+            controls["FX: Equalizer Preset"].choice.as_deref(),
+            Some("Flat")
+        );
         assert_eq!(controls["EQ Band0"].playback_level, Some(33));
         assert!(
             report

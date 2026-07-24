@@ -74,7 +74,10 @@ overwrite an existing file; checking performs all validation without changing
 hardware; applying verifies every write and rolls back the targeted controls
 if a write fails. Profiles validate their projected final bass-routing state
 before the first write, then disable conflicting effects before route changes
-and enable target effects afterward:
+and enable target effects afterward. CA0132 factory EQ presets contain
+fractional values that the whole-dB band controls cannot represent reliably,
+so newly captured factory-preset profiles omit those stale bands. Legacy
+profiles ignore them during apply, preserving the exact preset curve:
 
 ```sh
 cargo run -- profile-library
@@ -135,12 +138,14 @@ CA0132 cannot enable X-Bass there; the converted profile explicitly turns
 X-Bass off before changing to that route.
 
 The importer maps SBX switches and levels, crossover frequency, Smart Volume
-mode, and all ten EQ bands. Before saving, it separates exact mappings,
-values rounded to ALSA steps, and unsupported non-null source settings. The
-CLI prints the complete report and the desktop preview lists every unsupported
-field. Unsupported settings such as a non-zero EQ preamp are skipped while the
-representable controls are retained; invalid products, files, ranges, units,
-band counts, and frequencies are still rejected.
+mode, and all ten EQ bands. It selects the driver's Flat preset before custom
+bands so a prior factory curve cannot leak into the migrated settings. Before
+saving, it separates exact mappings, values rounded to ALSA steps, and
+unsupported non-null source settings. The CLI prints the complete report and
+the desktop preview lists every unsupported field. Unsupported settings such
+as a non-zero EQ preamp are skipped while the representable controls are
+retained; invalid products, files, ranges, units, band counts, and frequencies
+are still rejected.
 
 ## Native desktop application
 
@@ -160,11 +165,12 @@ technology, including the reason when a guarded action is unavailable. High
 headphone gain requires an explicit opt-in. The GUI enables bass redirection
 only for Speakers with an LFE channel and disables X-Bass on those speaker
 layouts; each unavailable switch explains which setting must change. The
-shared backend applies the same guard to CLI and profile writes, so those
-constraints cannot be bypassed outside the GUI. It listens for native ALSA
-mixer events, so changes made by another mixer application or command-line
-process are reflected without a polling loop while the selected page remains
-open:
+equalizer disables custom band sliders while a factory preset is selected and
+explains that Flat must be selected first. The shared backend applies the same
+guards to CLI and profile writes, so those constraints cannot be bypassed
+outside the GUI. It listens for native ALSA mixer events, so changes made by
+another mixer application or command-line process are reflected without a
+polling loop while the selected page remains open:
 
 ```sh
 sudo dnf install gtk4-devel
@@ -248,14 +254,14 @@ loaded on the AE-5, and the bounded driver experiment sequence are documented
 in
 [docs/HEADPHONE_TUNING_INVESTIGATION.md](docs/HEADPHONE_TUNING_INVESTIGATION.md).
 
-The hardware audit also found an independent upstream CA0132 Wedge Angle
-default bug and an unbounded DSP fast-load parser. The repository carries a
-minimal Wedge Angle fix and a separately reviewable parser-hardening candidate
-with KUnit coverage. Evidence, proposed commit messages, and validation steps
-are in [kernel/README.md](kernel/README.md). Neither patch has been loaded on
-the target system. Until the Wedge Angle fix is running, AE-5 Control displays
-the invalid value as a driver warning and excludes it from newly captured
-profiles.
+The hardware audit also found independent upstream CA0132 Wedge Angle and
+factory-EQ cache bugs, plus an unbounded DSP fast-load parser. The repository
+carries minimal Wedge Angle and EQ cache fixes and a separately reviewable
+parser-hardening candidate with KUnit coverage. Evidence, proposed commit
+messages, and validation steps are in [kernel/README.md](kernel/README.md).
+None of the patches has been loaded on the target system. Until the Wedge
+Angle fix is running, AE-5 Control displays the invalid value as a driver
+warning and excludes it from newly captured profiles.
 
 Objective Windows/Linux level, frequency-response, and noise comparison is
 documented in

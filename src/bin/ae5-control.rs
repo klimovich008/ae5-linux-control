@@ -1,7 +1,7 @@
 use ae5_control::{
     Ae5Device, Ae5Mixer, ChannelLevel, ControlError, ControlSnapshot, Level, NativeRatesConfig,
     PipeWireNode, Profile, ProfileControl, SbCommandImport, SbCommandTarget, ae5_input, ae5_output,
-    discover_sbcommand_installation, export_library_profile,
+    discover_sbcommand_installation, equalizer_band_block_reason, export_library_profile,
     import_active_sbcommand_profile_with_report, import_sbcommand_profile_with_report,
     library_profile, native_rates_config, playback_switch_block_reason, profile_library,
     profile_library_directory, rename_library_profile, set_ae5_default_input,
@@ -1492,11 +1492,13 @@ fn control_page<'a>(
         let playback_switch_block = (control.playback_switch == Some(false))
             .then(|| playback_switch_block_reason(&control.name, true, all_controls))
             .flatten();
+        let level_block = equalizer_band_block_reason(&control.name, all_controls);
         list.append(&control_row(
             card_index,
             status,
             control,
             playback_switch_block,
+            level_block,
         ));
     }
 
@@ -1518,6 +1520,7 @@ fn control_row(
     status: &gtk::Label,
     control: &ControlSnapshot,
     playback_switch_block: Option<&str>,
+    level_block: Option<&str>,
 ) -> gtk::ListBoxRow {
     let row = gtk::Box::new(gtk::Orientation::Horizontal, 24);
     row.add_css_class("control-row");
@@ -1528,7 +1531,7 @@ fn control_row(
     name.set_xalign(0.0);
     name.set_wrap(true);
     labels.append(&name);
-    if let Some(message) = playback_switch_block {
+    if let Some(message) = playback_switch_block.or(level_block) {
         let explanation = gtk::Label::new(Some(message));
         explanation.set_xalign(0.0);
         explanation.set_wrap(true);
@@ -1578,6 +1581,7 @@ fn control_row(
             level,
             &control.playback_channels,
             false,
+            level_block,
         ));
     }
     if let Some(enabled) = control.capture_switch {
@@ -1594,6 +1598,7 @@ fn control_row(
             level,
             &control.capture_channels,
             true,
+            None,
         ));
     }
     row.append(&editors);
@@ -1603,7 +1608,7 @@ fn control_row(
         .selectable(false)
         .child(&row)
         .build();
-    let description = control_row_description(control, playback_switch_block);
+    let description = control_row_description(control, playback_switch_block.or(level_block));
     list_row.update_property(&[
         gtk::accessible::Property::Label(&control.name),
         gtk::accessible::Property::Description(&description),
@@ -1757,9 +1762,10 @@ fn level_editors(
     level: &Level,
     channels: &[ChannelLevel],
     capture: bool,
+    block_reason: Option<&str>,
 ) -> gtk::Widget {
     if channels.len() < 2 {
-        return level_editor(card_index, status, name, level, capture, None);
+        return level_editor(card_index, status, name, level, capture, None, block_reason);
     }
 
     let group = gtk::Box::new(gtk::Orientation::Vertical, 6);
@@ -1776,6 +1782,7 @@ fn level_editors(
             &channel_level,
             capture,
             Some(&channel.name),
+            block_reason,
         );
         group.append(&labelled(
             &format!(
@@ -1796,6 +1803,7 @@ fn level_editor(
     level: &Level,
     capture: bool,
     channel: Option<&str>,
+    block_reason: Option<&str>,
 ) -> gtk::Widget {
     if !(level.min..=level.max).contains(&level.value) {
         let warning = gtk::Label::new(Some(&format!(
@@ -1819,6 +1827,10 @@ fn level_editor(
     scale.set_digits(0);
     scale.set_draw_value(true);
     scale.set_width_request(210);
+    if let Some(reason) = block_reason {
+        scale.set_sensitive(false);
+        scale.set_tooltip_text(Some(reason));
+    }
     let accessible_label = match channel {
         Some(channel) => format!(
             "{} {} {} level",

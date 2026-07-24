@@ -78,6 +78,11 @@ as
 its implementation and validation record is in
 [`kernel/README.md`](../kernel/README.md).
 
+At the same verification time, `sound.git` `master` was
+`f5657cb8480cd4b38589bf50cd8eae07e183b53e` and contained the same CA0132
+file. The factory-EQ cache candidate therefore applies to the exact running
+`v7.1.4` source and all three recorded upstream snapshots without rebasing.
+
 ## Firmware already distributed for Linux
 
 Fedora package `alsa-firmware-1.2.4-17.fc44` supplies the target system's
@@ -162,3 +167,14 @@ contain the same line. The original line was introduced by `44f0c9782cc6`
 (`ALSA: hda/ca0132: Add tuning controls`). The minimal fix and its evidence are
 recorded in [`kernel/README.md`](../kernel/README.md); it does not alter routing
 or make any audio-parity claim.
+
+A later physical EQ audit found a second self-contained control defect. The
+factory-preset callback writes requests 10 through 20 from
+`ca0132_alt_eq_presets[]`, then updates only `eq_preset_val`.
+`tuning_ctl_get()` returns the independent `cur_ctl_vals[]` cache for all ten
+band controls, and the preset callback never synchronizes that cache. Acoustic
+therefore changed the measured DSP response while every band still reported
+0 dB. The callback is identical in the exact running source and all recorded
+upstream snapshots. The minimal cache/notification fix, userspace compatibility
+guard, and validation record are in
+[`kernel/README.md`](../kernel/README.md).

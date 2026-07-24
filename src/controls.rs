@@ -15,6 +15,10 @@ const CHANNELS: &[SelemChannelId] = &[
     SelemChannelId::RearCenter,
 ];
 
+pub(crate) const EQUALIZER_PRESET_CONTROL: &str = "FX: Equalizer Preset";
+const EQUALIZER_BAND_EDIT_BLOCK: &str = "Factory EQ presets use DSP values that the individual \
+    1 dB controls cannot represent reliably. Select Flat before editing custom bands.";
+
 #[derive(Debug)]
 pub enum ControlError {
     Alsa(alsa::Error),
@@ -94,6 +98,26 @@ pub fn playback_switch_block_reason(
         }
         _ => None,
     }
+}
+
+pub fn equalizer_band_block_reason(
+    name: &str,
+    controls: &[ControlSnapshot],
+) -> Option<&'static str> {
+    if !is_equalizer_band(name) {
+        return None;
+    }
+    controls
+        .iter()
+        .find(|control| control.name == EQUALIZER_PRESET_CONTROL)
+        .and_then(|control| control.selected.as_deref())
+        .filter(|preset| !preset.eq_ignore_ascii_case("Flat"))
+        .map(|_| EQUALIZER_BAND_EDIT_BLOCK)
+}
+
+pub(crate) fn is_equalizer_band(name: &str) -> bool {
+    name.strip_prefix("EQ Band")
+        .is_some_and(|band| band.parse::<u8>().is_ok_and(|band| band < 10))
 }
 
 pub(crate) fn invalid_bass_state_reason(controls: &[ControlSnapshot]) -> Option<&'static str> {
@@ -234,6 +258,7 @@ impl Ae5Mixer {
         name: &str,
         value: i64,
     ) -> Result<ControlSnapshot, ControlError> {
+        self.ensure_equalizer_band_editable(name)?;
         let element = self.find(name)?;
         if !element.has_playback_volume() {
             return Err(ControlError::Invalid(format!(
@@ -254,6 +279,7 @@ impl Ae5Mixer {
         channel: &str,
         value: i64,
     ) -> Result<ControlSnapshot, ControlError> {
+        self.ensure_equalizer_band_editable(name)?;
         let element = self.find(name)?;
         if !element.has_playback_volume() {
             return Err(ControlError::Invalid(format!(
@@ -313,6 +339,15 @@ impl Ae5Mixer {
         self.mixer
             .find_selem(&alsa::mixer::SelemId::new(name, 0))
             .ok_or_else(|| ControlError::Missing(name.to_owned()))
+    }
+
+    fn ensure_equalizer_band_editable(&self, name: &str) -> Result<(), ControlError> {
+        if is_equalizer_band(name)
+            && let Some(reason) = equalizer_band_block_reason(name, &self.snapshots()?)
+        {
+            return Err(ControlError::Invalid(reason.to_owned()));
+        }
+        Ok(())
     }
 }
 
@@ -709,5 +744,18 @@ mod tests {
             playback_switch_block_reason("FX: X-Bass", true, &controls),
             None
         );
+    }
+
+    #[test]
+    fn blocks_custom_eq_bands_until_the_factory_preset_is_flat() {
+        let mut controls = vec![selected_choice(EQUALIZER_PRESET_CONTROL, "Acoustic")];
+        assert_eq!(
+            equalizer_band_block_reason("EQ Band0", &controls),
+            Some(EQUALIZER_BAND_EDIT_BLOCK)
+        );
+        assert_eq!(equalizer_band_block_reason("Front", &controls), None);
+
+        controls[0].selected = Some("Flat".to_owned());
+        assert_eq!(equalizer_band_block_reason("EQ Band9", &controls), None);
     }
 }

@@ -1,4 +1,7 @@
-use crate::controls::invalid_bass_state_reason;
+use crate::controls::{
+    EQUALIZER_PRESET_CONTROL, equalizer_band_block_reason, invalid_bass_state_reason,
+    is_equalizer_band,
+};
 use crate::{Ae5Mixer, ControlError, ControlSnapshot};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -154,12 +157,16 @@ impl Profile {
     }
 
     pub fn capture(name: &str, controls: Vec<ControlSnapshot>) -> Result<Self, ProfileError> {
+        let omit_equalizer_bands = equalizer_band_block_reason("EQ Band0", &controls).is_some();
         Self::new(
             name,
             controls
                 .into_iter()
                 .filter_map(|control| {
                     let name = control.name.clone();
+                    if omit_equalizer_bands && is_equalizer_band(&name) {
+                        return None;
+                    }
                     let value = ProfileControl::from(control);
                     (!value.is_empty()).then_some((name, value))
                 })
@@ -266,7 +273,7 @@ impl Profile {
             });
         }
         Ok(ApplyReport {
-            controls_applied: self.controls.len(),
+            controls_applied: effective_control_count(&self.controls),
         })
     }
 
@@ -325,6 +332,12 @@ impl Profile {
         }
         let mut projected = current_controls;
         project_controls(&mut projected, &self.controls);
+        if self.controls.keys().any(|name| is_equalizer_band(name))
+            && !profile_uses_factory_equalizer_preset(&self.controls)
+            && let Some(reason) = equalizer_band_block_reason("EQ Band0", &projected)
+        {
+            return Err(ProfileError::Invalid(reason.to_owned()));
+        }
         if self.controls.keys().any(|name| {
             matches!(
                 name.as_str(),
@@ -529,14 +542,16 @@ fn apply_controls(
 ) -> Result<(), ControlError> {
     // Route changes are safe only after conflicting effects are off; target effects come last.
     apply_switches(mixer, controls, false)?;
+    let skip_equalizer_bands = profile_uses_factory_equalizer_preset(controls);
 
     for (name, control) in controls {
         if let Some(choice) = &control.choice
-            && mixer
-                .snapshot(name)?
-                .selected
-                .as_ref()
-                .is_none_or(|value| !value.eq_ignore_ascii_case(choice))
+            && (skip_equalizer_bands && name == EQUALIZER_PRESET_CONTROL
+                || mixer
+                    .snapshot(name)?
+                    .selected
+                    .as_ref()
+                    .is_none_or(|value| !value.eq_ignore_ascii_case(choice)))
         {
             mixer.set_choice(name, choice, allow_high_gain)?;
         }
@@ -545,6 +560,9 @@ fn apply_controls(
     apply_switches(mixer, controls, true)?;
 
     for (name, control) in controls {
+        if skip_equalizer_bands && is_equalizer_band(name) {
+            continue;
+        }
         let current = mixer.snapshot(name)?;
         if let Some(value) = control.playback_level
             && current.playback_level.as_ref().map(|level| level.value) != Some(value)
@@ -564,6 +582,24 @@ fn apply_controls(
         }
     }
     Ok(())
+}
+
+fn profile_uses_factory_equalizer_preset(controls: &BTreeMap<String, ProfileControl>) -> bool {
+    controls
+        .get(EQUALIZER_PRESET_CONTROL)
+        .and_then(|control| control.choice.as_deref())
+        .is_some_and(|preset| !preset.eq_ignore_ascii_case("Flat"))
+}
+
+fn effective_control_count(controls: &BTreeMap<String, ProfileControl>) -> usize {
+    if profile_uses_factory_equalizer_preset(controls) {
+        controls
+            .keys()
+            .filter(|name| !is_equalizer_band(name))
+            .count()
+    } else {
+        controls.len()
+    }
 }
 
 fn apply_switches(
@@ -667,6 +703,8 @@ mod tests {
     struct FakeMixer {
         surround: Cell<bool>,
         front: Cell<i64>,
+        eq_preset: RefCell<String>,
+        eq_band: Cell<i64>,
         writes: RefCell<Vec<String>>,
     }
 
@@ -675,6 +713,8 @@ mod tests {
             Self {
                 surround: Cell::new(false),
                 front: Cell::new(20),
+                eq_preset: RefCell::new("Flat".to_owned()),
+                eq_band: Cell::new(31),
                 writes: RefCell::new(Vec::new()),
             }
         }
@@ -691,6 +731,8 @@ mod tests {
             Ok(vec![
                 switch_snapshot("FX: Surround", self.surround.get()),
                 level_snapshot("Front", self.front.get()),
+                eq_preset_snapshot(&self.eq_preset.borrow()),
+                eq_band_snapshot(self.eq_band.get()),
             ])
         }
 
@@ -698,17 +740,24 @@ mod tests {
             match name {
                 "FX: Surround" => Ok(switch_snapshot(name, self.surround.get())),
                 "Front" => Ok(level_snapshot(name, self.front.get())),
+                EQUALIZER_PRESET_CONTROL => Ok(eq_preset_snapshot(&self.eq_preset.borrow())),
+                "EQ Band0" => Ok(eq_band_snapshot(self.eq_band.get())),
                 _ => Err(ControlError::Missing(name.to_owned())),
             }
         }
 
         fn set_choice(
             &self,
-            _name: &str,
-            _choice: &str,
+            name: &str,
+            choice: &str,
             _allow_high_gain: bool,
         ) -> Result<(), ControlError> {
-            unreachable!("this rollback scenario has no choice writes")
+            if name != EQUALIZER_PRESET_CONTROL {
+                return Err(ControlError::Missing(name.to_owned()));
+            }
+            self.record(format!("{name}={choice}"));
+            *self.eq_preset.borrow_mut() = choice.to_owned();
+            Ok(())
         }
 
         fn set_playback_switch(&self, name: &str, enabled: bool) -> Result<(), ControlError> {
@@ -725,12 +774,13 @@ mod tests {
         }
 
         fn set_playback_level(&self, name: &str, value: i64) -> Result<(), ControlError> {
-            if name != "Front" {
-                return Err(ControlError::Missing(name.to_owned()));
+            match name {
+                "Front" => self.front.set(value),
+                "EQ Band0" => self.eq_band.set(value),
+                _ => return Err(ControlError::Missing(name.to_owned())),
             }
             let write_number = self.record(format!("{name} playback level={value}"));
-            self.front.set(value);
-            if write_number == 2 {
+            if name == "Front" && write_number == 2 {
                 return Err(ControlError::Verification(
                     "injected write failure".to_owned(),
                 ));
@@ -825,6 +875,19 @@ mod tests {
         }
     }
 
+    fn eq_preset_snapshot(selected: &str) -> ControlSnapshot {
+        let mut snapshot = choice_snapshot(EQUALIZER_PRESET_CONTROL, selected);
+        snapshot.choices = vec!["Flat".to_owned(), "Acoustic".to_owned()];
+        snapshot
+    }
+
+    fn eq_band_snapshot(value: i64) -> ControlSnapshot {
+        let mut snapshot = level_snapshot("EQ Band0", value);
+        snapshot.playback_level.as_mut().unwrap().min = 0;
+        snapshot.playback_level.as_mut().unwrap().max = 48;
+        snapshot
+    }
+
     #[test]
     fn native_profile_round_trips_as_json() {
         let mut profile = sample_profile();
@@ -894,6 +957,76 @@ mod tests {
         assert_eq!(profile.playback_level, Some(90));
         assert_eq!(profile.playback_channels["Front Left"], 90);
         assert_eq!(profile.playback_channels["Front Right"], 82);
+    }
+
+    #[test]
+    fn omits_stale_eq_bands_when_capturing_a_factory_preset() {
+        let mixer = FakeMixer::new();
+        *mixer.eq_preset.borrow_mut() = "Acoustic".to_owned();
+
+        let profile = Profile::capture("Acoustic", mixer.snapshots().unwrap()).unwrap();
+
+        assert_eq!(
+            profile.controls[EQUALIZER_PRESET_CONTROL].choice.as_deref(),
+            Some("Acoustic")
+        );
+        assert!(!profile.controls.contains_key("EQ Band0"));
+    }
+
+    #[test]
+    fn legacy_factory_preset_profiles_ignore_stale_eq_bands() {
+        let mixer = FakeMixer::new();
+        *mixer.eq_preset.borrow_mut() = "Acoustic".to_owned();
+        let profile = Profile::new(
+            "Acoustic",
+            BTreeMap::from([
+                (
+                    EQUALIZER_PRESET_CONTROL.to_owned(),
+                    ProfileControl {
+                        choice: Some("Acoustic".to_owned()),
+                        ..ProfileControl::default()
+                    },
+                ),
+                (
+                    "EQ Band0".to_owned(),
+                    ProfileControl {
+                        playback_level: Some(24),
+                        ..ProfileControl::default()
+                    },
+                ),
+            ]),
+        )
+        .unwrap();
+
+        let report = profile.apply_to(&mixer, false).unwrap();
+
+        assert_eq!(report.controls_applied, 1);
+        assert_eq!(*mixer.writes.borrow(), ["FX: Equalizer Preset=Acoustic"]);
+        assert_eq!(mixer.eq_band.get(), 31);
+    }
+
+    #[test]
+    fn rejects_band_only_profiles_while_a_factory_preset_is_active() {
+        let mixer = FakeMixer::new();
+        *mixer.eq_preset.borrow_mut() = "Acoustic".to_owned();
+        let profile = Profile::new(
+            "Unsafe partial EQ",
+            BTreeMap::from([(
+                "EQ Band0".to_owned(),
+                ProfileControl {
+                    playback_level: Some(24),
+                    ..ProfileControl::default()
+                },
+            )]),
+        )
+        .unwrap();
+
+        assert!(matches!(
+            profile.apply_to(&mixer, false),
+            Err(ProfileError::Invalid(message))
+                if message.contains("Select Flat before editing custom bands")
+        ));
+        assert!(mixer.writes.borrow().is_empty());
     }
 
     #[test]

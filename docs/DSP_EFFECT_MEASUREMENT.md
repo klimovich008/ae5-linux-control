@@ -84,6 +84,27 @@ must establish whether the same CA0132 DSP filters behave identically under
 the Creative driver. If Windows reaches the full requested gain, characterize
 the Linux filter centers and DSP parameters before changing the mapping.
 
+## Factory preset readback
+
+Selecting the Acoustic factory preset changed the physical What U Hear
+response by up to 2.49 dB relative to Flat, including +2.44 dB at 8 kHz and
++2.49 dB at 16 kHz after normalization to 1 kHz. The capture SHA-256 is
+`288a1bee142f38c2eefa165059f0f0e3fe45097678e62cb1c4dacc960c9fa5c9`.
+Despite that DSP change, `FX: Equalizer Preset` read back Acoustic while every
+`EQ Band0` through `EQ Band9` control remained at `24`.
+
+The exact running source explains the mismatch. The preset callback sends its
+11 table values directly to DSP requests 10 through 20 and updates only the
+preset enum cache. Individual band get callbacks return a different
+`cur_ctl_vals[]` cache that the preset path never updates. Current upstream
+source has the same callback.
+
+AE-5 Control now omits non-authoritative bands when capturing a factory
+preset, ignores stale bands in legacy factory-preset profiles, and requires
+Flat before custom band edits. The separate kernel patch records each preset's
+nearest representable whole-dB cache values while retaining its exact
+fractional DSP values.
+
 ## Safety and limits
 
 All completed captures restored the exact original mixer state. No CA0132,

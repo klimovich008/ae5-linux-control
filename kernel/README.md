@@ -64,6 +64,68 @@ The value must be `30`, remain within the advertised `20..180` range, and
 setting 20, 30, and 180 must read back exactly. Voice Focus recording tests
 must show no new kernel warning or DSP timeout.
 
+## Factory EQ preset control cache
+
+`ca0132-eq-preset-control-cache.patch` fixes stale individual EQ controls
+after selecting a factory preset. The preset callback writes DSP requests 10
+through 20 directly and updates only `eq_preset_val`; each `EQ Band0` through
+`EQ Band9` get callback instead returns `cur_ctl_vals[]`. On the physical AE-5,
+selecting Acoustic changed the measured frequency response by up to 2.49 dB
+while all ten band controls continued to report `24` (0 dB).
+
+Some factory values are fractional, such as 1.1, 3.1, and -1.2 dB, while the
+public controls expose whole-dB steps. The patch keeps sending the original
+exact float bit patterns to the DSP, caches each preset's nearest
+representable whole-dB value, and notifies ALSA clients only when a displayed
+band value changes. A same-value band write remains a no-op, so saving and
+reapplying the rounded public values does not replace the exact factory DSP
+curve.
+
+Suggested upstream commit message:
+
+```text
+ALSA: hda/ca0132: Synchronize EQ controls after preset changes
+
+The factory EQ preset callback writes requests 10 through 20 directly to
+the DSP but updates only eq_preset_val. The individual EQ controls return
+cur_ctl_vals[], so they continue to expose the previous band values after
+a preset change. Saving that state and restoring it can then overwrite the
+factory curve with stale values.
+
+Cache the nearest values representable by the whole-dB band controls after
+all preset requests succeed, and notify userspace for each displayed value
+that changed. Keep the preset's original fractional values in the DSP.
+```
+
+The submitting contributor must add their own Developer Certificate of Origin
+`Signed-off-by` line.
+
+### Validation
+
+The patch applies cleanly to the exact running `v7.1.4` source and to the
+identical CA0132 file currently present in Linux `master`, `sound.git`
+`master`, and `sound.git` `for-next`. Both the running source and current
+upstream source compiled `sound/hda/codecs/ca0132.o` with `W=1`. The compile
+used a separate temporary source/output tree; no module was loaded and no
+running kernel file was changed. `checkpatch.pl --strict` reports no errors,
+warnings, or checks.
+
+After an authorized patched-kernel boot, select every factory preset and
+verify that:
+
+- every reported band equals the nearest whole dB to its preset table value;
+- ALSA value events are emitted for bands whose displayed value changed;
+- writing each reported value back leaves the measured factory response
+  unchanged;
+- saving and applying a profile preserves that response from any prior custom
+  EQ state;
+- Flat restores all ten bands to `24`;
+- no CA0132, HDA, ALSA, or DSP warning appears.
+
+AE-5 Control also protects unpatched kernels: factory-preset profiles omit
+stale band values, legacy profiles ignore them, and custom band editing
+requires selecting Flat first.
+
 ## Bounded DSP fast-load images
 
 [`ca0132-dsp-image-bounds.patch`](ca0132-dsp-image-bounds.patch) hardens the

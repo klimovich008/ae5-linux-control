@@ -1,7 +1,7 @@
 use ae5_control::{
     Ae5Device, Ae5Mixer, ChannelLevel, ControlError, ControlSnapshot, Level, Profile,
-    ProfileControl, SbCommandImport, SbCommandTarget, import_sbcommand_profile_with_report,
-    snapshot_controls,
+    ProfileControl, SbCommandImport, SbCommandTarget, import_active_sbcommand_profile_with_report,
+    import_sbcommand_profile_with_report, snapshot_controls,
 };
 use gtk::prelude::*;
 use gtk::{gdk::Display, gio};
@@ -182,7 +182,7 @@ fn profile_page(
 
     let intro = gtk::Label::new(Some(
         "Capture the live card, preview transactional changes, or convert your \
-         Sound Blaster Command JSON without altering the source files.",
+         Sound Blaster Command setup without altering the source files.",
     ));
     intro.set_xalign(0.0);
     intro.set_wrap(true);
@@ -203,14 +203,17 @@ fn profile_page(
         &native_actions,
     ));
 
-    let import = gtk::Button::with_label("Import Windows profile");
+    let import_active = gtk::Button::with_label("Import active Windows setup");
+    import_active.add_css_class("suggested-action");
+    let import = gtk::Button::with_label("Choose profile & EQ files");
     let import_actions = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+    import_actions.append(&import_active);
     import_actions.append(&import);
     page.append(&profile_card(
         "02",
         "Sound Blaster Command",
-        "Choose the Creative profile and EQ JSON files, select headphones or \
-         speakers, inspect the mapped Linux controls, then save a native copy.",
+        "Import the active setup from a mounted Windows installation, or choose \
+         Creative profile and EQ files manually. Review every mapping before saving.",
         &import_actions,
     ));
 
@@ -242,6 +245,21 @@ fn profile_page(
                     }
                     Ok(None) => {}
                     Err(error) => set_status(&status, false, &format!("Apply failed: {error}")),
+                }
+            });
+        });
+    }
+    {
+        let window = window.clone();
+        let status = status.clone();
+        import_active.connect_clicked(move |_| {
+            let window = window.clone();
+            let status = status.clone();
+            gtk::glib::spawn_future_local(async move {
+                match import_active_windows_profile(&window, card_index).await {
+                    Ok(Some(message)) => set_status(&status, true, &message),
+                    Ok(None) => {}
+                    Err(error) => set_status(&status, false, &format!("Import failed: {error}")),
                 }
             });
         });
@@ -365,6 +383,44 @@ async fn import_windows_profile(
     let name = profile_name_from_path(&output)?;
     let import = import_sbcommand_profile_with_report(&name, &profile_path, &eq_path, target)
         .map_err(|error| error.to_string())?;
+    validate_confirm_save_import(window, card_index, import, target, output).await
+}
+
+async fn import_active_windows_profile(
+    window: &gtk::ApplicationWindow,
+    card_index: i32,
+) -> Result<Option<String>, String> {
+    let Some(user_config) = open_config_path(window).await? else {
+        return Ok(None);
+    };
+    let Some(product_dir) =
+        select_folder_path(window, "Choose the Windows AE5 product folder").await?
+    else {
+        return Ok(None);
+    };
+    let Some(target) = choose_import_target(window).await? else {
+        return Ok(None);
+    };
+    let initial_name = format!("windows-active-{}.json", target);
+    let Some(output) =
+        save_json_path(window, "Save converted native profile", &initial_name).await?
+    else {
+        return Ok(None);
+    };
+    let name = profile_name_from_path(&output)?;
+    let import =
+        import_active_sbcommand_profile_with_report(&name, &user_config, &product_dir, target)
+            .map_err(|error| error.to_string())?;
+    validate_confirm_save_import(window, card_index, import, target, output).await
+}
+
+async fn validate_confirm_save_import(
+    window: &gtk::ApplicationWindow,
+    card_index: i32,
+    import: SbCommandImport,
+    target: SbCommandTarget,
+    output: PathBuf,
+) -> Result<Option<String>, String> {
     import
         .profile
         .check(
@@ -523,6 +579,43 @@ async fn open_json_path(
     }
 }
 
+async fn open_config_path(window: &gtk::ApplicationWindow) -> Result<Option<PathBuf>, String> {
+    let filter = gtk::FileFilter::new();
+    filter.set_name(Some("Sound Blaster Command user.config"));
+    filter.add_pattern("user.config");
+    let filters = gio::ListStore::new::<gtk::FileFilter>();
+    filters.append(&filter);
+    let dialog = gtk::FileDialog::builder()
+        .title("Choose Sound Blaster Command user.config")
+        .modal(true)
+        .filters(&filters)
+        .default_filter(&filter)
+        .build();
+    match dialog.open_future(Some(window)).await {
+        Ok(file) => file
+            .path()
+            .map(Some)
+            .ok_or_else(|| "only local files are supported".to_owned()),
+        Err(error) if is_cancelled(&error) => Ok(None),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+async fn select_folder_path(
+    window: &gtk::ApplicationWindow,
+    title: &str,
+) -> Result<Option<PathBuf>, String> {
+    let dialog = gtk::FileDialog::builder().title(title).modal(true).build();
+    match dialog.select_folder_future(Some(window)).await {
+        Ok(folder) => folder
+            .path()
+            .map(Some)
+            .ok_or_else(|| "only local folders are supported".to_owned()),
+        Err(error) if is_cancelled(&error) => Ok(None),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
 async fn save_json_path(
     window: &gtk::ApplicationWindow,
     title: &str,
@@ -542,6 +635,7 @@ async fn save_json_path(
 
 fn is_cancelled(error: &gtk::glib::Error) -> bool {
     error.matches(gio::IOErrorEnum::Cancelled)
+        || error.message().eq_ignore_ascii_case("Dismissed by user")
 }
 
 fn profile_name_from_path(path: &Path) -> Result<String, String> {
@@ -1342,5 +1436,15 @@ mod tests {
         assert!(preview.contains("Approximate mappings (1)"));
         assert!(preview.contains("Unsupported settings (20)"));
         assert!(preview.contains("unsupported 19"));
+    }
+
+    #[test]
+    fn treats_gio_and_kde_portal_dismissals_as_cancellation() {
+        let gio_cancelled =
+            gtk::glib::Error::new(gio::IOErrorEnum::Cancelled, "Operation was cancelled");
+        let portal_cancelled = gtk::glib::Error::new(gio::IOErrorEnum::Failed, "Dismissed by user");
+
+        assert!(is_cancelled(&gio_cancelled));
+        assert!(is_cancelled(&portal_cancelled));
     }
 }

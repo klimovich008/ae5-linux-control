@@ -114,9 +114,10 @@ The **Profiles** page can:
 
 - save the current hardware state as a native JSON profile;
 - validate and preview a native profile before applying it transactionally;
-- import real Sound Blaster Command profile and EQ JSON files for headphones
-  or speakers, review exact, approximate, and unsupported mappings, and save a
-  native copy.
+- import the active setup from a mounted Windows `user.config` and AE-5 product
+  folder, or choose Sound Blaster Command profile and EQ JSON files manually;
+- review exact, approximate, and unsupported mappings for headphones or
+  speakers, then save a native copy.
 
 The Windows source files are only read. Importing does not change the hardware;
 the converted profile must be applied separately. Existing destination files

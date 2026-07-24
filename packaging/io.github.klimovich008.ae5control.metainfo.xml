@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.klimovich008.ae5control</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT OR Apache-2.0</project_license>
+  <name>AE-5 Control</name>
+  <summary>Configure a Creative Sound BlasterX AE-5 on Linux</summary>
+  <description>
+    <p>
+      AE-5 Control is a native GTK application for the Creative Sound BlasterX
+      AE-5. It exposes the card's verified ALSA routing, playback, recording,
+      DSP effect, equalizer, and profile controls without a background daemon.
+    </p>
+    <p>
+      Profiles can be saved locally or converted from compatible Sound Blaster
+      Command JSON exports. Hardware writes are range-checked, read back, and
+      rolled back when a multi-control profile cannot be applied completely.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.klimovich008.ae5control.desktop</launchable>
+  <provides>
+    <binary>ae5-control</binary>
+    <binary>ae5ctl</binary>
+  </provides>
+  <developer id="io.github.klimovich008">
+    <name>AE-5 Linux Control contributors</name>
+  </developer>
+  <url type="homepage">https://github.com/klimovich008/ae5-linux-control</url>
+  <url type="bugtracker">https://github.com/klimovich008/ae5-linux-control/issues</url>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.1.0" date="2026-07-24">
+      <description>
+        <p>Initial hardware-tested development release for the original AE-5.</p>
+      </description>
+    </release>
+  </releases>
+</component>

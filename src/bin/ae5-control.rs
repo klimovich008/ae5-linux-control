@@ -14,7 +14,7 @@ use std::sync::{
 use std::thread;
 use std::time::Duration;
 
-const APP_ID: &str = "io.github.klimovich008.Ae5Control";
+const APP_ID: &str = "io.github.klimovich008.ae5control";
 const MAIN_STACK_NAME: &str = "main-navigation";
 
 fn main() -> gtk::glib::ExitCode {

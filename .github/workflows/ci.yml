@@ -13,12 +13,14 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Install native headers
-        run: sudo apt-get update && sudo apt-get install --yes libasound2-dev libgtk-4-dev sox
+        run: sudo apt-get update && sudo apt-get install --yes appstream desktop-file-utils libasound2-dev libgtk-4-dev sox
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
       - run: bash -n scripts/*.sh
       - run: bash scripts/audio-parity.sh --self-test
+      - run: desktop-file-validate packaging/io.github.klimovich008.ae5control.desktop
+      - run: appstreamcli validate --no-net --strict packaging/io.github.klimovich008.ae5control.metainfo.xml
       - run: systemd-analyze --user verify systemd/user/*
       - run: cargo fmt --check
       - run: cargo clippy --all-targets --all-features -- -D warnings

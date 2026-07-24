@@ -84,6 +84,10 @@ sudo dnf install gtk4-devel
 cargo run --features gui --bin ae5-control
 ```
 
+Nobara/Fedora RPM build and install instructions are in
+[packaging/README.md](packaging/README.md). The package installs the GTK app,
+CLI, desktop entry, AppStream metadata, and icon without a privileged helper.
+
 The **Profiles** page can:
 
 - save the current hardware state as a native JSON profile;

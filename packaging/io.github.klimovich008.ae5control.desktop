@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=AE-5 Control
+GenericName=Sound Card Control
+Comment=Configure the Creative Sound BlasterX AE-5
+Exec=ae5-control
+Icon=io.github.klimovich008.ae5control
+Terminal=false
+Categories=AudioVideo;Audio;
+Keywords=Creative;Sound Blaster;AE-5;Audio;ALSA;Equalizer;
+StartupNotify=true
+StartupWMClass=io.github.klimovich008.ae5control

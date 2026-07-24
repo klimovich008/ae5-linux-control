@@ -133,6 +133,11 @@ booted successfully with:
 - the matching `snd-hda-codec-ca0132` module available and loadable;
 - no failed systemd units.
 
+The guest also has `pciutils`, `alsa-utils`, SoX, and Fedora
+`alsa-firmware-1.2.4-17.fc44` installed for the physical test. All four
+Creative firmware hashes match [the source inventory](SOURCE_INVENTORY.md).
+The powered-off `vfio-tools-ready` snapshot preserves this state.
+
 No host device is present in the domain XML. During this smoke test the
 physical AE-5 remained in IOMMU group 28 and bound to the host
 `snd_hda_intel` driver. Physical validation of the corrected `30`-degree

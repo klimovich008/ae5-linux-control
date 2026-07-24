@@ -51,6 +51,11 @@ install -Dm0644 packaging/io.github.klimovich008.ae5control.metainfo.xml \
 install -Dm0644 \
   packaging/alsa-card-profile/mixer/paths/sound-blaster-ae5-output-headphones.conf \
   %{buildroot}%{_datadir}/alsa-card-profile/mixer/paths/sound-blaster-ae5-output-headphones.conf
+for path in microphone front-microphone line-in; do
+  install -Dm0644 \
+    packaging/alsa-card-profile/mixer/paths/sound-blaster-ae5-input-${path}.conf \
+    %{buildroot}%{_datadir}/alsa-card-profile/mixer/paths/sound-blaster-ae5-input-${path}.conf
+done
 install -Dm0644 \
   packaging/alsa-card-profile/mixer/profile-sets/sound-blaster-ae5.conf \
   %{buildroot}%{_datadir}/alsa-card-profile/mixer/profile-sets/sound-blaster-ae5.conf
@@ -80,6 +85,9 @@ fi
 %{_bindir}/ae5-collect-report
 %{_bindir}/ae5ctl
 %{_datadir}/applications/io.github.klimovich008.ae5control.desktop
+%{_datadir}/alsa-card-profile/mixer/paths/sound-blaster-ae5-input-front-microphone.conf
+%{_datadir}/alsa-card-profile/mixer/paths/sound-blaster-ae5-input-line-in.conf
+%{_datadir}/alsa-card-profile/mixer/paths/sound-blaster-ae5-input-microphone.conf
 %{_datadir}/alsa-card-profile/mixer/paths/sound-blaster-ae5-output-headphones.conf
 %{_datadir}/alsa-card-profile/mixer/profile-sets/sound-blaster-ae5.conf
 %{_datadir}/icons/hicolor/scalable/apps/io.github.klimovich008.ae5control.svg

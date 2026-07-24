@@ -4,6 +4,65 @@ These patches are independent, reviewable Linux changes and diagnostic
 experiments. None has been loaded on the target AE-5, and none changes the
 running kernel merely by being present in this repository.
 
+## AE-5 What U Hear mixer controls
+
+[`ca0132-ae5-hide-ineffective-wuh-controls.patch`](ca0132-ae5-hide-ineffective-wuh-controls.patch)
+stops advertising volume and mute controls that do not affect the AE-5
+`CA0132 What U Hear` PCM.
+
+The controls are ordinary HDA input-amplifier elements on node `0x0a`. The
+physical card accepts and reports level and mute writes, including raw values
+`0x5a`, `0x00`, and `0x80`. A counterbalanced direct-ALSA fixture nevertheless
+measured exactly `0.022104` RMS at level 90, level 0, muted, and level 90
+again. The DSP loopback bypasses this amplifier.
+
+The patch adds an AE-5-only mixer table without those two elements. It retains
+the What U Hear PCM and every analog capture control, and leaves the Sound
+Blaster Z, ZxR, Recon3D, Recon3Di, AE-7, and generic CA0132 tables unchanged.
+The measurements and ACP input-route work are in
+[`RECORDING_MIXER_INVESTIGATION.md`](../docs/RECORDING_MIXER_INVESTIGATION.md).
+
+Suggested upstream commit message:
+
+```text
+ALSA: hda/ca0132: Hide ineffective AE-5 What U Hear controls
+
+The AE-5 inherits standard HDA volume and mute controls for the What U
+Hear converter from desktop_mixer. Node 0x0a accepts and reports the
+amplifier writes, but its DSP loopback stream bypasses that amplifier.
+Level 90, level 0, and mute therefore produce the same captured signal.
+
+Use an AE-5-specific mixer table without those two ineffective controls.
+Keep the What U Hear PCM and all analog capture controls unchanged.
+
+Fixes: 88268ce8a64e ("ALSA: hda/ca0132 - Set AE-5 bools and select mixer.")
+Cc: stable@vger.kernel.org
+```
+
+The submitting contributor must add their own Developer Certificate of Origin
+`Signed-off-by` line.
+
+### Validation
+
+The patch applies cleanly to the exact running Linux `v7.1.4` source and to
+the mutually identical CA0132 files in Linux `master` at `48a5a7ab8d6a`, ALSA
+`master` at `f5657cb8480c`, and ALSA `for-next` at `61471f29f315`.
+
+Both the running source and current upstream source compiled as external
+modules against the matching Nobara kernel-devel tree with `W=1` and warnings
+treated as errors. Strict `checkpatch.pl` reports no errors, warnings, or
+checks. The resulting objects contain separate `ae5_mixer` and
+`desktop_mixer` tables. No module was loaded.
+
+An authorized patched-kernel boot must verify:
+
+- the What U Hear PCM still captures the 997 Hz fixture;
+- only its ineffective volume and mute controls are absent;
+- analog input selection, capture volume, mute, and boost still work;
+- normal playback, headphone/speaker routing, suspend/resume, and shutdown
+  remain clean;
+- no CA0132, HDA, ALSA, codec, or DSP warning appears.
+
 ## Wedge Angle default
 
 `ca0132-wedge-angle-default.patch` fixes an invalid ALSA control value present

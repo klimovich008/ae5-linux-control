@@ -1,6 +1,6 @@
 use crate::controls::{
-    EQUALIZER_PRESET_CONTROL, equalizer_band_block_reason, invalid_bass_state_reason,
-    is_equalizer_band,
+    EQUALIZER_PRESET_CONTROL, capture_control_block_reason, equalizer_band_block_reason,
+    invalid_bass_state_reason, is_equalizer_band,
 };
 use crate::{Ae5Mixer, ControlError, ControlSnapshot};
 use serde::{Deserialize, Serialize};
@@ -172,7 +172,9 @@ impl Profile {
                 .into_iter()
                 .filter_map(|control| {
                     let name = control.name.clone();
-                    if omit_equalizer_bands && is_equalizer_band(&name) {
+                    if capture_control_block_reason(&name).is_some()
+                        || omit_equalizer_bands && is_equalizer_band(&name)
+                    {
                         return None;
                     }
                     let value = ProfileControl::from(control);
@@ -330,6 +332,9 @@ impl Profile {
         let current_controls = mixer.snapshots()?;
         let mut before = BTreeMap::new();
         for (name, requested) in &self.controls {
+            if capture_control_block_reason(name).is_some() {
+                continue;
+            }
             let current = current_controls
                 .iter()
                 .find(|control| control.name == *name)
@@ -679,6 +684,9 @@ fn apply_controls(
     let skip_equalizer_bands = profile_uses_factory_equalizer_preset(controls);
 
     for (name, control) in controls {
+        if capture_control_block_reason(name).is_some() {
+            continue;
+        }
         if let Some(choice) = &control.choice
             && (skip_equalizer_bands && name == EQUALIZER_PRESET_CONTROL
                 || mixer
@@ -694,7 +702,9 @@ fn apply_controls(
     apply_switches(mixer, controls, true)?;
 
     for (name, control) in controls {
-        if skip_equalizer_bands && is_equalizer_band(name) {
+        if capture_control_block_reason(name).is_some()
+            || skip_equalizer_bands && is_equalizer_band(name)
+        {
             continue;
         }
         let current = mixer.snapshot(name)?;
@@ -726,14 +736,14 @@ fn profile_uses_factory_equalizer_preset(controls: &BTreeMap<String, ProfileCont
 }
 
 fn effective_control_count(controls: &BTreeMap<String, ProfileControl>) -> usize {
-    if profile_uses_factory_equalizer_preset(controls) {
-        controls
-            .keys()
-            .filter(|name| !is_equalizer_band(name))
-            .count()
-    } else {
-        controls.len()
-    }
+    let skip_equalizer_bands = profile_uses_factory_equalizer_preset(controls);
+    controls
+        .keys()
+        .filter(|name| {
+            capture_control_block_reason(name).is_none()
+                && !(skip_equalizer_bands && is_equalizer_band(name))
+        })
+        .count()
 }
 
 fn apply_switches(
@@ -742,6 +752,9 @@ fn apply_switches(
     enabled: bool,
 ) -> Result<(), ControlError> {
     for (name, control) in controls {
+        if capture_control_block_reason(name).is_some() {
+            continue;
+        }
         let apply_playback = control.playback_switch == Some(enabled);
         let apply_capture = control.capture_switch == Some(enabled);
         if !apply_playback && !apply_capture {
@@ -1230,6 +1243,66 @@ mod tests {
         assert_eq!(profile.playback_level, Some(90));
         assert_eq!(profile.playback_channels["Front Left"], 90);
         assert_eq!(profile.playback_channels["Front Right"], 82);
+    }
+
+    #[test]
+    fn omits_ineffective_what_u_hear_from_new_profiles() {
+        let what_u_hear = ControlSnapshot {
+            name: "What U Hear".to_owned(),
+            selected: None,
+            choices: Vec::new(),
+            playback_switch: None,
+            capture_switch: Some(true),
+            playback_level: None,
+            capture_level: Some(crate::Level {
+                value: 90,
+                min: 0,
+                max: 99,
+            }),
+            playback_channels: Vec::new(),
+            capture_channels: vec![
+                crate::ChannelLevel {
+                    name: "Front Left".to_owned(),
+                    value: 90,
+                },
+                crate::ChannelLevel {
+                    name: "Front Right".to_owned(),
+                    value: 90,
+                },
+            ],
+        };
+
+        let profile =
+            Profile::capture("Compatible", vec![level_snapshot("Front", 90), what_u_hear]).unwrap();
+
+        assert!(profile.controls.contains_key("Front"));
+        assert!(!profile.controls.contains_key("What U Hear"));
+    }
+
+    #[test]
+    fn legacy_what_u_hear_entries_are_ignored_when_the_kernel_hides_them() {
+        let mixer = FakeMixer::new();
+        let profile = Profile::new(
+            "Legacy loopback",
+            BTreeMap::from([(
+                "What U Hear".to_owned(),
+                ProfileControl {
+                    capture_switch: Some(false),
+                    capture_level: Some(0),
+                    capture_channels: BTreeMap::from([
+                        ("Front Left".to_owned(), 0),
+                        ("Front Right".to_owned(), 0),
+                    ]),
+                    ..ProfileControl::default()
+                },
+            )]),
+        )
+        .unwrap();
+
+        let report = profile.apply_to(&mixer, false).unwrap();
+
+        assert_eq!(report.controls_applied, 0);
+        assert!(mixer.writes.borrow().is_empty());
     }
 
     #[test]

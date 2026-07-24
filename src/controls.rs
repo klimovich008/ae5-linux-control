@@ -18,6 +18,8 @@ const CHANNELS: &[SelemChannelId] = &[
 pub(crate) const EQUALIZER_PRESET_CONTROL: &str = "FX: Equalizer Preset";
 const EQUALIZER_BAND_EDIT_BLOCK: &str = "Factory EQ presets use DSP values that the individual \
     1 dB controls cannot represent reliably. Select Flat before editing custom bands.";
+const INEFFECTIVE_WHAT_U_HEAR_CONTROL: &str = "The AE-5 DSP loopback bypasses this advertised \
+    HDA gain and mute control. Use the recording application's stream-level volume or mute.";
 
 #[derive(Debug)]
 pub enum ControlError {
@@ -113,6 +115,10 @@ pub fn equalizer_band_block_reason(
         .and_then(|control| control.selected.as_deref())
         .filter(|preset| !preset.eq_ignore_ascii_case("Flat"))
         .map(|_| EQUALIZER_BAND_EDIT_BLOCK)
+}
+
+pub fn capture_control_block_reason(name: &str) -> Option<&'static str> {
+    (name == "What U Hear").then_some(INEFFECTIVE_WHAT_U_HEAR_CONTROL)
 }
 
 pub(crate) fn is_equalizer_band(name: &str) -> bool {
@@ -241,6 +247,9 @@ impl Ae5Mixer {
         name: &str,
         enabled: bool,
     ) -> Result<ControlSnapshot, ControlError> {
+        if let Some(reason) = capture_control_block_reason(name) {
+            return Err(ControlError::Invalid(reason.to_owned()));
+        }
         let element = self.find(name)?;
         if !element.has_capture_switch() {
             return Err(ControlError::Invalid(format!(
@@ -300,6 +309,9 @@ impl Ae5Mixer {
         name: &str,
         value: i64,
     ) -> Result<ControlSnapshot, ControlError> {
+        if let Some(reason) = capture_control_block_reason(name) {
+            return Err(ControlError::Invalid(reason.to_owned()));
+        }
         let element = self.find(name)?;
         if !element.has_capture_volume() {
             return Err(ControlError::Invalid(format!(
@@ -320,6 +332,9 @@ impl Ae5Mixer {
         channel: &str,
         value: i64,
     ) -> Result<ControlSnapshot, ControlError> {
+        if let Some(reason) = capture_control_block_reason(name) {
+            return Err(ControlError::Invalid(reason.to_owned()));
+        }
         let element = self.find(name)?;
         if !element.has_capture_volume() || name == "Bass Redirection Crossover" {
             return Err(ControlError::Invalid(format!(
@@ -757,5 +772,14 @@ mod tests {
 
         controls[0].selected = Some("Flat".to_owned());
         assert_eq!(equalizer_band_block_reason("EQ Band9", &controls), None);
+    }
+
+    #[test]
+    fn blocks_only_the_ineffective_what_u_hear_capture_control() {
+        assert_eq!(
+            capture_control_block_reason("What U Hear"),
+            Some(INEFFECTIVE_WHAT_U_HEAR_CONTROL)
+        );
+        assert_eq!(capture_control_block_reason("Capture"), None);
     }
 }

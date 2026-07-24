@@ -21,7 +21,8 @@ The binary RPM and source RPM are written to `dist/`. The binary package
 contains the GTK application, CLI, desktop integration, the privacy-conscious
 `ae5-collect-report` diagnostics command, and a card-scoped PipeWire ACP
 profile that prevents the generic headphone route from muting the AE-5's
-shared Front DAC. Install it with:
+shared Front DAC. The same profile exposes exact Microphone, Front Microphone,
+and Line In routes for the card's `Input Source` enum. Install it with:
 
 ```sh
 sudo dnf install ./dist/ae5-control-0.1.0-1.*.x86_64.rpm

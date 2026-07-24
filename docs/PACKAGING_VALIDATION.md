@@ -97,6 +97,39 @@ instead of being overwritten. This rebuild has not replaced the package in the
 host RPM database; the user-scoped live profile test is documented separately
 in [`DRIVER_ROUTING_INVESTIGATION.md`](DRIVER_ROUTING_INVESTIGATION.md).
 
+## Rebuild with exact input routes and profile compatibility
+
+The recording investigation added card-scoped Microphone, Front Microphone,
+and Line In paths. It also made the ineffective What U Hear controls read-only
+and kept profiles compatible with kernels that expose or hide them. The final
+rebuilt binary RPM has SHA-256
+`a5a780cf5df668e387d3b33afb2347d59f37dd7780a59ae6d652116449a78bab`;
+the source RPM has SHA-256
+`2d0964e75d2022998a1173c75dc6d6443a71f58a6ac5484d71a1eccad71ae87c`.
+RPM payload digests passed.
+
+The release build passed all 49 Rust tests, the ACP output and input
+invariants, diagnostics self-test, desktop and strict offline AppStream
+validation, and the private build-path check. The exact binary payload was
+streamed from the RPM and all six ACP/WirePlumber files matched the repository
+byte-for-byte:
+
+| File | SHA-256 |
+|---|---|
+| Front Microphone path | `8cf31284e79acc7d2f53c58b51e1621dbf65af4b937636f87befede2965468b9` |
+| Line In path | `6bf23c70b1b828ba036d220a6eccbbea741687a9c4b40270d768014c8c02c2d6` |
+| Microphone path | `a20eb71df4b9ffe8540a5e0522e7679574e59b3402f8b95cbecad2ba748d466c` |
+| fixed headphone path | `49b50e8fbc0a87fe2e963a83574da9b2f697aa3ddf274261723603dab88e15a6` |
+| AE-5 profile set | `8ec638cfce429c96e442eb9490816bbaeb0d0eaa14c7f9895ecfde2b0b76c17d` |
+| WirePlumber rule | `b3ae2ac7a9b43f5a43b66067b39dcf0cf088386a3f7b880bf43ac62e8a9dfd2f` |
+
+The prior headphone-fix RPMs remain under `dist/previous-fdfa462/`; the first
+input-route build was preserved under
+`dist/previous-recording-acp-pre-profile-compat/`. The rebuilt package has not
+replaced the host RPM; the user-scoped profile supplied the live route test
+described in
+[`RECORDING_MIXER_INVESTIGATION.md`](RECORDING_MIXER_INVESTIGATION.md).
+
 ## Remaining release gate
 
 This proves clean Fedora dependency resolution and package ownership/removal,

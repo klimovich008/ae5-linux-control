@@ -2,12 +2,12 @@ use ae5_control::{
     Ae5Device, Ae5Mixer, ChannelLevel, ControlError, ControlSnapshot,
     LINUX_DRIVER_DEFAULTS_PRESERVED, Level, NativeRatesConfig, PipeWireNode, Profile,
     ProfileControl, SbCommandImport, SbCommandTarget, ae5_input, ae5_output,
-    apply_linux_driver_defaults, discover_sbcommand_installation, equalizer_band_block_reason,
-    export_library_profile, import_active_sbcommand_profile_with_report,
-    import_sbcommand_profile_with_report, library_profile, linux_driver_defaults_for,
-    native_rates_config, playback_switch_block_reason, profile_library, profile_library_directory,
-    rename_library_profile, set_ae5_default_input, set_ae5_default_output,
-    set_native_rates_enabled, snapshot_controls,
+    apply_linux_driver_defaults, capture_control_block_reason, discover_sbcommand_installation,
+    equalizer_band_block_reason, export_library_profile,
+    import_active_sbcommand_profile_with_report, import_sbcommand_profile_with_report,
+    library_profile, linux_driver_defaults_for, native_rates_config, playback_switch_block_reason,
+    profile_library, profile_library_directory, rename_library_profile, set_ae5_default_input,
+    set_ae5_default_output, set_native_rates_enabled, snapshot_controls,
 };
 use gtk::prelude::*;
 use gtk::{gdk::Display, gio};
@@ -1598,12 +1598,14 @@ fn control_page<'a>(
             .then(|| playback_switch_block_reason(&control.name, true, all_controls))
             .flatten();
         let level_block = equalizer_band_block_reason(&control.name, all_controls);
+        let capture_block = capture_control_block_reason(&control.name);
         list.append(&control_row(
             card_index,
             status,
             control,
             playback_switch_block,
             level_block,
+            capture_block,
         ));
     }
 
@@ -1626,6 +1628,7 @@ fn control_row(
     control: &ControlSnapshot,
     playback_switch_block: Option<&str>,
     level_block: Option<&str>,
+    capture_block: Option<&str>,
 ) -> gtk::ListBoxRow {
     let row = gtk::Box::new(gtk::Orientation::Horizontal, 24);
     row.add_css_class("control-row");
@@ -1636,7 +1639,7 @@ fn control_row(
     name.set_xalign(0.0);
     name.set_wrap(true);
     labels.append(&name);
-    if let Some(message) = playback_switch_block.or(level_block) {
+    if let Some(message) = playback_switch_block.or(level_block).or(capture_block) {
         let explanation = gtk::Label::new(Some(message));
         explanation.set_xalign(0.0);
         explanation.set_wrap(true);
@@ -1692,7 +1695,14 @@ fn control_row(
     if let Some(enabled) = control.capture_switch {
         editors.append(&labelled(
             "Capture",
-            &switch_editor(card_index, status, &control.name, enabled, true, None),
+            &switch_editor(
+                card_index,
+                status,
+                &control.name,
+                enabled,
+                true,
+                capture_block,
+            ),
         ));
     }
     if let Some(level) = &control.capture_level {
@@ -1703,7 +1713,7 @@ fn control_row(
             level,
             &control.capture_channels,
             true,
-            None,
+            capture_block,
         ));
     }
     row.append(&editors);
@@ -1713,7 +1723,10 @@ fn control_row(
         .selectable(false)
         .child(&row)
         .build();
-    let description = control_row_description(control, playback_switch_block.or(level_block));
+    let description = control_row_description(
+        control,
+        playback_switch_block.or(level_block).or(capture_block),
+    );
     list_row.update_property(&[
         gtk::accessible::Property::Label(&control.name),
         gtk::accessible::Property::Description(&description),

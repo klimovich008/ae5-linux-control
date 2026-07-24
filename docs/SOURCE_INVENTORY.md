@@ -85,6 +85,34 @@ At the same verification time, `sound.git` `master` was
 file. The factory-EQ cache candidate therefore applies to the exact running
 `v7.1.4` source and all three recorded upstream snapshots without rebasing.
 
+## What U Hear control history
+
+The AE-5's `What U Hear Capture Volume` and `What U Hear Capture Switch` are
+standard HDA input-amplifier controls for node `0x0a`. They entered the
+alternate desktop mixer through
+[`017310fbe767`](https://github.com/torvalds/linux/commit/017310fbe7670f522cdde4e68d4e1859f16d2757),
+then the AE-5 began using that mixer in
+[`88268ce8a64e`](https://github.com/torvalds/linux/commit/88268ce8a64ec0658a9131d491cc5575372ef0ad).
+The same source separately selects the DSP loopback source through module
+`0x31`; no verified public implementation was found for a What U Hear DSP
+gain parameter.
+
+Direct physical-card testing proved that node `0x0a` accepts and reports
+level and mute writes while its captured signal remains identical. The
+counterbalanced method and values are in
+[`RECORDING_MIXER_INVESTIGATION.md`](RECORDING_MIXER_INVESTIGATION.md). The
+driver already has precedent for omitting CA0132 mixer elements that advertise
+unsupported operations:
+[`c41999a23929`](https://github.com/torvalds/linux/commit/c41999a23929f30808bae6009d8065052d4d73fd).
+
+The minimal AE-5-only candidate is
+[`kernel/ca0132-ae5-hide-ineffective-wuh-controls.patch`](../kernel/ca0132-ae5-hide-ineffective-wuh-controls.patch).
+It applies to the exact running source and all three upstream snapshots pinned
+above, passes strict `checkpatch.pl`, and compiled with `W=1` and warnings as
+errors against both running and current upstream source. It retains the What U
+Hear PCM. No proprietary binary, firmware disassembly, or decompiler output
+was used.
+
 ## Firmware already distributed for Linux
 
 Fedora package `alsa-firmware-1.2.4-17.fc44` supplies the target system's
@@ -161,8 +189,14 @@ decompiler output.
 Until one of these tests fails reproducibly, there is no justified CA0132 code
 change.
 
-This gate applies to the reported routing and audio-parity problems. A separate
-read-only control audit found a self-contained CA0132 defect: Wedge Angle
+This gate applies to the reported routing and audio-parity problems. The
+separate What U Hear matrix did fail reproducibly: five counterbalanced
+captures were signal-identical across level 90, level 0, and mute. Its
+quirk-scoped candidate hides the two false mixer controls without claiming to
+change routing, analog quality, or the loopback signal.
+
+A separate read-only control audit found another self-contained CA0132 defect:
+Wedge Angle
 declares a `20..180` range but initializes its cached public value to `10`.
 Both the running `v7.1.4` driver and upstream `master` at `48a5a7ab8d6a`
 contain the same line. The original line was introduced by `44f0c9782cc6`

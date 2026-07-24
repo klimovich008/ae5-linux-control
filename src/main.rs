@@ -16,6 +16,7 @@ const IMPORTANT_CONTROLS: &[&str] = &[
     "Surround Channel Config",
     "Input Source",
     "Enable OutFX",
+    "Wedge Angle",
 ];
 
 fn main() {

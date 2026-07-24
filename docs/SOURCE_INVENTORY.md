@@ -142,3 +142,12 @@ decompiler output.
 
 Until one of these tests fails reproducibly, there is no justified CA0132 code
 change.
+
+This gate applies to the reported routing and audio-parity problems. A separate
+read-only control audit found a self-contained CA0132 defect: Wedge Angle
+declares a `20..180` range but initializes its cached public value to `10`.
+Both the running `v7.1.4` driver and upstream `master` at `48a5a7ab8d6a`
+contain the same line. The original line was introduced by `44f0c9782cc6`
+(`ALSA: hda/ca0132: Add tuning controls`). The minimal fix and its evidence are
+recorded in [`kernel/README.md`](../kernel/README.md); it does not alter routing
+or make any audio-parity claim.

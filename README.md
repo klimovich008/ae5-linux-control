@@ -215,6 +215,12 @@ loaded on the AE-5, and the bounded driver experiment sequence are documented
 in
 [docs/HEADPHONE_TUNING_INVESTIGATION.md](docs/HEADPHONE_TUNING_INVESTIGATION.md).
 
+The hardware audit also found an independent upstream CA0132 Wedge Angle
+default bug. A minimal one-line kernel patch, evidence, proposed commit
+message, and validation steps are in [kernel/README.md](kernel/README.md).
+Until a patched kernel is running, AE-5 Control displays the invalid value as
+a driver warning and excludes it from newly captured profiles.
+
 Objective Windows/Linux level, frequency-response, and noise comparison is
 documented in
 [docs/AUDIO_PARITY_MEASUREMENT.md](docs/AUDIO_PARITY_MEASUREMENT.md). The

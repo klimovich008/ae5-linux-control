@@ -1,0 +1,14 @@
+diff --git a/sound/hda/codecs/ca0132.c b/sound/hda/codecs/ca0132.c
+--- a/sound/hda/codecs/ca0132.c
++++ b/sound/hda/codecs/ca0132.c
+@@ -4420,8 +4420,8 @@ static void ca0132_init_tuning_defaults(struct hda_codec *codec)
+ 	struct ca0132_spec *spec = codec->spec;
+ 	int i;
+ 
+-	/* Wedge Angle defaults to 30.  10 below is 30 - 20.  20 is min. */
+-	spec->cur_ctl_vals[WEDGE_ANGLE - TUNING_CTL_START_NID] = 10;
++	/* Wedge Angle defaults to 30 degrees. */
++	spec->cur_ctl_vals[WEDGE_ANGLE - TUNING_CTL_START_NID] = 30;
+ 	/* SVM level defaults to 0.74. */
+ 	spec->cur_ctl_vals[SVM_LEVEL - TUNING_CTL_START_NID] = 74;
+ 

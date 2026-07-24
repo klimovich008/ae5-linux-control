@@ -9,7 +9,8 @@ pub use controls::{
 };
 pub use device::Ae5Device;
 pub use pipewire::{
-    PipeWireNode, ae5_input, ae5_output, set_ae5_default_input, set_ae5_default_output,
+    NativeRatesConfig, PipeWireNode, ae5_input, ae5_output, native_rates_config,
+    set_ae5_default_input, set_ae5_default_output, set_native_rates_enabled,
 };
 pub use profile::{ApplyReport, Profile, ProfileControl, ProfileError};
 pub use sbcommand::{

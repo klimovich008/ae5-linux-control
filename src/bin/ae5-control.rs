@@ -1,8 +1,8 @@
 use ae5_control::{
-    Ae5Device, Ae5Mixer, ChannelLevel, ControlError, ControlSnapshot, Level, PipeWireNode, Profile,
-    ProfileControl, SbCommandImport, SbCommandTarget, ae5_input, ae5_output,
-    import_sbcommand_profile_with_report, set_ae5_default_input, set_ae5_default_output,
-    snapshot_controls,
+    Ae5Device, Ae5Mixer, ChannelLevel, ControlError, ControlSnapshot, Level, NativeRatesConfig,
+    PipeWireNode, Profile, ProfileControl, SbCommandImport, SbCommandTarget, ae5_input, ae5_output,
+    import_sbcommand_profile_with_report, native_rates_config, set_ae5_default_input,
+    set_ae5_default_output, set_native_rates_enabled, snapshot_controls,
 };
 use gtk::prelude::*;
 use gtk::{gdk::Display, gio};
@@ -207,11 +207,83 @@ fn routing_page(card_index: i32, status: &gtk::Label) -> gtk::ScrolledWindow {
         ae5_input(card_index),
         set_ae5_default_input,
     ));
+    page.append(&native_rates_card(status, native_rates_config()));
 
     gtk::ScrolledWindow::builder()
         .hscrollbar_policy(gtk::PolicyType::Never)
         .child(&page)
         .build()
+}
+
+fn native_rates_card(status: &gtk::Label, current: std::io::Result<NativeRatesConfig>) -> gtk::Box {
+    let actions = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    let state = gtk::Label::new(None);
+    state.set_xalign(0.0);
+    state.set_wrap(true);
+    state.set_hexpand(true);
+    let button = gtk::Button::with_label("Enable after restart");
+    button.add_css_class("suggested-action");
+    let enabled = Rc::new(Cell::new(false));
+
+    match current {
+        Ok(config) => {
+            enabled.set(config.enabled);
+            state.set_text(&native_rates_summary(&config));
+            if config.enabled {
+                button.set_label("Disable after restart");
+            }
+        }
+        Err(error) => {
+            state.set_text(&format!("Configuration unavailable: {error}"));
+            button.set_sensitive(false);
+        }
+    }
+    actions.append(&state);
+    actions.append(&button);
+
+    let status = status.clone();
+    let state_on_click = state.clone();
+    let enabled_on_click = enabled.clone();
+    button.connect_clicked(move |button| {
+        let requested = !enabled_on_click.get();
+        match set_native_rates_enabled(requested) {
+            Ok(config) => {
+                enabled_on_click.set(config.enabled);
+                state_on_click.set_text(&native_rates_summary(&config));
+                button.set_label(if config.enabled {
+                    "Disable after restart"
+                } else {
+                    "Enable after restart"
+                });
+                set_status(
+                    &status,
+                    true,
+                    "Native-rate configuration saved. Restart PipeWire or log in again to apply.",
+                );
+            }
+            Err(error) => set_status(
+                &status,
+                false,
+                &format!("Native-rate configuration failed: {error}"),
+            ),
+        }
+    });
+
+    profile_card(
+        "03",
+        "Native sample rates",
+        "Experimental: allow 44.1, 48, and 96 kHz streams to avoid unnecessary \
+         resampling. This changes the global PipeWire graph and may affect other devices.",
+        &actions,
+    )
+}
+
+fn native_rates_summary(config: &NativeRatesConfig) -> String {
+    if config.enabled {
+        "Enabled for the next PipeWire start\n44.1, 48, and 96 kHz".to_owned()
+    } else {
+        "Disabled\nUsing the distribution PipeWire defaults".to_owned()
+    }
 }
 
 fn routing_card(
@@ -1412,6 +1484,24 @@ mod tests {
         assert_eq!(
             pipewire_node_summary(&node),
             "AE-5 Analog Stereo\nalsa_output.pci-ae5.analog-stereo — currently default"
+        );
+    }
+
+    #[test]
+    fn summarizes_native_rate_configuration() {
+        let mut config = NativeRatesConfig {
+            path: PathBuf::from("/tmp/91-ae5-control-rates.conf"),
+            enabled: false,
+        };
+        assert_eq!(
+            native_rates_summary(&config),
+            "Disabled\nUsing the distribution PipeWire defaults"
+        );
+
+        config.enabled = true;
+        assert_eq!(
+            native_rates_summary(&config),
+            "Enabled for the next PipeWire start\n44.1, 48, and 96 kHz"
         );
     }
 

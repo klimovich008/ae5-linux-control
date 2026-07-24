@@ -79,9 +79,11 @@ The GTK 4 application groups every live control into profiles, playback,
 effects, equalizer, and recording pages. Stereo ALSA controls receive separate
 accessible channel sliders; selectors, switches, and bounded sliders write
 through the verified ALSA backend. High headphone gain requires an explicit
-opt-in. It listens for native ALSA mixer events, so changes made by another
-mixer application or command-line process are reflected without a polling loop
-while the selected page remains open:
+opt-in. The GUI enables bass redirection only for Speakers with an LFE channel
+and disables X-Bass on those speaker layouts; each unavailable switch explains
+which setting must change. The app listens for native ALSA mixer events, so
+changes made by another mixer application or command-line process are reflected
+without a polling loop while the selected page remains open:
 
 ```sh
 sudo dnf install gtk4-devel

@@ -6,6 +6,30 @@ AE-5 in a guarded KVM guest; the diagnostic SpeakerEQ probe has not been
 loaded. None changes the running host kernel merely by being present in this
 repository.
 
+## Current upstream validation
+
+On 2026-07-25, a direct `git ls-remote` check confirmed that the ALSA
+maintainer tree's `for-next` head remained
+`61471f29f3157f33a61194bf82b4a289cc03e1f1`. In a separate clean worktree at
+that exact commit, all four functional patches applied both independently and
+as one series, and the combined tree passed `git diff --check`.
+
+Strict `checkpatch.pl` reported no errors, warnings, or checks for the Wedge,
+factory-EQ, and What U Hear patches. The DSP-image patch reported only the
+expected question about adding new files; `get_maintainer.pl` maps both new
+files to the existing ALSA maintainers and `linux-sound`/`linux-kernel` lists,
+so no narrower MAINTAINERS entry is needed.
+
+The combined production `ca0132.o` and parser-test object rebuilt with `W=1`
+and warnings treated as errors. The `ca0132-dsp-image` KUnit suite then passed
+all four cases under x86-64 KVM in 58.419 seconds. No patch content needed
+rebasing or correction.
+
+External submission has not been performed. Each submitting contributor must
+personally add the Developer Certificate of Origin `Signed-off-by` line before
+sending a patch to the maintainer recipients reported by
+`scripts/get_maintainer.pl`.
+
 ## AE-5 What U Hear mixer controls
 
 [`ca0132-ae5-hide-ineffective-wuh-controls.patch`](ca0132-ae5-hide-ineffective-wuh-controls.patch)

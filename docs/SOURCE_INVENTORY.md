@@ -5,7 +5,7 @@ begins. Public source and observable hardware behavior are preferred over
 proprietary binary analysis. No Creative executable, driver binary, firmware,
 decompiler output, or private Windows data belongs in this repository.
 
-The inventory was last verified on 2026-07-24.
+The inventory was last verified on 2026-07-25.
 
 ## Exact source for the running Nobara driver
 
@@ -84,6 +84,14 @@ At the same verification time, `sound.git` `master` was
 `f5657cb8480cd4b38589bf50cd8eae07e183b53e` and contained the same CA0132
 file. The factory-EQ cache candidate therefore applies to the exact running
 `v7.1.4` source and all three recorded upstream snapshots without rebasing.
+
+A direct remote-head check on 2026-07-25 found both `for-next` and `master`
+still at those exact commits. All four functional patches then applied
+independently and together in a clean `for-next` worktree. The combined
+production and KUnit objects rebuilt with warnings as errors, and all four
+DSP-image KUnit cases passed. The patches therefore have no outstanding source
+rebase delta as of that check; external submission still requires the
+contributor's own DCO sign-off.
 
 ## What U Hear control history
 

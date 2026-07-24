@@ -562,6 +562,15 @@ Temporary test kernels remain boot-menu alternatives to the known-good stock
 kernel. Proprietary Creative binaries or firmware are not copied into the
 repository.
 
+Current driver status: four independent functional fixes apply cleanly to the
+ALSA maintainer tree's verified 2026-07-25 `for-next` head. Together they
+compile with `W=1` and warnings as errors, pass all four DSP-image KUnit cases,
+and have completed guarded physical initialization, playback, loopback
+capture, control, reboot, route-stress, shutdown, and host-recovery checks.
+Analog-input behavior, suspend/resume, maintained-kernel repetition, and the
+contributor's personal DCO sign-off remain before this project treats the
+relevant series as fully accepted and submitted.
+
 Exit criterion for each feature: the new interface has readback, validation,
 power-management coverage, clean kernel logs, and repeatable hardware results.
 

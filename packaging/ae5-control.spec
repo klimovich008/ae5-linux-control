@@ -16,6 +16,7 @@ BuildRequires:  pkgconfig(alsa)
 BuildRequires:  pkgconfig(gtk4) >= 4.10
 BuildRequires:  rust
 Requires:       hicolor-icon-theme
+Requires:       pipewire-libs
 Requires:       wireplumber
 
 ExclusiveArch:  %{rust_arches}
@@ -47,11 +48,20 @@ install -Dm0644 packaging/io.github.klimovich008.ae5control.svg \
   %{buildroot}%{_datadir}/icons/hicolor/scalable/apps/io.github.klimovich008.ae5control.svg
 install -Dm0644 packaging/io.github.klimovich008.ae5control.metainfo.xml \
   %{buildroot}%{_metainfodir}/io.github.klimovich008.ae5control.metainfo.xml
+install -Dm0644 \
+  packaging/alsa-card-profile/mixer/paths/sound-blaster-ae5-output-headphones.conf \
+  %{buildroot}%{_datadir}/alsa-card-profile/mixer/paths/sound-blaster-ae5-output-headphones.conf
+install -Dm0644 \
+  packaging/alsa-card-profile/mixer/profile-sets/sound-blaster-ae5.conf \
+  %{buildroot}%{_datadir}/alsa-card-profile/mixer/profile-sets/sound-blaster-ae5.conf
+install -Dm0644 packaging/wireplumber/90-ae5-control.conf \
+  %{buildroot}%{_datadir}/wireplumber/wireplumber.conf.d/90-ae5-control.conf
 
 %check
 export CARGO_NET_OFFLINE=true
 export RUSTFLAGS="%{build_rustflags} --remap-path-prefix=$PWD=."
 cargo test --frozen --offline --release --all-features
+bash scripts/check-ae5-acp-profile.sh
 bash scripts/collect-linux-report.sh --self-test
 desktop-file-validate packaging/io.github.klimovich008.ae5control.desktop
 appstreamcli validate --no-net --strict \
@@ -70,8 +80,11 @@ fi
 %{_bindir}/ae5-collect-report
 %{_bindir}/ae5ctl
 %{_datadir}/applications/io.github.klimovich008.ae5control.desktop
+%{_datadir}/alsa-card-profile/mixer/paths/sound-blaster-ae5-output-headphones.conf
+%{_datadir}/alsa-card-profile/mixer/profile-sets/sound-blaster-ae5.conf
 %{_datadir}/icons/hicolor/scalable/apps/io.github.klimovich008.ae5control.svg
 %{_metainfodir}/io.github.klimovich008.ae5control.metainfo.xml
+%{_datadir}/wireplumber/wireplumber.conf.d/90-ae5-control.conf
 
 %changelog
 * Fri Jul 24 2026 AE-5 Control contributors <klimovich008@users.noreply.github.com> - 0.1.0-1

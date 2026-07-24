@@ -18,8 +18,10 @@ bash scripts/build-rpm.sh
 ```
 
 The binary RPM and source RPM are written to `dist/`. The binary package
-contains the GTK application, CLI, desktop integration, and the
-privacy-conscious `ae5-collect-report` diagnostics command. Install it with:
+contains the GTK application, CLI, desktop integration, the privacy-conscious
+`ae5-collect-report` diagnostics command, and a card-scoped PipeWire ACP
+profile that prevents the generic headphone route from muting the AE-5's
+shared Front DAC. Install it with:
 
 ```sh
 sudo dnf install ./dist/ae5-control-0.1.0-1.*.x86_64.rpm
@@ -29,8 +31,10 @@ The RPM license expression accounts for the statically linked Rust dependency
 set. Those crates can be distributed under MIT terms, with `unicode-ident`
 additionally requiring the Unicode-3.0 license shipped in the package.
 
-Normal use does not require root, a daemon, a setuid helper, or extra device
-rules. Uninstall with `sudo dnf remove ae5-control`.
+Normal use does not require root, a project daemon, a setuid helper, or extra
+device rules. WirePlumber reads the packaged profile on its next start; log
+out and back in, or restart the user WirePlumber service when no audio stream
+is active. Uninstall with `sudo dnf remove ae5-control`.
 
 The reproducible build, clean Fedora 44 install/removal transaction, and
 read-only execution of the exact package payload on the target AE-5 are

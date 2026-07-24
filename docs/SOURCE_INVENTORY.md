@@ -55,9 +55,11 @@ Both relevant fixes are present in the verified source:
 The source calls `ca0132_alt_select_out()` during initialization after DSP
 download and board setup. That function mutes the DSP, programs the selected
 AE-5 output path, restores the output effects, clears the speaker-EQ-use flag,
-and unmutes the DSP. A cold-boot failure with correct logical controls would
-therefore focus instrumentation on this path and its return values rather than
-adding a userspace toggle.
+and unmutes the DSP. The instrumented failing boot showed that this kernel path
+had selected the correct pins. The later no-stream route matrix identified the
+actual fault in PipeWire's generic ACP headphone path: it forced the shared
+CA0132 `Front Playback Switch` off. The card-specific profile fix and evidence
+are in [`DRIVER_ROUTING_INVESTIGATION.md`](DRIVER_ROUTING_INVESTIGATION.md).
 
 The upstream `master` snapshot
 [`48a5a7ab8d6a`](https://github.com/torvalds/linux/commit/48a5a7ab8d6ab7090564339e039c421f315de912)
@@ -148,8 +150,8 @@ decompiler output.
 
 ## Evidence required before a driver patch
 
-1. Complete the cold-boot log and record whether audio works before any mixer
-   action.
+1. Repeat the now-reproduced cold-boot failure with the fixed ACP profile and
+   record the acoustic result before any mixer action.
 2. Compare Windows, direct ALSA, and PipeWire captures with the parity harness.
 3. Separate digital DSP differences from analog DAC/amplifier differences.
 4. Instrument the earliest divergent public-source state transition.

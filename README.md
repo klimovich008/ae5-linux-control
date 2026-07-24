@@ -272,12 +272,12 @@ The evidence-tracked [feature parity matrix](feature-parity.tsv) classifies
 each Command feature as verified, intentionally substituted, deferred, or
 unsupported; deferred rows name the acceptance evidence still required.
 
-For the reported first-use headphone routing problem, the current kernel
-already contains both relevant upstream CA0132 fixes. The read-only cold-boot
-probe now waits for ALSA readiness and captures all four AE-5 output pins. Its
-first instrumented reboot found a consistent headphone route after PipeWire;
-the audible result and repeated-boot acceptance checks remain open. Evidence
-and interpretation are documented in
+The reported first-use headphone failure is now reproduced. PipeWire's generic
+headphone route muted the CA0132 `Front` DAC even though the AE-5 headphones
+share it. The RPM supplies a card-scoped ACP headphone path that keeps Front
+enabled; the fixed route survived a WirePlumber restart on the physical card.
+An acoustic check and repeated cold-boot/suspend acceptance remain. Evidence
+and the exact transition matrix are documented in
 [docs/DRIVER_ROUTING_INVESTIGATION.md](docs/DRIVER_ROUTING_INVESTIGATION.md).
 The exact Nobara/upstream driver source, public research references, firmware
 licence boundary, and pinned revisions are recorded in

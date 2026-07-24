@@ -68,6 +68,35 @@ before and after the host checks. No matching CA0132, HDA, ALSA, codec, or DSP
 kernel warning appeared during the test. The extracted payload was moved to
 the recoverable desktop Trash.
 
+## Rebuild with the headphone ACP fix
+
+The first-use headphone investigation added three package-owned files:
+
+- `/usr/share/alsa-card-profile/mixer/paths/sound-blaster-ae5-output-headphones.conf`
+- `/usr/share/alsa-card-profile/mixer/profile-sets/sound-blaster-ae5.conf`
+- `/usr/share/wireplumber/wireplumber.conf.d/90-ae5-control.conf`
+
+The rebuilt binary RPM has SHA-256
+`9cc2aa2b63ce7266d268fff98519e435544a7e87d46fcde30f7f2802c415ac4f`.
+Its release build passed all 46 Rust tests, the ACP shared-Front invariant,
+the diagnostics self-test, desktop and AppStream validation, and the private
+build-path check. RPM payload digests passed.
+
+The exact binary payload was extracted to a temporary directory and all three
+ACP/WirePlumber files matched the repository byte-for-byte. Their SHA-256
+values are:
+
+| File | SHA-256 |
+|---|---|
+| fixed headphone path | `49b50e8fbc0a87fe2e963a83574da9b2f697aa3ddf274261723603dab88e15a6` |
+| AE-5 profile set | `8331ade79f7eb6bba5c3ee538e0111d543bf8a767830754e1844abe6bcdebebd` |
+| WirePlumber rule | `b3ae2ac7a9b43f5a43b66067b39dcf0cf088386a3f7b880bf43ac62e8a9dfd2f` |
+
+The previous validated RPMs were preserved under `dist/previous-71c1e8a/`
+instead of being overwritten. This rebuild has not replaced the package in the
+host RPM database; the user-scoped live profile test is documented separately
+in [`DRIVER_ROUTING_INVESTIGATION.md`](DRIVER_ROUTING_INVESTIGATION.md).
+
 ## Remaining release gate
 
 This proves clean Fedora dependency resolution and package ownership/removal,

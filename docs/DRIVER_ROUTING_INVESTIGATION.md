@@ -19,9 +19,11 @@ contains both recent upstream CA0132 routing fixes:
 
 The current upstream implementation is in
 [`sound/hda/codecs/ca0132.c`](https://github.com/torvalds/linux/blob/master/sound/hda/codecs/ca0132.c).
-The running module is built for the 7.1.4 kernel and the relevant code is
-present in that kernel's source lineage. That is strong source-level evidence,
-not a byte-for-byte proof of Nobara's stripped module.
+The matching Nobara source RPM was verified, and its CA0132 source is
+byte-identical to Linux stable `v7.1.4`; none of the packaged downstream
+patches modifies CA0132. Exact hashes, revisions, licences, and the proprietary
+analysis boundary are recorded in
+[`SOURCE_INVENTORY.md`](SOURCE_INVENTORY.md).
 
 At the time of investigation:
 

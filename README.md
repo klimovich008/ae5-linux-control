@@ -120,6 +120,9 @@ For the reported first-use headphone routing problem, the current kernel
 already contains both relevant upstream CA0132 fixes. The read-only cold-boot
 probe and evidence matrix are documented in
 [docs/DRIVER_ROUTING_INVESTIGATION.md](docs/DRIVER_ROUTING_INVESTIGATION.md).
+The exact Nobara/upstream driver source, public research references, firmware
+licence boundary, and pinned revisions are recorded in
+[docs/SOURCE_INVENTORY.md](docs/SOURCE_INVENTORY.md).
 
 Objective Windows/Linux level, frequency-response, and noise comparison is
 documented in

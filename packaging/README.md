@@ -17,8 +17,9 @@ Build from the repository root:
 bash scripts/build-rpm.sh
 ```
 
-The binary RPM and source RPM are written to `dist/`. Install the binary
-package with:
+The binary RPM and source RPM are written to `dist/`. The binary package
+contains the GTK application, CLI, desktop integration, and the
+privacy-conscious `ae5-collect-report` diagnostics command. Install it with:
 
 ```sh
 sudo dnf install ./dist/ae5-control-0.1.0-1.*.x86_64.rpm

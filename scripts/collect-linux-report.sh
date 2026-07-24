@@ -16,11 +16,29 @@ run() {
 	fi
 }
 
+collect_pipewire() {
+	local status
+
+	section 'Creative PipeWire objects'
+	if ! command -v wpctl >/dev/null 2>&1; then
+		printf '[wpctl unavailable]\n'
+		return
+	fi
+	if ! status=$(wpctl status --name 2>/dev/null); then
+		printf '[unable to query PipeWire]\n'
+		return
+	fi
+	if ! grep -Ei 'creative|sound blaster|ae-5' <<< "$status"; then
+		printf '[no Creative PipeWire objects found]\n'
+	fi
+}
+
 collect() {
 	local card card_index vendor codec found=0
 
 	printf '# AE-5 Linux hardware report\n'
 	printf 'generated_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+	printf 'privacy=non-Creative PipeWire objects, hostname, user, storage, and network data omitted\n'
 
 	section 'Operating system'
 	if [[ -r /etc/os-release ]]; then
@@ -36,7 +54,7 @@ collect() {
 	run 'ALSA cards' sh -c 'cat /proc/asound/cards'
 	run 'Playback devices' aplay -l
 	run 'Capture devices' arecord -l
-	run 'PipeWire status' wpctl status --name
+	collect_pipewire
 	run 'CA0132 module information' modinfo snd_hda_codec_ca0132
 	run 'Loaded sound modules' sh -c \
 		'lsmod | grep -E "^(snd|soundcore)" || true'
@@ -74,7 +92,7 @@ collect() {
 }
 
 self_test() {
-	local test_dir report
+	local test_dir report hostname_value
 	test_dir=$(mktemp -d)
 	trap 'rm -rf -- "$test_dir"' RETURN
 	report=$test_dir/report.txt
@@ -82,6 +100,12 @@ self_test() {
 	grep -q '^# AE-5 Linux hardware report$' "$report"
 	grep -q '^## Operating system$' "$report"
 	grep -q '^## Creative PCI devices$' "$report"
+	grep -q '^## Creative PipeWire objects$' "$report"
+	! grep -Fq "$HOME" "$report"
+	if [[ -r /proc/sys/kernel/hostname ]]; then
+		read -r hostname_value < /proc/sys/kernel/hostname
+		[[ -z $hostname_value ]] || ! grep -Fq "$hostname_value" "$report"
+	fi
 	printf 'self-test passed\n'
 }
 

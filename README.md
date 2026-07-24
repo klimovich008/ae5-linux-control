@@ -103,8 +103,14 @@ a dedicated confirmation.
 
 ## Hardware audit
 
-Before adding Rust or changing the kernel, collect the actual card identity,
-driver state, ALSA controls, codec data, and relevant kernel log:
+Collect the actual card identity, driver state, ALSA controls, codec data, and
+relevant kernel log with the installed package:
+
+```sh
+ae5-collect-report
+```
+
+From a source checkout, the equivalent command is:
 
 ```sh
 bash scripts/collect-linux-report.sh

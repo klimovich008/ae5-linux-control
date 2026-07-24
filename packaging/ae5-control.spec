@@ -36,6 +36,8 @@ install -Dm0755 target/release/ae5-control \
   %{buildroot}%{_bindir}/ae5-control
 install -Dm0755 target/release/ae5ctl \
   %{buildroot}%{_bindir}/ae5ctl
+install -Dm0755 scripts/collect-linux-report.sh \
+  %{buildroot}%{_bindir}/ae5-collect-report
 install -Dm0644 packaging/io.github.klimovich008.ae5control.desktop \
   %{buildroot}%{_datadir}/applications/io.github.klimovich008.ae5control.desktop
 install -Dm0644 packaging/io.github.klimovich008.ae5control.svg \
@@ -46,6 +48,7 @@ install -Dm0644 packaging/io.github.klimovich008.ae5control.metainfo.xml \
 %check
 export CARGO_NET_OFFLINE=true
 cargo test --frozen --offline --release --all-features
+bash scripts/collect-linux-report.sh --self-test
 desktop-file-validate packaging/io.github.klimovich008.ae5control.desktop
 appstreamcli validate --no-net --strict \
   packaging/io.github.klimovich008.ae5control.metainfo.xml
@@ -54,6 +57,7 @@ appstreamcli validate --no-net --strict \
 %license LICENSE-APACHE LICENSE-MIT vendor/unicode-ident/LICENSE-UNICODE
 %doc README.md PORT_PLAN.md docs
 %{_bindir}/ae5-control
+%{_bindir}/ae5-collect-report
 %{_bindir}/ae5ctl
 %{_datadir}/applications/io.github.klimovich008.ae5control.desktop
 %{_datadir}/icons/hicolor/scalable/apps/io.github.klimovich008.ae5control.svg

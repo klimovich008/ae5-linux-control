@@ -20,6 +20,7 @@
   <launchable type="desktop-id">io.github.klimovich008.ae5control.desktop</launchable>
   <provides>
     <binary>ae5-control</binary>
+    <binary>ae5-collect-report</binary>
     <binary>ae5ctl</binary>
   </provides>
   <developer id="io.github.klimovich008">

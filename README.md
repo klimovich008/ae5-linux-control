@@ -138,6 +138,12 @@ The exact Nobara/upstream driver source, public research references, firmware
 licence boundary, and pinned revisions are recorded in
 [docs/SOURCE_INVENTORY.md](docs/SOURCE_INVENTORY.md).
 
+The hardware audit also found an independent upstream CA0132 Wedge Angle
+default bug. A minimal one-line kernel patch, evidence, proposed commit
+message, and validation steps are in [kernel/README.md](kernel/README.md).
+Until a patched kernel is running, AE-5 Control displays the invalid value as
+a driver warning and excludes it from newly captured profiles.
+
 Objective Windows/Linux level, frequency-response, and noise comparison is
 documented in
 [docs/AUDIO_PARITY_MEASUREMENT.md](docs/AUDIO_PARITY_MEASUREMENT.md). The

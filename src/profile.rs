@@ -566,6 +566,30 @@ mod tests {
     }
 
     #[test]
+    fn omits_a_driver_level_outside_its_declared_range() {
+        let control = ControlSnapshot {
+            name: "Wedge Angle".to_owned(),
+            selected: None,
+            choices: Vec::new(),
+            playback_switch: None,
+            capture_switch: None,
+            playback_level: None,
+            capture_level: Some(crate::Level {
+                value: 10,
+                min: 20,
+                max: 180,
+            }),
+            playback_channels: Vec::new(),
+            capture_channels: vec![crate::ChannelLevel {
+                name: "Mono".to_owned(),
+                value: 10,
+            }],
+        };
+
+        assert!(ProfileControl::from(control).is_empty());
+    }
+
+    #[test]
     fn rejects_unknown_versions_and_empty_controls() {
         let mut profile = sample_profile();
         profile.format_version = 2;

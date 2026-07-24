@@ -20,13 +20,15 @@ cargo run -- controls
 `status` prints the exact card identity and important control state. `controls`
 prints all simple mixer controls and their current values.
 
-PipeWire may prefer another playback device even when the AE-5 is detected.
-Inspect the mapped sink or explicitly make it the desktop default through
-WirePlumber:
+PipeWire may prefer other playback and recording devices even when the AE-5 is
+detected. Inspect the mapped nodes or explicitly make either one the desktop
+default through WirePlumber:
 
 ```sh
 cargo run -- output-status
 cargo run -- set-default-output
+cargo run -- input-status
+cargo run -- set-default-input
 ```
 
 The routing action invokes `wpctl` directly without a shell and verifies the

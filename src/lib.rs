@@ -8,7 +8,9 @@ pub use controls::{
     Ae5Mixer, ChannelLevel, ControlError, ControlSnapshot, Level, snapshot_controls,
 };
 pub use device::Ae5Device;
-pub use pipewire::{PipeWireOutput, ae5_output, set_ae5_default_output};
+pub use pipewire::{
+    PipeWireNode, ae5_input, ae5_output, set_ae5_default_input, set_ae5_default_output,
+};
 pub use profile::{ApplyReport, Profile, ProfileControl, ProfileError};
 pub use sbcommand::{
     SbCommandError, SbCommandImport, SbCommandImportReport, SbCommandTarget,

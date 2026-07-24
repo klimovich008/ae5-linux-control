@@ -40,6 +40,8 @@ jobs:
       - name: Install build dependencies
         run: dnf install --assumeyes appstream alsa-lib-devel cargo desktop-file-utils git gtk4-devel rpm-build rust
       - uses: actions/checkout@v6
+      - name: Trust checked-out worktree
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Build RPM
         run: bash scripts/build-rpm.sh
       - name: Verify clean install and removal

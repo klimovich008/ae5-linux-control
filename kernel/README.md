@@ -253,6 +253,11 @@ The patch passed:
 - a metadata-only compatibility scan of the installed `ctefx.bin`,
   `ctefx-desktop.bin`, `ctefx-r3di.bin`, and `ctspeq.bin`.
 
+After the host QEMU packages were installed on 2026-07-24, the pinned tree and
+patch were rebuilt and booted again with KVM. All four tests passed; KUnit
+reported 62.434 seconds total, including 56.485 seconds of compilation and
+0.487 seconds running the test kernel.
+
 The `ctspeq.bin` result proves only that its outer fast-load structure is
 accepted. It is not evidence that the Chromebook SpeakerEQ data is suitable
 for the AE-5, and the patch never requests or loads it.

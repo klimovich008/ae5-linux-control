@@ -38,6 +38,18 @@ the original value:
 cargo run -- smoke-test
 ```
 
+Native profiles use semantic control names and values rather than ALSA card
+indexes or numeric control IDs. Saving refuses to overwrite an existing file;
+checking performs all validation without changing hardware; applying verifies
+every write and rolls back the targeted controls if a write fails:
+
+```sh
+cargo run -- profile-save "My headphones" headphones.json
+cargo run -- profile-show headphones.json
+cargo run -- profile-check headphones.json
+cargo run -- profile-apply headphones.json
+```
+
 ## Hardware audit
 
 Before adding Rust or changing the kernel, collect the actual card identity,

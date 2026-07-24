@@ -1,6 +1,7 @@
-use ae5_control::{Ae5Device, Ae5Mixer, snapshot_controls};
+use ae5_control::{Ae5Device, Ae5Mixer, Profile, snapshot_controls};
 use std::error::Error;
 use std::io;
+use std::path::Path;
 
 const IMPORTANT_CONTROLS: &[&str] = &[
     "Output Select",
@@ -41,6 +42,16 @@ fn run() -> Result<(), Box<dyn Error>> {
         }
         [command, name, value] if command == "set-capture-level" => set_capture_level(name, value),
         [command] if command == "smoke-test" => smoke_test(),
+        [command, name, path] if command == "profile-save" => save_profile(name, path),
+        [command, path] if command == "profile-show" => show_profile(path),
+        [command, path] if command == "profile-check" => check_profile(path, false),
+        [command, path, flag] if command == "profile-check" && flag == "--allow-high-gain" => {
+            check_profile(path, true)
+        }
+        [command, path] if command == "profile-apply" => apply_profile(path, false),
+        [command, path, flag] if command == "profile-apply" && flag == "--allow-high-gain" => {
+            apply_profile(path, true)
+        }
         [command] if matches!(command.as_str(), "-h" | "--help" | "help") => {
             print_help();
             Ok(())
@@ -176,6 +187,47 @@ fn smoke_test() -> Result<(), Box<dyn Error>> {
     Err(io::Error::other("no disabled effect was available for a safe smoke test").into())
 }
 
+fn save_profile(name: &str, path: &str) -> Result<(), Box<dyn Error>> {
+    let device = require_device()?;
+    let profile = Profile::capture(name, snapshot_controls(device.card_index)?)?;
+    profile.save_new(Path::new(path))?;
+    println!(
+        "saved '{}' with {} controls to {path}",
+        profile.name,
+        profile.controls.len()
+    );
+    Ok(())
+}
+
+fn show_profile(path: &str) -> Result<(), Box<dyn Error>> {
+    let profile = Profile::load(Path::new(path))?;
+    println!("Profile: {}", profile.name);
+    println!("Target: {}", profile.target);
+    println!("Controls: {}", profile.controls.len());
+    Ok(())
+}
+
+fn check_profile(path: &str, allow_high_gain: bool) -> Result<(), Box<dyn Error>> {
+    let profile = Profile::load(Path::new(path))?;
+    profile.check(&mixer()?, allow_high_gain)?;
+    println!(
+        "valid: '{}' contains {} applicable controls",
+        profile.name,
+        profile.controls.len()
+    );
+    Ok(())
+}
+
+fn apply_profile(path: &str, allow_high_gain: bool) -> Result<(), Box<dyn Error>> {
+    let profile = Profile::load(Path::new(path))?;
+    let report = profile.apply(&mixer()?, allow_high_gain)?;
+    println!(
+        "applied '{}' ({} controls verified)",
+        profile.name, report.controls_applied
+    );
+    Ok(())
+}
+
 fn mixer() -> Result<Ae5Mixer, Box<dyn Error>> {
     Ok(Ae5Mixer::open(require_device()?.card_index)?)
 }
@@ -219,6 +271,10 @@ fn print_help() {
          \x20 set-playback-level NAME VALUE\n\
          \x20 set-capture-level NAME VALUE\n\
          \x20 smoke-test  Safely change, verify, and restore a disabled effect level\n\
+         \x20 profile-save NAME FILE\n\
+         \x20 profile-show FILE\n\
+         \x20 profile-check FILE [--allow-high-gain]\n\
+         \x20 profile-apply FILE [--allow-high-gain]\n\
          \x20 help      Show this help"
     );
 }

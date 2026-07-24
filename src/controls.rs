@@ -185,6 +185,7 @@ fn read_control(element: Selem<'_>) -> alsa::Result<ControlSnapshot> {
     } else {
         (None, Vec::new())
     };
+    let has_capture_level = name != "Bass Redirection Crossover" && element.has_capture_volume();
 
     Ok(ControlSnapshot {
         name,
@@ -215,8 +216,7 @@ fn read_control(element: Selem<'_>) -> alsa::Result<ControlSnapshot> {
                     .map(|value| Level { value, min, max })
             })
             .transpose()?,
-        capture_level: element
-            .has_capture_volume()
+        capture_level: has_capture_level
             .then(|| {
                 let (min, max) = element.get_capture_volume_range();
                 element

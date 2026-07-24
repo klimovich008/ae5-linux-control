@@ -130,6 +130,27 @@ replaced the host RPM; the user-scoped profile supplied the live route test
 described in
 [`RECORDING_MIXER_INVESTIGATION.md`](RECORDING_MIXER_INVESTIGATION.md).
 
+## Rebuild with synchronized desktop routes
+
+The shared Rust setter now sends `Output Select` and `Input Source` choices
+through the matching WirePlumber routes after confirming the packaged AE-5
+profile set. The rebuilt binary RPM has SHA-256
+`63c0d378607625593964fab95dba856d5109222a633119075adbff38cac6da3b`;
+the source RPM has SHA-256
+`c3e361683d54cc88aada3d35d8882d7b652834f06c7c5af680f5dcd455f8bbc9`.
+Both RPM payload digests passed.
+
+The release build passed all 50 Rust tests, strict route-order and shared-Front
+validation, the diagnostics self-test, desktop and AppStream validation, and
+the private-build-path check. All six packaged ACP/WirePlumber files matched
+the repository byte-for-byte.
+
+The exact `ae5ctl` binary streamed from this RPM selected Line In,
+Microphone, Speakers, and Headphone through the live target card. The complete
+ALSA mixer and retained WirePlumber route-state hashes matched their starting
+values afterward. The previous recording-control RPMs were preserved under
+`dist/previous-3df5d27/`; the host package database was not changed.
+
 ## Remaining release gate
 
 This proves clean Fedora dependency resolution and package ownership/removal,

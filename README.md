@@ -51,8 +51,11 @@ On the target AE-5, guarded 44.1 and 96 kHz physical What U Hear captures
 matched direct ALSA and PipeWire by 0.00 dB in level and response when the PCM
 mixer was at 0 dB; alternative-rate switching remains an explicit opt-in.
 
-Typed write commands validate choices and ranges, write through ALSA, and
-verify the value by reading it back:
+Typed write commands validate choices and ranges and verify the value by
+reading it back. `Output Select` and `Input Source` use the matching
+WirePlumber port from the packaged AE-5 profile so the desktop route and ALSA
+enum cannot silently disagree; the other controls write directly through
+ALSA:
 
 ```sh
 cargo run -- get "Output Select"

@@ -10,6 +10,7 @@ context.properties = {
     default.clock.allowed-rates = [ 44100 48000 96000 ]
 }
 ";
+const AE5_PROFILE_SET: &str = "sound-blaster-ae5.conf";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PipeWireNode {
@@ -39,6 +40,25 @@ pub fn set_ae5_default_output(card_index: i32) -> io::Result<PipeWireNode> {
 
 pub fn set_ae5_default_input(card_index: i32) -> io::Result<PipeWireNode> {
     set_ae5_default_node(card_index, "sources", "recording input")
+}
+
+pub(crate) fn set_ae5_control_route(
+    card_index: i32,
+    control: &str,
+    choice: &str,
+) -> io::Result<bool> {
+    let Some((nodes, route)) = ae5_control_route(control, choice) else {
+        return Ok(false);
+    };
+    let node = ae5_node(card_index, nodes)?.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("PipeWire has no AE-5 {nodes} node for ALSA card {card_index}"),
+        )
+    })?;
+    require_ae5_profile(node.id)?;
+    run_wpctl(&["set-route", &node.id.to_string(), &route.to_string()])?;
+    Ok(true)
 }
 
 pub fn native_rates_config() -> io::Result<NativeRatesConfig> {
@@ -154,6 +174,36 @@ fn set_ae5_default_node(
         .ok_or_else(|| io::Error::other(format!("PipeWire did not retain the AE-5 {description}")))
 }
 
+fn require_ae5_profile(node_id: u32) -> io::Result<()> {
+    let node = run_wpctl(&["inspect", &node_id.to_string()])?;
+    let device_id = property(&node, "device.id").ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "the AE-5 PipeWire node has no device.id",
+        )
+    })?;
+    let device = run_wpctl(&["inspect", &device_id])?;
+    match property(&device, "device.profile-set").as_deref() {
+        Some(AE5_PROFILE_SET) => Ok(()),
+        _ => Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "the AE-5 desktop route is not using sound-blaster-ae5.conf; restart WirePlumber after installing the package",
+        )),
+    }
+}
+
+fn ae5_control_route(control: &str, choice: &str) -> Option<(&'static str, u32)> {
+    // These indices follow the exact path order enforced by check-ae5-acp-profile.sh.
+    match (control, choice) {
+        ("Input Source", "Microphone") => Some(("sources", 0)),
+        ("Input Source", "Front Microphone") => Some(("sources", 1)),
+        ("Input Source", "Line In") => Some(("sources", 2)),
+        ("Output Select", "Speakers") => Some(("sinks", 3)),
+        ("Output Select", "Headphone") => Some(("sinks", 6)),
+        _ => None,
+    }
+}
+
 fn run_wpctl(arguments: &[&str]) -> io::Result<String> {
     let output = Command::new("wpctl")
         .args(arguments)
@@ -244,6 +294,32 @@ id 58, type PipeWire:Interface:Node
         assert_eq!(
             property(details, "node.name").as_deref(),
             Some("alsa_output.pci-ae5.analog-stereo")
+        );
+    }
+
+    #[test]
+    fn maps_only_the_packaged_ae5_desktop_routes() {
+        assert_eq!(
+            [
+                ("Input Source", "Microphone"),
+                ("Input Source", "Front Microphone"),
+                ("Input Source", "Line In"),
+                ("Output Select", "Speakers"),
+                ("Output Select", "Headphone"),
+            ]
+            .map(|(control, choice)| ae5_control_route(control, choice)),
+            [
+                Some(("sources", 0)),
+                Some(("sources", 1)),
+                Some(("sources", 2)),
+                Some(("sinks", 3)),
+                Some(("sinks", 6)),
+            ]
+        );
+        assert_eq!(ae5_control_route("Output Select", "Unknown"), None);
+        assert_eq!(
+            ae5_control_route("AE-5: Sound Filter", "Fast Roll Off"),
+            None
         );
     }
 

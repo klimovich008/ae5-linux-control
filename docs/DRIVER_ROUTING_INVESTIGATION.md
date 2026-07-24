@@ -105,6 +105,35 @@ headphone route, and passed Speakers → Headphones switching with
 restart with the fixed route, 43% sink volume, and the expected ALSA controls.
 An acoustic microphone check and repeated cold-boot/suspend testing remain.
 
+### AE-5 Control route ownership
+
+Direct ALSA writes can recreate a split state even with the fixed profile:
+`Output Select` or `Input Source` changes immediately, while WirePlumber still
+remembers the old desktop port. AE-5 Control now sends those five choices
+through the card-scoped WirePlumber routes instead. The shared setter is used
+by the CLI, GTK application, native profiles, rollback, and imported profiles.
+It refuses the managed action unless the live node confirms
+`sound-blaster-ae5.conf`; every unrelated enum remains a direct ALSA control.
+
+A no-stream physical-card matrix deliberately changed the ALSA enum behind
+WirePlumber, then used the rebuilt CLI:
+
+| Requested choice | PipeWire port | ALSA result |
+|---|---|---|
+| Speakers | `analog-output-lineout;output-speaker` | `Speakers`, Front on |
+| Headphone | `sound-blaster-ae5-output-headphones;output-headphones` | `Headphone`, Front on |
+| Microphone | `sound-blaster-ae5-input-microphone` | `Microphone` |
+| Front Microphone | `sound-blaster-ae5-input-front-microphone` | `Front Microphone` |
+| Line In | `sound-blaster-ae5-input-line-in` | `Line In` |
+
+A separate two-control native profile changed Headphone/Microphone to
+Speakers/Line In and restored it. Both matrices returned the complete ALSA
+mixer to SHA-256
+`3e595532348efe1e2e9c066039131e97505cb9b71bc6bfd8fa8a59301091e802`
+and WirePlumber route state to
+`76dd10cc599da7cc4d310c32c028fe6e008d980eeb7d992ef3c6f23ba09babd6`.
+No audio stream was open.
+
 WirePlumber documents `monitor.alsa.rules` as the supported mechanism for
 updating ALSA-device properties, while ACP is responsible for profiles, ports,
 and mixer settings:

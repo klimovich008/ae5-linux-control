@@ -1,6 +1,8 @@
+use crate::pipewire::set_ae5_control_route;
 use alsa::mixer::{Mixer, Selem, SelemChannelId};
 use std::error::Error;
 use std::fmt;
+use std::io;
 use std::time::Duration;
 
 const CHANNELS: &[SelemChannelId] = &[
@@ -24,6 +26,7 @@ const INEFFECTIVE_WHAT_U_HEAR_CONTROL: &str = "The AE-5 DSP loopback bypasses th
 #[derive(Debug)]
 pub enum ControlError {
     Alsa(alsa::Error),
+    DesktopRoute(io::Error),
     Missing(String),
     Invalid(String),
     Verification(String),
@@ -58,6 +61,7 @@ pub struct ControlSnapshot {
 #[derive(Debug)]
 pub struct Ae5Mixer {
     mixer: Mixer,
+    card_index: i32,
 }
 
 pub fn snapshot_controls(card_index: i32) -> alsa::Result<Vec<ControlSnapshot>> {
@@ -143,6 +147,7 @@ impl Ae5Mixer {
     pub fn open(card_index: i32) -> alsa::Result<Self> {
         Ok(Self {
             mixer: Mixer::new(&format!("hw:{card_index}"), false)?,
+            card_index,
         })
     }
 
@@ -197,6 +202,9 @@ impl Ae5Mixer {
             )));
         };
         let expected = &choices[index];
+        let previous = choices
+            .get(element.get_enum_item(SelemChannelId::FrontLeft)? as usize)
+            .cloned();
         if matches!(name, "Output Select" | "Surround Channel Config") {
             let mut controls = self.snapshots()?;
             if let Some(control) = controls.iter_mut().find(|control| control.name == name)
@@ -208,12 +216,23 @@ impl Ae5Mixer {
                 }
             }
         }
-        element.set_enum_item(SelemChannelId::FrontLeft, index as u32)?;
+        let routed = set_ae5_control_route(self.card_index, name, expected)?;
+        if !routed {
+            element.set_enum_item(SelemChannelId::FrontLeft, index as u32)?;
+        }
         let actual = read_control(element)?;
         if actual.selected.as_deref() != Some(expected) {
+            let rollback = if routed {
+                previous
+                    .as_deref()
+                    .map(|previous| self.restore_desktop_route(name, previous))
+                    .unwrap_or_else(|| "the previous route was unavailable".to_owned())
+            } else {
+                "no rollback was attempted".to_owned()
+            };
             return Err(ControlError::Verification(format!(
-                "'{name}' read back as {:?}, expected '{expected}'",
-                actual.selected
+                "'{name}' read back as {:?}, expected '{expected}'; {rollback}",
+                actual.selected,
             )));
         }
         Ok(actual)
@@ -363,6 +382,20 @@ impl Ae5Mixer {
             return Err(ControlError::Invalid(reason.to_owned()));
         }
         Ok(())
+    }
+
+    fn restore_desktop_route(&self, name: &str, previous: &str) -> String {
+        match set_ae5_control_route(self.card_index, name, previous) {
+            Ok(true) => match self.snapshot(name) {
+                Ok(control) if control.selected.as_deref() == Some(previous) => {
+                    format!("restored '{previous}'")
+                }
+                Ok(control) => format!("rollback read back as {:?}", control.selected),
+                Err(error) => format!("rollback readback failed: {error}"),
+            },
+            Ok(false) => "the previous desktop route was unavailable".to_owned(),
+            Err(error) => format!("rollback failed: {error}"),
+        }
     }
 }
 
@@ -559,6 +592,7 @@ impl fmt::Display for ControlError {
     fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Alsa(error) => write!(output, "{error}"),
+            Self::DesktopRoute(error) => write!(output, "desktop route failed: {error}"),
             Self::Missing(name) => write!(output, "ALSA control '{name}' is unavailable"),
             Self::Invalid(message) | Self::Verification(message) => output.write_str(message),
         }
@@ -569,6 +603,7 @@ impl Error for ControlError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Alsa(error) => Some(error),
+            Self::DesktopRoute(error) => Some(error),
             _ => None,
         }
     }
@@ -577,6 +612,12 @@ impl Error for ControlError {
 impl From<alsa::Error> for ControlError {
     fn from(error: alsa::Error) -> Self {
         Self::Alsa(error)
+    }
+}
+
+impl From<io::Error> for ControlError {
+    fn from(error: io::Error) -> Self {
+        Self::DesktopRoute(error)
     }
 }
 

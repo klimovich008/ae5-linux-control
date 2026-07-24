@@ -102,6 +102,11 @@ matching ALSA enum:
 The profile was restored to Microphone. The active fixed headphone route,
 Front DAC, 43% sink volume, and mute state were unchanged.
 
+AE-5 Control now selects these ports through WirePlumber rather than writing
+the ALSA enum behind the session manager. Rebuilt CLI and native-profile
+matrices synchronized every port with its enum and restored both the complete
+mixer and retained route-state hashes.
+
 ## Remaining recording gates
 
 - Connect a controlled signal to rear microphone, front microphone, and line

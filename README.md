@@ -269,5 +269,5 @@ documented in
 SoX-based harness generates one hash-verified reference set and compares
 unaltered 48 kHz/24-bit stereo captures without changing mixer controls.
 Physical digital-loopback measurements for isolated output effects and all ten
-EQ bands are in
+EQ bands, plus every factory EQ preset, are in
 [docs/DSP_EFFECT_MEASUREMENT.md](docs/DSP_EFFECT_MEASUREMENT.md).

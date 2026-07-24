@@ -123,3 +123,9 @@ measured within 0.86 dB on Bands 1 through 8, while the 31 Hz and 16 kHz edge
 bands fell short by 1.90 and 1.80 dB. The full method, result tables, safety
 checks, and limits are in
 [`DSP_EFFECT_MEASUREMENT.md`](DSP_EFFECT_MEASUREMENT.md).
+
+All ten factory EQ presets were also captured independently. Every non-Flat
+choice produced a distinct DSP response, with maximum normalized response
+changes from 2.23 to 7.52 dB versus Flat. Left and right measurements matched,
+the exact complete mixer hash was restored after every capture, and the kernel
+journal remained clean.

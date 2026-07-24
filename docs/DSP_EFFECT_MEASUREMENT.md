@@ -86,12 +86,35 @@ the Linux filter centers and DSP parameters before changing the mapping.
 
 ## Factory preset readback
 
-Selecting the Acoustic factory preset changed the physical What U Hear
-response by up to 2.49 dB relative to Flat, including +2.44 dB at 8 kHz and
-+2.49 dB at 16 kHz after normalization to 1 kHz. The capture SHA-256 is
-`288a1bee142f38c2eefa165059f0f0e3fe45097678e62cb1c4dacc960c9fa5c9`.
-Despite that DSP change, `FX: Equalizer Preset` read back Acoustic while every
-`EQ Band0` through `EQ Band9` control remained at `24`.
+All ten factory presets were selected independently and captured through the
+same physical What U Hear path. Flat and Acoustic reuse the earlier valid
+captures; the other eight were recorded in one guarded sequence. Every
+capture was 48 kHz, 32-bit stereo, and every left/right tone measurement
+matched.
+
+The response range is normalized to 1 kHz within each capture. Maximum response
+delta compares that normalized curve with Flat:
+
+| Preset | 1 kHz delta versus Flat | Relative response range | Maximum response delta versus Flat |
+|---|---:|---:|---:|
+| Flat | +0.00 dB | 0.00 to 0.00 dB | 0.00 dB |
+| Acoustic | -0.18 dB | 0.00 to +2.49 dB | 2.49 dB |
+| Classical | -0.29 dB | 0.00 to +6.29 dB | 6.29 dB |
+| Country | -0.06 dB | -0.89 to +4.49 dB | 4.49 dB |
+| Dance | -1.40 dB | 0.00 to +6.43 dB | 6.43 dB |
+| Jazz | +3.33 dB | -3.55 to +1.04 dB | 3.55 dB |
+| New Age | +0.05 dB | -0.33 to +2.23 dB | 2.23 dB |
+| Pop | -1.27 dB | -0.10 to +7.52 dB | 7.52 dB |
+| Rock | -1.29 dB | -0.41 to +6.33 dB | 6.33 dB |
+| Vocal | +4.09 dB | -5.96 to 0.00 dB | 5.96 dB |
+
+The ten files have distinct SHA-256 hashes and each non-Flat preset has a
+distinct measurable response. This verifies that every exposed enum choice
+reaches active CA0132 DSP processing. It does not establish whether Creative's
+Windows driver uses identically named curves.
+
+Selecting Acoustic changed the response while `FX: Equalizer Preset` read back
+Acoustic and every `EQ Band0` through `EQ Band9` control remained at `24`.
 
 The exact running source explains the mismatch. The preset callback sends its
 11 table values directly to DSP requests 10 through 20 and updates only the
@@ -104,6 +127,11 @@ preset, ignores stale bands in legacy factory-preset profiles, and requires
 Flat before custom band edits. The separate kernel patch records each preset's
 nearest representable whole-dB cache values while retaining its exact
 fractional DSP values.
+
+The validated restore profile recovered the exact complete mixer SHA-256
+`02530d87f6ce78e00f213bfa25f53174e8bfea1778f94b83bc0c9d32278c89f6`
+after every new preset capture. No CA0132, HDA, ALSA, or DSP warning or error
+appeared in the kernel journal.
 
 ## Safety and limits
 

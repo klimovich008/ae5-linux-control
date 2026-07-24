@@ -23,7 +23,9 @@ its active user-owned AE-5 profile and equalizer files.
 
 Selecting the mounted Windows user folder found Command 3.5.10.0 instead of
 the older 3.4.98.0 config and found the single installed AE-5 product
-directory without requiring either internal path from the user.
+directory without requiring either internal path from the user. The migration
+report now identifies 3.5.10.0 as the selected active configuration, making
+that automatic choice visible in both the CLI and desktop preview.
 
 The active speaker selection now converts to a native profile containing 21 ALSA
 controls. Its Windows channel mask mapped exactly to the AE-5 `5.1` speaker

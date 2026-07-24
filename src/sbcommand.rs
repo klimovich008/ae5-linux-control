@@ -128,6 +128,11 @@ pub fn import_active_profile_with_report(
     )?;
     let mut controls = import.profile.controls;
     let mut report = import.report;
+    if let Some(version) = active_command_version(user_config_path) {
+        report.exact.push(format!(
+            "Sound Blaster Command {version} → active configuration"
+        ));
+    }
     report.exact.push(format!(
         "{profile_setting} → Profiles/{profile_file} (active {target} profile)"
     ));
@@ -790,6 +795,12 @@ fn command_version(path: &Path) -> Option<Vec<u64>> {
     (components.len() >= 2).then_some(components)
 }
 
+fn active_command_version(user_config_path: &Path) -> Option<&str> {
+    let version_dir = user_config_path.parent()?;
+    command_version(version_dir)?;
+    version_dir.file_name()?.to_str()
+}
+
 fn is_regular_file(path: &Path) -> bool {
     fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_file())
 }
@@ -1285,9 +1296,14 @@ mod tests {
         assert_eq!(
             discover_installation(&user).unwrap(),
             SbCommandInstallation {
-                user_config: newest_config,
+                user_config: newest_config.clone(),
                 product_dir: product,
             }
+        );
+        assert_eq!(active_command_version(&newest_config), Some("3.10.0.0"));
+        assert_eq!(
+            active_command_version(Path::new("/tmp/manual/user.config")),
+            None
         );
 
         let duplicate_application = user

@@ -144,6 +144,34 @@ physical AE-5 remained in IOMMU group 28 and bound to the host
 control default remains gated on the reviewed `qemu:///system` passthrough
 transition.
 
+### Prepared system import
+
+The powered-off `vfio-tools-ready` state was flattened into the standalone
+`ae5-kernel-test-f44-system-import.qcow2`. It has no backing file, occupies
+3.81 GiB for a 40 GiB virtual disk, passes `qemu-img check`, and has SHA-256:
+
+```text
+a7a445b06ecf7b7f6adf4827de95a75a7fad9659ccafe7a09d6242172f6c11b1
+```
+
+A temporary unprivileged domain booted this exact standalone image, verified
+the candidate kernel, Btrfs root, KVM, networking, and installed test tools,
+then shut down cleanly. The temporary domain and its NVRAM were removed; the
+standalone disk remains powered off and ready to import. It never contained a
+host device.
+
+After the coordinated host reboot:
+
+1. confirm `virtqemud.socket` is active and `qemu:///system` connects;
+2. upload the standalone image into a system-owned libvirt storage pool rather
+   than granting the system QEMU account access through the user's home;
+3. define an inactive system domain with ordinary UEFI, no emulated audio, and
+   no host device;
+4. inspect its complete inactive XML, storage, NVRAM, and network settings
+   without starting it;
+5. retain the session guest and its snapshots as the recovery source until the
+   system copy has passed a no-device boot.
+
 ### Reviewed host-device fragment
 
 The only planned passthrough device is the already-audited AE-5 function:

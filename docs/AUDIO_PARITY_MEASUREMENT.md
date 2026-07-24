@@ -130,3 +130,8 @@ the desktop path is equivalent to direct ALSA when measured through the card's
 digital loopback. It does not establish Windows parity or analog output
 performance. Exact target-system values and limits are recorded in
 [`HARDWARE_BASELINE.md`](HARDWARE_BASELINE.md).
+
+The same loopback path was subsequently used to isolate Surround, Crystalizer,
+Dialog Plus, Smart Volume, X-Bass, Equalizer Flat, and all ten individual EQ
+bands. Results, repeat deltas, and the two edge-band gain shortfalls are in
+[`DSP_EFFECT_MEASUREMENT.md`](DSP_EFFECT_MEASUREMENT.md).

@@ -109,3 +109,17 @@ This proves the target card's What U Hear channel identity, master output
 processing switch, and neutral 48 kHz direct-ALSA/PipeWire digital equivalence.
 It does not compare Windows, measure the analog output, or cover 44.1 and
 96 kHz.
+
+## Isolated output effects
+
+Separate physical What U Hear captures verified repeatable DSP changes from
+Surround, Crystalizer, Dialog Plus, Smart Volume, and X-Bass while every other
+output effect was disabled. Static effects repeated within 0.01 dB; the
+stateful Smart Volume sequence repeated within 0.42 dB. Equalizer Flat matched
+neutral by 0.00 dB.
+
+All ten EQ controls targeted the expected fixture bands. A +12 dB request
+measured within 0.86 dB on Bands 1 through 8, while the 31 Hz and 16 kHz edge
+bands fell short by 1.90 and 1.80 dB. The full method, result tables, safety
+checks, and limits are in
+[`DSP_EFFECT_MEASUREMENT.md`](DSP_EFFECT_MEASUREMENT.md).

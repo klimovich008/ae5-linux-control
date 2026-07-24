@@ -11,6 +11,20 @@ use std::str::FromStr;
 
 const MAX_SOURCE_BYTES: u64 = 1024 * 1024;
 const EQ_FREQUENCIES: [u32; 10] = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
+const SOURCE_METADATA_FIELDS: &[&str] = &[
+    "CreatorName",
+    "CreatorProfession",
+    "DescriptionLong",
+    "DescriptionShort",
+    "FilePath",
+    "Id",
+    "ImageLarge",
+    "ImageSmall",
+    "Name",
+    "Order",
+    "Type",
+    "Version",
+];
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum SbCommandTarget {
@@ -26,20 +40,45 @@ pub enum SbCommandError {
     Invalid(String),
 }
 
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct SbCommandImportReport {
+    pub exact: Vec<String>,
+    pub approximate: Vec<String>,
+    pub unsupported: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SbCommandImport {
+    pub profile: Profile,
+    pub report: SbCommandImportReport,
+}
+
 pub fn import_profile(
     name: &str,
     profile_path: &Path,
     eq_path: &Path,
     target: SbCommandTarget,
 ) -> Result<Profile, SbCommandError> {
+    Ok(import_profile_with_report(name, profile_path, eq_path, target)?.profile)
+}
+
+pub fn import_profile_with_report(
+    name: &str,
+    profile_path: &Path,
+    eq_path: &Path,
+    target: SbCommandTarget,
+) -> Result<SbCommandImport, SbCommandError> {
     let source: SourceProfile = load_json(profile_path)?;
     validate_product(&source.product, profile_path)?;
     let settings = select_settings(&source.settings, target)?;
-    let mut controls = effect_controls(settings)?;
+    let mut report = SbCommandImportReport::default();
+    report_unknown_fields(&mut report, "Profile", &source.extra, true);
+    let mut controls = effect_controls(settings, &mut report)?;
 
     let eq: SourceEq = load_json(eq_path)?;
     validate_product(&eq.product, eq_path)?;
-    add_eq_controls(&mut controls, &eq, target)?;
+    report_unknown_fields(&mut report, "Equalizer", &eq.extra, true);
+    add_eq_controls(&mut controls, &eq, target, &mut report)?;
     controls.insert(
         "FX: Equalizer".to_owned(),
         ProfileControl {
@@ -47,75 +86,128 @@ pub fn import_profile(
             ..ProfileControl::default()
         },
     );
-    Profile::new(name, controls).map_err(Into::into)
+    report.approximate.push(
+        "selected EQ preset → FX: Equalizer (playback on; source has no enable flag)".to_owned(),
+    );
+    Ok(SbCommandImport {
+        profile: Profile::new(name, controls)?,
+        report,
+    })
 }
 
 fn effect_controls(
     settings: &SourceSettings,
+    report: &mut SbCommandImportReport,
 ) -> Result<BTreeMap<String, ProfileControl>, SbCommandError> {
     let mut controls = BTreeMap::new();
     let master = settings
         .sbx_master
         .as_ref()
         .ok_or_else(|| invalid("profile is missing SBXMaster settings"))?;
-    controls.insert(
-        "Enable OutFX".to_owned(),
-        switch(master.enable.unwrap_or(true)),
-    );
+    report_unknown_fields(report, "Settings", &settings.extra, false);
+    report_unknown_fields(report, "SBXMaster", &master.extra, false);
+    let master_enabled = master.enable.unwrap_or(true);
+    controls.insert("Enable OutFX".to_owned(), switch(master_enabled));
+    report.exact.push(format!(
+        "SBXMaster.Enable → Enable OutFX (playback {})",
+        on_off(master_enabled)
+    ));
     add_effect(
         &mut controls,
         "FX: Surround",
+        "Surround",
         settings.surround.as_ref(),
         master.surround_enable,
+        report,
     )?;
     add_effect(
         &mut controls,
         "FX: Crystalizer",
+        "Crystalizer",
         settings.crystalizer.as_ref(),
         master.crystalizer_enable,
+        report,
     )?;
     if let Some(bass) = &settings.bass {
         let enabled = master.x_bass_enable.unwrap_or(bass.enable);
+        let level = percent("Bass.Level", bass.level)?;
         controls.insert(
             "FX: X-Bass".to_owned(),
             ProfileControl {
                 playback_switch: Some(enabled),
-                playback_level: Some(percent("Bass.Level", bass.level)?),
+                playback_level: Some(level),
                 ..ProfileControl::default()
             },
         );
+        report_mapping(
+            report,
+            is_exact_step(bass.level * 100.0),
+            format!(
+                "Bass → FX: X-Bass (playback {}, level {level})",
+                on_off(enabled)
+            ),
+        );
+        report_unknown_fields(report, "Bass", &bass.extra, false);
         if bass.x_over != 0.0 || enabled {
+            let level = crossover(bass.x_over)?;
             controls.insert(
                 "FX: X-Bass Crossover".to_owned(),
                 ProfileControl {
-                    playback_level: Some(crossover(bass.x_over)?),
+                    playback_level: Some(level),
                     ..ProfileControl::default()
                 },
+            );
+            report_mapping(
+                report,
+                is_exact_step(bass.x_over / 10.0),
+                format!(
+                    "Bass.XOver {} Hz → FX: X-Bass Crossover ({} Hz)",
+                    source_number(bass.x_over),
+                    level * 10
+                ),
             );
         }
     }
     if let Some(svm) = &settings.svm {
+        let enabled = master.svm_enable.unwrap_or(svm.enable);
+        let level = percent("SVM.Level", svm.level)?;
         controls.insert(
             "FX: Smart Volume".to_owned(),
             ProfileControl {
-                playback_switch: Some(master.svm_enable.unwrap_or(svm.enable)),
-                playback_level: Some(percent("SVM.Level", svm.level)?),
+                playback_switch: Some(enabled),
+                playback_level: Some(level),
                 ..ProfileControl::default()
             },
         );
+        report_mapping(
+            report,
+            is_exact_step(svm.level * 100.0),
+            format!(
+                "SVM → FX: Smart Volume (playback {}, level {level})",
+                on_off(enabled)
+            ),
+        );
+        let mode = svm_mode(svm.mode)?;
         controls.insert(
             "FX: Smart Volume Setting".to_owned(),
             ProfileControl {
-                choice: Some(svm_mode(svm.mode)?.to_owned()),
+                choice: Some(mode.to_owned()),
                 ..ProfileControl::default()
             },
         );
+        report.exact.push(format!(
+            "SVM.Mode {} → FX: Smart Volume Setting ({mode})",
+            svm.mode
+        ));
+        report_unknown_fields(report, "SVM", &svm.extra, false);
     }
     add_effect(
         &mut controls,
         "FX: Dialog Plus",
+        "DialogPlus",
         settings.dialog_plus.as_ref(),
         master.dialog_plus_enable,
+        report,
     )?;
     Ok(controls)
 }
@@ -123,18 +215,31 @@ fn effect_controls(
 fn add_effect(
     controls: &mut BTreeMap<String, ProfileControl>,
     control_name: &str,
+    source_name: &str,
     effect: Option<&SourceEffect>,
     master_enabled: Option<bool>,
+    report: &mut SbCommandImportReport,
 ) -> Result<(), SbCommandError> {
     if let Some(effect) = effect {
+        let enabled = master_enabled.unwrap_or(effect.enable);
+        let level = percent(&format!("{source_name}.Level"), effect.level)?;
         controls.insert(
             control_name.to_owned(),
             ProfileControl {
-                playback_switch: Some(master_enabled.unwrap_or(effect.enable)),
-                playback_level: Some(percent(&format!("{control_name}.Level"), effect.level)?),
+                playback_switch: Some(enabled),
+                playback_level: Some(level),
                 ..ProfileControl::default()
             },
         );
+        report_mapping(
+            report,
+            is_exact_step(effect.level * 100.0),
+            format!(
+                "{source_name} → {control_name} (playback {}, level {level})",
+                on_off(enabled)
+            ),
+        );
+        report_unknown_fields(report, source_name, &effect.extra, false);
     }
     Ok(())
 }
@@ -143,6 +248,7 @@ fn add_eq_controls(
     controls: &mut BTreeMap<String, ProfileControl>,
     eq: &SourceEq,
     target: SbCommandTarget,
+    report: &mut SbCommandImportReport,
 ) -> Result<(), SbCommandError> {
     let expected_type = target.eq_type();
     let settings = eq
@@ -156,11 +262,16 @@ fn add_eq_controls(
             settings.unit
         )));
     }
+    report_unknown_fields(report, "Equalizer.Settings", &settings.extra, false);
     if settings.pre_amp.abs() > 0.01 {
-        return Err(invalid(format!(
-            "EQ preamp {} dB cannot be represented by the AE-5 ALSA controls",
-            settings.pre_amp
-        )));
+        report.unsupported.push(format!(
+            "Equalizer.PreAmp {} dB (no equivalent AE-5 ALSA control)",
+            source_number(settings.pre_amp)
+        ));
+    } else {
+        report
+            .exact
+            .push("Equalizer.PreAmp 0 dB → no gain adjustment".to_owned());
     }
     if settings.bands.len() != EQ_FREQUENCIES.len() {
         return Err(invalid(format!(
@@ -177,15 +288,73 @@ fn add_eq_controls(
                 band.frequency
             )));
         }
+        let control_name = format!("EQ Band{index}");
+        let level = eq_level(index, band.value)?;
+        let target_db = level - 24;
         controls.insert(
-            format!("EQ Band{index}"),
+            control_name.clone(),
             ProfileControl {
-                playback_level: Some(eq_level(index, band.value)?),
+                playback_level: Some(level),
                 ..ProfileControl::default()
             },
         );
+        report_mapping(
+            report,
+            is_exact_step(band.value),
+            format!(
+                "EQ {} Hz {} dB → {control_name} ({target_db:+} dB)",
+                band.frequency,
+                source_number(band.value)
+            ),
+        );
+        report_unknown_fields(
+            report,
+            &format!("Equalizer.Bands[{index}]"),
+            &band.extra,
+            false,
+        );
     }
     Ok(())
+}
+
+fn report_mapping(report: &mut SbCommandImportReport, exact: bool, message: String) {
+    if exact {
+        report.exact.push(message);
+    } else {
+        report
+            .approximate
+            .push(format!("{message}; rounded to ALSA step"));
+    }
+}
+
+fn report_unknown_fields(
+    report: &mut SbCommandImportReport,
+    prefix: &str,
+    fields: &BTreeMap<String, serde_json::Value>,
+    ignore_metadata: bool,
+) {
+    report.unsupported.extend(
+        fields
+            .iter()
+            .filter(|(_, value)| !value.is_null())
+            .filter(|(name, _)| {
+                !ignore_metadata || !SOURCE_METADATA_FIELDS.contains(&name.as_str())
+            })
+            .map(|(name, _)| format!("{prefix}.{name} (no mapped AE-5 ALSA control)")),
+    );
+}
+
+fn is_exact_step(value: f64) -> bool {
+    (value - value.round()).abs() <= 0.0001
+}
+
+fn on_off(enabled: bool) -> &'static str {
+    if enabled { "on" } else { "off" }
+}
+
+fn source_number(value: f64) -> String {
+    let value = format!("{value:.6}");
+    value.trim_end_matches('0').trim_end_matches('.').to_owned()
 }
 
 fn select_settings(
@@ -364,6 +533,8 @@ impl From<ProfileError> for SbCommandError {
 struct SourceProfile {
     product: String,
     settings: Vec<SourceSettings>,
+    #[serde(flatten)]
+    extra: BTreeMap<String, serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -379,6 +550,8 @@ struct SourceSettings {
     dialog_plus: Option<SourceEffect>,
     #[serde(rename = "SBXMaster")]
     sbx_master: Option<SourceMaster>,
+    #[serde(flatten)]
+    extra: BTreeMap<String, serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -386,6 +559,8 @@ struct SourceSettings {
 struct SourceEffect {
     enable: bool,
     level: f64,
+    #[serde(flatten)]
+    extra: BTreeMap<String, serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -395,6 +570,8 @@ struct SourceBass {
     level: f64,
     #[serde(rename = "XOver")]
     x_over: f64,
+    #[serde(flatten)]
+    extra: BTreeMap<String, serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -403,6 +580,8 @@ struct SourceSvm {
     enable: bool,
     level: f64,
     mode: u8,
+    #[serde(flatten)]
+    extra: BTreeMap<String, serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -416,6 +595,8 @@ struct SourceMaster {
     #[serde(rename = "SVMEnable")]
     svm_enable: Option<bool>,
     dialog_plus_enable: Option<bool>,
+    #[serde(flatten)]
+    extra: BTreeMap<String, serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -423,6 +604,8 @@ struct SourceMaster {
 struct SourceEq {
     product: String,
     settings: Vec<SourceEqSettings>,
+    #[serde(flatten)]
+    extra: BTreeMap<String, serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -433,6 +616,8 @@ struct SourceEqSettings {
     unit: String,
     pre_amp: f64,
     bands: Vec<SourceBand>,
+    #[serde(flatten)]
+    extra: BTreeMap<String, serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -440,6 +625,8 @@ struct SourceEqSettings {
 struct SourceBand {
     frequency: u32,
     value: f64,
+    #[serde(flatten)]
+    extra: BTreeMap<String, serde_json::Value>,
 }
 
 #[cfg(test)]
@@ -484,7 +671,7 @@ mod tests {
         )
         .unwrap();
         let settings = select_settings(&profile.settings, SbCommandTarget::Headphone).unwrap();
-        let controls = effect_controls(settings).unwrap();
+        let controls = effect_controls(settings, &mut SbCommandImportReport::default()).unwrap();
 
         assert_eq!(
             controls["FX: Surround"],
@@ -503,5 +690,108 @@ mod tests {
             }
         );
         assert!(!controls.contains_key("FX: X-Bass Crossover"));
+    }
+
+    #[test]
+    fn separates_rounded_and_unsupported_windows_settings() {
+        let profile: SourceProfile = serde_json::from_str(
+            r#"{
+                "Product":"AE5",
+                "SpeakerMethod":0,
+                "Settings":[{
+                    "Type":1,
+                    "Scout":null,
+                    "Surround":{"Enable":true,"Level":0.675,"Mode":0},
+                    "Bass":{
+                        "Enable":false,
+                        "Level":0.0,
+                        "XOver":0.0,
+                        "SubWooferGain":false
+                    },
+                    "SBXMaster":{"Enable":true,"SurroundEnable":false}
+                }]
+            }"#,
+        )
+        .unwrap();
+        let settings = select_settings(&profile.settings, SbCommandTarget::Headphone).unwrap();
+        let mut report = SbCommandImportReport::default();
+        report_unknown_fields(&mut report, "Profile", &profile.extra, true);
+        effect_controls(settings, &mut report).unwrap();
+
+        assert!(
+            report
+                .approximate
+                .iter()
+                .any(|item| item.contains("FX: Surround") && item.contains("rounded"))
+        );
+        assert!(
+            report
+                .unsupported
+                .iter()
+                .any(|item| item.contains("Profile.SpeakerMethod"))
+        );
+        assert!(
+            report
+                .unsupported
+                .iter()
+                .any(|item| item.contains("Surround.Mode"))
+        );
+        assert!(
+            report
+                .unsupported
+                .iter()
+                .any(|item| item.contains("Bass.SubWooferGain"))
+        );
+        assert!(
+            report
+                .unsupported
+                .iter()
+                .all(|item| !item.contains("Scout"))
+        );
+    }
+
+    #[test]
+    fn preserves_nonzero_eq_preamp_as_an_unsupported_report_item() {
+        let eq: SourceEq = serde_json::from_str(
+            r#"{
+                "Product":"AE5",
+                "Settings":[{
+                    "Type":"Headphone",
+                    "Unit":"db",
+                    "PreAmp":2.5,
+                    "Bands":[
+                        {"Frequency":31,"Value":8.9},
+                        {"Frequency":62,"Value":0.0},
+                        {"Frequency":125,"Value":0.0},
+                        {"Frequency":250,"Value":0.0},
+                        {"Frequency":500,"Value":0.0},
+                        {"Frequency":1000,"Value":0.0},
+                        {"Frequency":2000,"Value":0.0},
+                        {"Frequency":4000,"Value":0.0},
+                        {"Frequency":8000,"Value":0.0},
+                        {"Frequency":16000,"Value":0.0}
+                    ]
+                }]
+            }"#,
+        )
+        .unwrap();
+        let mut controls = BTreeMap::new();
+        let mut report = SbCommandImportReport::default();
+
+        add_eq_controls(&mut controls, &eq, SbCommandTarget::Headphone, &mut report).unwrap();
+
+        assert_eq!(controls["EQ Band0"].playback_level, Some(33));
+        assert!(
+            report
+                .unsupported
+                .iter()
+                .any(|item| item.contains("PreAmp 2.5 dB"))
+        );
+        assert!(
+            report
+                .approximate
+                .iter()
+                .any(|item| item.contains("EQ 31 Hz 8.9 dB"))
+        );
     }
 }

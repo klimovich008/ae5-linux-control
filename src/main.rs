@@ -1,5 +1,6 @@
 use ae5_control::{
-    Ae5Device, Ae5Mixer, Profile, SbCommandTarget, import_sbcommand_profile, snapshot_controls,
+    Ae5Device, Ae5Mixer, Profile, SbCommandImportReport, SbCommandTarget,
+    import_sbcommand_profile_with_report, snapshot_controls,
 };
 use std::error::Error;
 use std::io;
@@ -234,15 +235,34 @@ fn import_sbcommand(
     output: &str,
 ) -> Result<(), Box<dyn Error>> {
     let target = target.parse::<SbCommandTarget>()?;
-    let profile =
-        import_sbcommand_profile(name, Path::new(profile_path), Path::new(eq_path), target)?;
-    profile.save_new(Path::new(output))?;
+    let import = import_sbcommand_profile_with_report(
+        name,
+        Path::new(profile_path),
+        Path::new(eq_path),
+        target,
+    )?;
+    print_import_report(&import.report);
+    import.profile.save_new(Path::new(output))?;
     println!(
         "converted Sound Blaster Command {target} settings to '{}' ({} controls) at {output}",
-        profile.name,
-        profile.controls.len()
+        import.profile.name,
+        import.profile.controls.len()
     );
     Ok(())
+}
+
+fn print_import_report(report: &SbCommandImportReport) {
+    println!("Migration report");
+    print_report_section("Exact", &report.exact);
+    print_report_section("Approximate", &report.approximate);
+    print_report_section("Unsupported (skipped)", &report.unsupported);
+}
+
+fn print_report_section(title: &str, items: &[String]) {
+    println!("  {title}: {}", items.len());
+    for item in items {
+        println!("    - {item}");
+    }
 }
 
 fn mixer() -> Result<Ae5Mixer, Box<dyn Error>> {

@@ -1,6 +1,6 @@
 use ae5_control::{
     Ae5Device, Ae5Mixer, ControlError, ControlSnapshot, Level, Profile, ProfileControl,
-    SbCommandTarget, import_sbcommand_profile, snapshot_controls,
+    SbCommandImport, SbCommandTarget, import_sbcommand_profile_with_report, snapshot_controls,
 };
 use gtk::prelude::*;
 use gtk::{gdk::Display, gio};
@@ -362,26 +362,29 @@ async fn import_windows_profile(
         return Ok(None);
     };
     let name = profile_name_from_path(&output)?;
-    let profile = import_sbcommand_profile(&name, &profile_path, &eq_path, target)
+    let import = import_sbcommand_profile_with_report(&name, &profile_path, &eq_path, target)
         .map_err(|error| error.to_string())?;
-    profile
+    import
+        .profile
         .check(
             &Ae5Mixer::open(card_index).map_err(|error| error.to_string())?,
             false,
         )
         .map_err(|error| error.to_string())?;
 
-    if !confirm_profile(window, &profile, false, "Save converted profile").await? {
+    if !confirm_import(window, &import).await? {
         return Ok(None);
     }
-    profile
+    import
+        .profile
         .save_new(&output)
         .map_err(|error| error.to_string())?;
     Ok(Some(format!(
-        "Converted {} Windows settings to “{}” with {} mapped controls at {}.",
+        "Converted {} Windows settings to “{}” with {} mapped controls; {} unsupported settings were skipped. Saved at {}.",
         target,
-        profile.name,
-        profile.controls.len(),
+        import.profile.name,
+        import.profile.controls.len(),
+        import.report.unsupported.len(),
         output.display()
     )))
 }
@@ -436,6 +439,58 @@ async fn confirm_profile(
         Err(error) if is_cancelled(&error) => Ok(false),
         Err(error) => Err(error.to_string()),
     }
+}
+
+async fn confirm_import(
+    window: &gtk::ApplicationWindow,
+    import: &SbCommandImport,
+) -> Result<bool, String> {
+    let dialog = gtk::AlertDialog::builder()
+        .modal(true)
+        .message(format!(
+            "Review Windows migration for “{}”",
+            import.profile.name
+        ))
+        .detail(migration_preview(import))
+        .buttons(["Cancel", "Save converted profile"])
+        .cancel_button(0)
+        .default_button(0)
+        .build();
+    match dialog.choose_future(Some(window)).await {
+        Ok(1) => Ok(true),
+        Ok(_) => Ok(false),
+        Err(error) if is_cancelled(&error) => Ok(false),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+fn migration_preview(import: &SbCommandImport) -> String {
+    format!(
+        "{} validated Linux controls will be saved. Unsupported settings are skipped.\n\n{}\n\n{}\n\n{}",
+        import.profile.controls.len(),
+        report_preview_section("Exact mappings", &import.report.exact, 8),
+        report_preview_section("Approximate mappings", &import.report.approximate, 12),
+        report_preview_section(
+            "Unsupported settings",
+            &import.report.unsupported,
+            usize::MAX
+        )
+    )
+}
+
+fn report_preview_section(title: &str, items: &[String], limit: usize) -> String {
+    let mut lines = items
+        .iter()
+        .take(limit)
+        .map(|item| format!("• {item}"))
+        .collect::<Vec<_>>();
+    if items.len() > limit {
+        lines.push(format!("…and {} more", items.len() - limit));
+    }
+    if lines.is_empty() {
+        lines.push("None".to_owned());
+    }
+    format!("{title} ({})\n{}", items.len(), lines.join("\n"))
 }
 
 fn json_dialog(title: &str) -> gtk::FileDialog {
@@ -1126,6 +1181,7 @@ fn install_css() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ae5_control::SbCommandImportReport;
 
     #[test]
     fn every_control_category_is_exclusive() {
@@ -1166,5 +1222,36 @@ mod tests {
         );
         assert!(profile_requires_high_gain(&profile));
         assert!(profile_preview(&profile).contains("High (150-600 Ohms)"));
+    }
+
+    #[test]
+    fn migration_preview_separates_categories_and_keeps_every_unsupported_item() {
+        let import = SbCommandImport {
+            profile: Profile {
+                format_version: 1,
+                name: "Windows headphones".to_owned(),
+                target: "1102:0012/1102:0051".to_owned(),
+                controls: std::collections::BTreeMap::from([(
+                    "FX: Surround".to_owned(),
+                    ProfileControl {
+                        playback_level: Some(68),
+                        ..ProfileControl::default()
+                    },
+                )]),
+            },
+            report: SbCommandImportReport {
+                exact: vec!["master → output effects".to_owned()],
+                approximate: vec!["surround 67.5 → 68".to_owned()],
+                unsupported: (0..20)
+                    .map(|index| format!("unsupported {index}"))
+                    .collect(),
+            },
+        };
+
+        let preview = migration_preview(&import);
+        assert!(preview.contains("Exact mappings (1)"));
+        assert!(preview.contains("Approximate mappings (1)"));
+        assert!(preview.contains("Unsupported settings (20)"));
+        assert!(preview.contains("unsupported 19"));
     }
 }

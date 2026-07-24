@@ -63,9 +63,12 @@ cargo run -- profile-apply windows-headphones.json
 ```
 
 The importer maps SBX switches and levels, crossover frequency, Smart Volume
-mode, and all ten EQ bands. It rejects unsupported products, malformed or
-oversized files, out-of-range values, and non-zero EQ preamp because the ALSA
-interface cannot represent that setting safely.
+mode, and all ten EQ bands. Before saving, it separates exact mappings,
+values rounded to ALSA steps, and unsupported non-null source settings. The
+CLI prints the complete report and the desktop preview lists every unsupported
+field. Unsupported settings such as a non-zero EQ preamp are skipped while the
+representable controls are retained; invalid products, files, ranges, units,
+band counts, and frequencies are still rejected.
 
 ## Native desktop application
 
@@ -86,7 +89,8 @@ The **Profiles** page can:
 - save the current hardware state as a native JSON profile;
 - validate and preview a native profile before applying it transactionally;
 - import real Sound Blaster Command profile and EQ JSON files for headphones
-  or speakers, preview the mapped Linux controls, and save a native copy.
+  or speakers, review exact, approximate, and unsupported mappings, and save a
+  native copy.
 
 The Windows source files are only read. Importing does not change the hardware;
 the converted profile must be applied separately. Existing destination files

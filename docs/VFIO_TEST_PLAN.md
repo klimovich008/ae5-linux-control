@@ -9,6 +9,18 @@ on the host.
 No passthrough configuration or virtualization package was installed while
 preparing this plan.
 
+Run the read-only, fail-closed hardware check at any time:
+
+```sh
+bash scripts/check-vfio-host.sh
+```
+
+It discovers the exact supported subsystem rather than trusting a saved PCI
+address, requires the card to be alone in its current IOMMU group, verifies the
+audited bus-reset path and recovered `snd_hda_intel` state, and reports missing
+VM tools. Once the VM packages are installed, make their absence fatal with
+`--require-tools`. The checker never detaches, resets, or writes to the card.
+
 ## Read-only host audit
 
 The audit on 2026-07-24 found:
@@ -70,6 +82,17 @@ and play normally before another cycle is attempted.
 The exact package transaction and libvirt XML must be reviewed against the
 installed distribution versions before execution. The PCI address is a host
 address; it must not be copied into an unrelated machine's configuration.
+
+On the audited Nobara 44 host, the current repository offers the required
+packages as:
+
+```sh
+sudo dnf install qemu-kvm libvirt libvirt-daemon-kvm virt-install edk2-ovmf
+```
+
+This transaction has not been run. It requires an interactive administrator
+password and must be followed by a fresh `--require-tools` preflight before a
+guest is defined.
 
 ## Per-kernel test matrix
 

@@ -293,6 +293,17 @@ The exact Nobara/upstream driver source, public research references, firmware
 licence boundary, and pinned revisions are recorded in
 [docs/SOURCE_INVENTORY.md](docs/SOURCE_INVENTORY.md).
 
+The target host can safely isolate the AE-5 for Linux-guest kernel A/B tests.
+Before any passthrough setup, run the non-mutating gate:
+
+```sh
+bash scripts/check-vfio-host.sh
+```
+
+The audited topology, package boundary, recovery rules, and per-kernel matrix
+are in [docs/VFIO_TEST_PLAN.md](docs/VFIO_TEST_PLAN.md). A guest cannot replace
+the final physical cold-boot and suspend tests.
+
 The named-headphone-tuning gap, why the packaged `ctspeq.bin` must not be
 loaded on the AE-5, and the bounded driver experiment sequence are documented
 in

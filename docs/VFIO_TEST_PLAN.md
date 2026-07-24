@@ -200,18 +200,43 @@ module, the sequencer dependency, zero Creative PCI devices, and zero failed
 systemd units. The temporary domains and their NVRAM were removed; both disks
 remain powered off. Neither domain contained a host device.
 
-After the coordinated host reboot:
+The coordinated post-reboot import completed on 2026-07-24:
 
-1. confirm `virtqemud.socket` is active and `qemu:///system` connects;
-2. upload the integrated standalone image into a system-owned libvirt storage
-   pool rather than granting the system QEMU account access through the
-   user's home;
-3. define an inactive system domain with ordinary UEFI, no emulated audio, and
-   no host device;
-4. inspect its complete inactive XML, storage, NVRAM, and network settings
-   without starting it;
-5. retain the session guest and its snapshots as the recovery source until the
-   system copy has passed a no-device boot.
+1. `virtqemud.socket` became active and `qemu:///system` connected;
+2. the integrated standalone bytes were uploaded into a persistent
+   system-owned `default` pool at `/var/lib/libvirt/images`;
+3. the inactive `ae5-kernel-test-f44-system` domain was defined with
+   non-Secure-Boot UEFI, four host-passthrough vCPUs, 4 GiB RAM, a headless
+   display, NAT networking, no emulated audio, and no host device;
+4. its complete inactive XML, storage, NVRAM, and network were inspected
+   before startup;
+5. the original session guest, snapshots, and standalone image were retained
+   unchanged as recovery sources.
+
+The imported volume was byte-identical to the standalone source before its
+first boot. The system guest then booted `7.2.0-rc2-ae5-integrated+` from
+Btrfs, loaded the matching CA0132 and ALSA sequencer modules, retained KVM and
+networking, exposed zero audio or Creative PCI devices, and had zero failed
+systemd units. Its error-priority log contained only the same unrelated
+no-device VM messages recorded above.
+
+After a clean shutdown, a downloaded copy of the system volume passed
+`qemu-img check`, had no backing file, occupied 5.17 GiB for a 40 GiB virtual
+disk, and had SHA-256:
+
+```text
+195013902470bf90ff9f506e2003668d80198c266eeec4a0583cd51a2fcccb6e
+```
+
+The system and session domains are powered off, system-domain autostart is
+disabled, and no QEMU process remains. The physical AE-5 stayed bound to
+`snd_hda_intel` throughout. Its saved Creative ALSA state matched exactly
+after shutdown, including Headphone output, Microphone input, Front enabled
+at 90, and the card-specific WirePlumber headphone port. The only state delta
+observed while PipeWire opened and suspended the card was the volatile PCM
+`Playback Channel Map` changing between unset and FL/FR; no user-facing mixer
+control changed. The host kernel recorded no matching CA0132, HDA, VFIO,
+reset, or timeout warning.
 
 ### Reviewed host-device fragment
 

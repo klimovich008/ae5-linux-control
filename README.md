@@ -20,6 +20,24 @@ cargo run -- controls
 `status` prints the exact card identity and important control state. `controls`
 prints all simple mixer controls and their current values.
 
+Typed write commands validate choices and ranges, write through ALSA, and
+verify the value by reading it back:
+
+```sh
+cargo run -- get "Output Select"
+cargo run -- set-choice "Output Select" Headphone
+cargo run -- set-playback-switch "FX: Surround" off
+cargo run -- set-playback-level "FX: Surround" 50
+```
+
+High headphone gain is rejected unless `--allow-high-gain` is supplied. The
+hardware smoke test changes a disabled effect level, verifies it, and restores
+the original value:
+
+```sh
+cargo run -- smoke-test
+```
+
 ## Hardware audit
 
 Before adding Rust or changing the kernel, collect the actual card identity,

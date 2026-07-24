@@ -50,6 +50,23 @@ cargo run -- profile-check headphones.json
 cargo run -- profile-apply headphones.json
 ```
 
+## Import Sound Blaster Command settings
+
+Creative's AE-5 profile and EQ JSON files can be combined into a native,
+validated profile without changing the hardware:
+
+```sh
+cargo run -- sbcommand-import "Windows headphones" \
+  Profile.json Equalizer.json headphone windows-headphones.json
+cargo run -- profile-check windows-headphones.json
+cargo run -- profile-apply windows-headphones.json
+```
+
+The importer maps SBX switches and levels, crossover frequency, Smart Volume
+mode, and all ten EQ bands. It rejects unsupported products, malformed or
+oversized files, out-of-range values, and non-zero EQ preamp because the ALSA
+interface cannot represent that setting safely.
+
 ## Native desktop application
 
 The GTK 4 application groups every live control into playback, effects,

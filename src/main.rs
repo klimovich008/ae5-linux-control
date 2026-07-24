@@ -1,4 +1,6 @@
-use ae5_control::{Ae5Device, Ae5Mixer, Profile, snapshot_controls};
+use ae5_control::{
+    Ae5Device, Ae5Mixer, Profile, SbCommandTarget, import_sbcommand_profile, snapshot_controls,
+};
 use std::error::Error;
 use std::io;
 use std::path::Path;
@@ -51,6 +53,9 @@ fn run() -> Result<(), Box<dyn Error>> {
         [command, path] if command == "profile-apply" => apply_profile(path, false),
         [command, path, flag] if command == "profile-apply" && flag == "--allow-high-gain" => {
             apply_profile(path, true)
+        }
+        [command, name, profile, eq, target, output] if command == "sbcommand-import" => {
+            import_sbcommand(name, profile, eq, target, output)
         }
         [command] if matches!(command.as_str(), "-h" | "--help" | "help") => {
             print_help();
@@ -221,6 +226,25 @@ fn apply_profile(path: &str, allow_high_gain: bool) -> Result<(), Box<dyn Error>
     Ok(())
 }
 
+fn import_sbcommand(
+    name: &str,
+    profile_path: &str,
+    eq_path: &str,
+    target: &str,
+    output: &str,
+) -> Result<(), Box<dyn Error>> {
+    let target = target.parse::<SbCommandTarget>()?;
+    let profile =
+        import_sbcommand_profile(name, Path::new(profile_path), Path::new(eq_path), target)?;
+    profile.save_new(Path::new(output))?;
+    println!(
+        "converted Sound Blaster Command {target} settings to '{}' ({} controls) at {output}",
+        profile.name,
+        profile.controls.len()
+    );
+    Ok(())
+}
+
 fn mixer() -> Result<Ae5Mixer, Box<dyn Error>> {
     Ok(Ae5Mixer::open(require_device()?.card_index)?)
 }
@@ -268,6 +292,7 @@ fn print_help() {
          \x20 profile-show FILE\n\
          \x20 profile-check FILE [--allow-high-gain]\n\
          \x20 profile-apply FILE [--allow-high-gain]\n\
+         \x20 sbcommand-import NAME PROFILE_JSON EQ_JSON speaker|headphone OUTPUT\n\
          \x20 help      Show this help"
     );
 }

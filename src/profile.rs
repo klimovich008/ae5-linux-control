@@ -52,12 +52,24 @@ pub enum ProfileError {
 }
 
 impl Profile {
-    pub fn capture(name: &str, controls: Vec<ControlSnapshot>) -> Result<Self, ProfileError> {
+    pub fn new(
+        name: &str,
+        controls: BTreeMap<String, ProfileControl>,
+    ) -> Result<Self, ProfileError> {
         let profile = Self {
             format_version: FORMAT_VERSION,
             name: name.to_owned(),
             target: TARGET.to_owned(),
-            controls: controls
+            controls,
+        };
+        profile.validate_structure()?;
+        Ok(profile)
+    }
+
+    pub fn capture(name: &str, controls: Vec<ControlSnapshot>) -> Result<Self, ProfileError> {
+        Self::new(
+            name,
+            controls
                 .into_iter()
                 .filter_map(|control| {
                     let name = control.name.clone();
@@ -65,9 +77,7 @@ impl Profile {
                     (!value.is_empty()).then_some((name, value))
                 })
                 .collect(),
-        };
-        profile.validate_structure()?;
-        Ok(profile)
+        )
     }
 
     pub fn load(path: &Path) -> Result<Self, ProfileError> {

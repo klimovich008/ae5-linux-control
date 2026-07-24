@@ -280,9 +280,11 @@ headphone route muted the CA0132 `Front` DAC even though the AE-5 headphones
 share it. The RPM supplies a card-scoped ACP headphone path that keeps Front
 enabled and exact Microphone, Front Microphone, and Line In routes; all three
 input ports selected the matching ALSA enum in a physical-card matrix. The
-fixed headphone route survived a WirePlumber restart. An acoustic check and
-repeated cold-boot/suspend acceptance remain. Evidence and transition matrices
-are documented in
+fixed headphone route survived a WirePlumber restart. A guarded Fifine
+microphone test measured its 997 Hz output 18.84 dB above a Front-muted
+negative control, with exact route and volume restoration. Repeated
+cold-boot/suspend acceptance remains. Evidence and transition matrices are
+documented in
 [docs/DRIVER_ROUTING_INVESTIGATION.md](docs/DRIVER_ROUTING_INVESTIGATION.md).
 The ineffective AE-5 What U Hear volume/mute controls, guarded measurements,
 profile compatibility, and build-tested kernel candidate are documented in

@@ -322,6 +322,11 @@ Pass condition: with headphones already connected, ten cold boots and twenty
 suspend/resume cycles produce audio on the correct jack without opening a
 mixer or toggling any control.
 
+Current evidence: the card-scoped ACP route preserves the shared Front DAC,
+and a guarded external-microphone test measured its physical 997 Hz headphone
+output 18.84 dB above a Front-muted negative control. The remaining gate is
+the ten-cold-boot and twenty-suspend/resume lifecycle matrix.
+
 #### Sound does not match Windows
 
 “Performance” is converted into measurements before changing code:

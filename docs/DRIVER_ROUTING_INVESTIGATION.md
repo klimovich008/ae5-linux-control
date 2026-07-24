@@ -103,7 +103,8 @@ The live profile was parsed by PipeWire's `spa-acp-tool`, exposed the fixed
 headphone route, and passed Speakers → Headphones switching with
 `Output Select=Headphone` and `Front=on`. It also survived a WirePlumber
 restart with the fixed route, 43% sink volume, and the expected ALSA controls.
-An acoustic microphone check and repeated cold-boot/suspend testing remain.
+The acoustic microphone check below also passed. Repeated cold-boot/suspend
+testing remains.
 
 ### AE-5 Control route ownership
 
@@ -138,6 +139,51 @@ WirePlumber documents `monitor.alsa.rules` as the supported mechanism for
 updating ALSA-device properties, while ACP is responsible for profiles, ports,
 and mixer settings:
 [ALSA configuration](https://pipewire.pages.freedesktop.org/wireplumber/daemon/configuration/alsa.html).
+
+### Acoustic headphone validation
+
+On 2026-07-24, with the headphones placed beside the default Fifine USB
+microphone and not worn, a guarded physical test compared:
+
+1. a quiet room baseline;
+2. the fixed AE-5 headphone route with `Front=90/on`;
+3. the same route and fixture with `Front=off`.
+
+The PipeWire sink was reduced from 43% to 15% before the final fixture. The
+card's existing High headphone-gain setting was not changed. The source was a
+two-second, 48 kHz, 24-bit stereo 997 Hz sine at -18 dBFS with 50 ms fades,
+SHA-256
+`5381b96a81c8526b0cc1138e3a1ed9cac1f06657bb110644a80b9f9f16701de4`.
+Each Fifine capture was four seconds at 48 kHz/24-bit stereo. SoX measured the
+left channel over the same 1.5-second fixture window; spectral power is the
+mean of the 18 `stat -freq` bins centered at 996.09375 Hz.
+
+| Condition | Overall RMS dBFS | 987-1007 Hz RMS dBFS | Mean 996 Hz power |
+|---|---:|---:|---:|
+| Baseline | -59.29 | -112.92 | 0.000677111 |
+| Fixed headphone route, Front on | -57.98 | -99.68 | 0.353436333 |
+| Negative control, Front off | -59.83 | -105.48 | 0.004616500 |
+
+The fixed route's 996 Hz component was 27.18 dB above baseline and 18.84 dB
+above the Front-muted negative control. A separate digital-silence check
+confirmed that `Front=off` remained off before, during, and after opening a
+PipeWire stream, so the negative control was not silently undone by route
+activation.
+
+The three final capture hashes were:
+
+- baseline:
+  `f0be09c5b721468641dd3aad4a2ce73994f29db9ee98a680782d5ac0d3dcf292`;
+- fixed route:
+  `aee3cdfdeaadf83394be6964b146c0f88629a12a66d9de98c61e07323ce0a675`;
+- Front-muted control:
+  `f0fc82a36dee38d54ecdc2652e8974454e054021161056901ed527f4995d9b97`.
+
+The ambient recordings and generated fixtures were deleted after deriving
+these values. The test restored the sink to 43%, `Output Select=Headphone`,
+`Front=90/on`, the fixed headphone port, and the original High gain. The
+Fifine remained the 100% default source, no stream remained open, and no
+kernel or package was changed.
 
 ## Safe cold-boot probe
 

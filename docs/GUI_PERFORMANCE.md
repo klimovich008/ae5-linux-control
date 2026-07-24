@@ -60,5 +60,14 @@ margins and transparent border. AE-5 Control gives scrollbar sliders an 8 px
 minimum on their narrow axis, preserving the theme while keeping every
 slider's measured minimum non-negative.
 
+After a reboot, the release binary was opened again on the physical AE-5 and
+all seven pages were inspected. The raw AT-SPI tree exposed the sidebar,
+buttons, check boxes, dropdowns, switches, and channel sliders with their
+semantic ALSA names. Before and after this read-only pass, the AE-5 remained
+the default sink at volume `0.43`, `Output Select` remained `Headphone`,
+`Front` remained `90/90` and unmuted, high headphone gain was unchanged, the
+FIFINE remained the default source at `1.00`, and PipeWire had no open audio
+streams. The application then exited cleanly.
+
 These numbers prove the software budgets on the recorded reference system.
 They do not replace audio latency, DSP, cold-boot, or suspend/resume tests.

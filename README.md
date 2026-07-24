@@ -287,15 +287,18 @@ The named-headphone-tuning gap, why the packaged `ctspeq.bin` must not be
 loaded on the AE-5, and the bounded driver experiment sequence are documented
 in
 [docs/HEADPHONE_TUNING_INVESTIGATION.md](docs/HEADPHONE_TUNING_INVESTIGATION.md).
+The next read-only address-query experiment now exists as a build-validated
+patch; it has not been installed or loaded.
 
 The hardware audit also found independent upstream CA0132 Wedge Angle and
 factory-EQ cache bugs, plus an unbounded DSP fast-load parser. The repository
-carries minimal Wedge Angle and EQ cache fixes and a separately reviewable
-parser-hardening candidate with KUnit coverage. Evidence, proposed commit
-messages, and validation steps are in [kernel/README.md](kernel/README.md).
-None of the patches has been loaded on the target system. Until the Wedge
-Angle fix is running, AE-5 Control displays the invalid value as a driver
-warning and excludes it from newly captured profiles.
+carries minimal Wedge Angle and EQ cache fixes, a separately reviewable
+parser-hardening candidate with KUnit coverage, and the build-only read probe.
+Evidence, proposed commit messages, and validation steps are in
+[kernel/README.md](kernel/README.md). None of the patches has been loaded on
+the target system. Until the Wedge Angle fix is running, AE-5 Control displays
+the invalid value as a driver warning and excludes it from newly captured
+profiles.
 
 Objective Windows/Linux level, frequency-response, and noise comparison is
 documented in

@@ -1,8 +1,8 @@
 # CA0132 kernel patches
 
-These patches are independent, reviewable Linux changes. Neither patch has
-been loaded on the target AE-5, and neither changes the running kernel merely
-by being present in this repository.
+These patches are independent, reviewable Linux changes and diagnostic
+experiments. None has been loaded on the target AE-5, and none changes the
+running kernel merely by being present in this repository.
 
 ## Wedge Angle default
 
@@ -225,3 +225,60 @@ QEMU must be installed for a non-UML architecture. This validates parser logic
 and compilation only. A later alternate-kernel and cold-boot session is still
 required to prove successful firmware loading and playback on the physical
 AE-5.
+
+## Read-only SpeakerEQ address probe
+
+[`ca0132-speaker-eq-address-probe.patch`](ca0132-speaker-eq-address-probe.patch)
+implements the next bounded headphone-tuning experiment. It is diagnostic
+instrumentation, not a functional driver fix and not a SpeakerEQ loader.
+
+After a successful DSP firmware download, the patch sends the existing
+`MASTERCONTROL_QUERY_SPEAKER_EQ_ADDRESS` request as one SCP `GET`. It runs only
+for the AE-5/AE-5 Plus and AE-7 quirks, provides a four-byte reply buffer, and
+accepts only an exact four-byte response. Success, DSP error, and unexpected
+response length are reported through `codec_dbg()`.
+
+The probe does not request another firmware file, upload coefficients, expose
+an ALSA control, enable `SPEAKER_TUNING_USE_SPEAKER_EQ`, or change the
+reported address. The result establishes only whether this DSP request is
+implemented and stable on the target card. It cannot identify the meaning,
+size, or safe contents of the returned memory region.
+
+### Build-only validation
+
+The patch was developed against Linux stable `v7.1.4`, whose `ca0132.c`
+SHA-256 is
+`7b61bcb02c4079b9ca6c82cde3147e95706cdbe958324ae383e7875d9a33a4f0`.
+Both the unmodified and patched source compiled as external modules against
+the exact running Nobara
+`7.1.4-200.nobara.fc44.x86_64` kernel-devel tree with `W=1` and warnings
+treated as errors. The patch also applies cleanly to Linux `master` at
+`48a5a7ab8d6a` and ALSA `for-next` at `61471f29f315`; their identical CA0132
+source compiled with the patch in the same isolated harness. Strict
+`checkpatch.pl` reports no errors, warnings, or checks. No module was installed
+or loaded.
+
+Apply it to a matching source tree with:
+
+```sh
+git apply --check \
+  /path/to/ae5-linux-control/kernel/ca0132-speaker-eq-address-probe.patch
+git apply \
+  /path/to/ae5-linux-control/kernel/ca0132-speaker-eq-address-probe.patch
+```
+
+The later authorized hardware session must use a known-good boot entry and
+enable the CA0132 dynamic-debug call sites before module initialization, for
+example with the kernel command-line option:
+
+```text
+snd_hda_codec_ca0132.dyndbg=+p
+```
+
+Acceptance requires one exact non-error reply, the same address across three
+cold boots, normal playback, 50 speaker/headphone route changes, a
+suspend/resume cycle, clean module removal or shutdown, and no CA0132, HDA,
+ALSA, codec, or DSP warning. A control run without this patch must have the
+same neutral frequency response. Loading the patched module or kernel remains
+an explicit future test; this build-only milestone does not change the live
+audio stack.

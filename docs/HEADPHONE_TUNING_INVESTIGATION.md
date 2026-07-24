@@ -100,20 +100,24 @@ Stop if the Windows/Linux neutral captures match within the measurement
 tolerance. In that case the remaining difference is a preset translation
 problem and belongs in the Rust importer, not the kernel.
 
-### 2. Add read-only kernel instrumentation
+### 2. Add read-only kernel instrumentation — candidate implemented
 
-Build, but do not load by default, a minimal CA0132 diagnostic patch that:
+The repository now carries
+[`ca0132-speaker-eq-address-probe.patch`](../kernel/ca0132-speaker-eq-address-probe.patch).
+It:
 
 - sends one `MASTERCONTROL_QUERY_SPEAKER_EQ_ADDRESS` GET after the DSP reaches
   `DSP_DOWNLOADED`;
 - accepts exactly one 32-bit response;
 - logs success, error, and address through `codec_dbg()`;
 - exposes no writable ALSA control and performs no DSP upload;
-- is gated to AE-series quirks and dynamic debug.
+- is gated to AE-series quirks, with output available through dynamic debug.
 
-Test it first on the current upstream sound tree. Loading an alternate module
-changes the live audio driver and therefore requires an explicit test session
-with a known-good kernel available.
+The unmodified and patched Linux stable `v7.1.4` source both compile as
+external modules against the running Nobara `7.1.4` kernel-devel tree with
+`W=1` and warnings treated as errors. No module was installed or loaded.
+Loading an alternate module changes the live audio driver and therefore still
+requires an explicit test session with a known-good kernel available.
 
 Acceptance criteria:
 
@@ -201,9 +205,10 @@ Final validation must use the physical AE-5 on both operating systems.
 ## Current stop condition
 
 No live driver experiment or SpeakerEQ firmware upload is justified yet. The
-bounded-parser candidate is complete at build/KUnit level. After the pending
-cold-boot routing capture, the next safe driver action is read-only
-address-query instrumentation, with explicit approval before loading an
-alternate kernel or module. The next safe application action is objective
-Windows/Linux response measurement followed by an approximate Rust-side preset
-only if the measurements support one.
+bounded-parser candidate is complete at build/KUnit level, and the read-only
+address-query candidate is complete at build-only level. After the pending
+cold-boot routing capture, the next safe driver action is an explicitly
+authorized alternate-kernel or module session for the address query. The next
+safe application action is objective Windows/Linux response measurement
+followed by an approximate Rust-side preset only if the measurements support
+one.

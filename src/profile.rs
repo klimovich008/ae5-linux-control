@@ -109,8 +109,8 @@ impl Profile {
         allow_high_gain: bool,
     ) -> Result<ApplyReport, ProfileError> {
         let before = self.validate_against(mixer, allow_high_gain)?;
-        if let Err(failure) = apply_controls(mixer, &self.controls) {
-            let rollback_failure = apply_controls(mixer, &before)
+        if let Err(failure) = apply_controls(mixer, &self.controls, allow_high_gain) {
+            let rollback_failure = apply_controls(mixer, &before, true)
                 .err()
                 .map(|error| error.to_string());
             return Err(ProfileError::Apply {
@@ -298,6 +298,7 @@ fn validate_level(
 fn apply_controls(
     mixer: &Ae5Mixer,
     controls: &BTreeMap<String, ProfileControl>,
+    allow_high_gain: bool,
 ) -> Result<(), ControlError> {
     for (name, control) in controls {
         let current = mixer.snapshot(name)?;
@@ -307,7 +308,7 @@ fn apply_controls(
                 .as_ref()
                 .is_none_or(|value| !value.eq_ignore_ascii_case(choice))
         {
-            mixer.set_choice(name, choice)?;
+            mixer.set_choice_checked(name, choice, allow_high_gain)?;
         }
         if let Some(value) = control.playback_switch
             && current.playback_switch != Some(value)

@@ -52,9 +52,10 @@ cargo run -- profile-apply headphones.json
 
 ## Native desktop application
 
-The GTK 4 application currently provides a read-only device dashboard and
-groups every live control into playback, effects, equalizer, and recording
-pages:
+The GTK 4 application groups every live control into playback, effects,
+equalizer, and recording pages. Selectors, switches, and bounded sliders write
+through the verified ALSA backend; high headphone gain requires an explicit
+opt-in:
 
 ```sh
 sudo dnf install gtk4-devel

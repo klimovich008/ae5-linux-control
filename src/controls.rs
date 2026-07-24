@@ -60,6 +60,20 @@ impl Ae5Mixer {
     }
 
     pub fn set_choice(&self, name: &str, requested: &str) -> Result<ControlSnapshot, ControlError> {
+        self.set_choice_checked(name, requested, false)
+    }
+
+    pub fn set_choice_checked(
+        &self,
+        name: &str,
+        requested: &str,
+        allow_high_gain: bool,
+    ) -> Result<ControlSnapshot, ControlError> {
+        if is_high_headphone_gain(name, requested) && !allow_high_gain {
+            return Err(ControlError::Invalid(
+                "high headphone gain requires explicit approval".to_owned(),
+            ));
+        }
         let element = self.find(name)?;
         if !element.is_enumerated() {
             return Err(ControlError::Invalid(format!(
@@ -233,6 +247,10 @@ fn choice_index(choices: &[String], requested: &str) -> Option<usize> {
         .position(|choice| choice.eq_ignore_ascii_case(requested))
 }
 
+fn is_high_headphone_gain(name: &str, requested: &str) -> bool {
+    name == "AE-5: Headphone Gain" && requested.to_ascii_lowercase().starts_with("high")
+}
+
 fn validate_range(name: &str, value: i64, min: i64, max: i64) -> Result<(), ControlError> {
     if (min..=max).contains(&value) {
         Ok(())
@@ -346,6 +364,14 @@ mod tests {
         let choices = vec!["Speakers".to_owned(), "Headphone".to_owned()];
         assert_eq!(choice_index(&choices, "headphone"), Some(1));
         assert_eq!(choice_index(&choices, "HDMI"), None);
+        assert!(is_high_headphone_gain(
+            "AE-5: Headphone Gain",
+            "High (150-600 Ohms)"
+        ));
+        assert!(!is_high_headphone_gain(
+            "AE-5: Headphone Gain",
+            "Medium (32-149 Ohms)"
+        ));
         assert!(validate_range("Level", 50, 0, 100).is_ok());
         assert!(validate_range("Level", 101, 0, 100).is_err());
     }

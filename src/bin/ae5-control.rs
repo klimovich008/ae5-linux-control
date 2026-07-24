@@ -1,6 +1,9 @@
-use ae5_control::{Ae5Device, Ae5Mixer, ControlSnapshot};
+use ae5_control::{Ae5Device, Ae5Mixer, ControlError, ControlSnapshot, Level};
 use gtk::gdk::Display;
 use gtk::prelude::*;
+use std::cell::{Cell, RefCell};
+use std::rc::Rc;
+use std::time::Duration;
 
 const APP_ID: &str = "io.github.klimovich008.Ae5Control";
 
@@ -40,6 +43,12 @@ fn load_hardware() -> Result<(Ae5Device, Vec<ControlSnapshot>), String> {
 fn content(device: &Ae5Device, controls: &[ControlSnapshot]) -> gtk::Box {
     let root = gtk::Box::new(gtk::Orientation::Vertical, 0);
     root.append(&hero(device, controls));
+    let status = gtk::Label::new(Some(
+        "Ready — every change is verified against the hardware.",
+    ));
+    status.set_xalign(0.0);
+    status.add_css_class("operation-status");
+    root.append(&status);
 
     let stack = gtk::Stack::builder()
         .transition_type(gtk::StackTransitionType::Crossfade)
@@ -49,6 +58,8 @@ fn content(device: &Ae5Device, controls: &[ControlSnapshot]) -> gtk::Box {
 
     for category in Category::ALL {
         let page = control_page(
+            device.card_index,
+            &status,
             controls
                 .iter()
                 .filter(|control| category.matches(&control.name)),
@@ -103,12 +114,16 @@ fn hero(device: &Ae5Device, controls: &[ControlSnapshot]) -> gtk::Box {
     header
 }
 
-fn control_page<'a>(controls: impl Iterator<Item = &'a ControlSnapshot>) -> gtk::ScrolledWindow {
+fn control_page<'a>(
+    card_index: i32,
+    status: &gtk::Label,
+    controls: impl Iterator<Item = &'a ControlSnapshot>,
+) -> gtk::ScrolledWindow {
     let list = gtk::ListBox::new();
     list.set_selection_mode(gtk::SelectionMode::None);
     list.add_css_class("control-list");
     for control in controls {
-        list.append(&control_row(control));
+        list.append(&control_row(card_index, status, control));
     }
 
     let page = gtk::Box::new(gtk::Orientation::Vertical, 0);
@@ -124,7 +139,7 @@ fn control_page<'a>(controls: impl Iterator<Item = &'a ControlSnapshot>) -> gtk:
         .build()
 }
 
-fn control_row(control: &ControlSnapshot) -> gtk::ListBoxRow {
+fn control_row(card_index: i32, status: &gtk::Label, control: &ControlSnapshot) -> gtk::ListBoxRow {
     let row = gtk::Box::new(gtk::Orientation::Horizontal, 24);
     row.add_css_class("control-row");
 
@@ -134,11 +149,57 @@ fn control_row(control: &ControlSnapshot) -> gtk::ListBoxRow {
     name.set_wrap(true);
     row.append(&name);
 
-    let value = gtk::Label::new(Some(&control_value(control)));
-    value.set_xalign(1.0);
-    value.set_selectable(true);
-    value.add_css_class("control-value");
-    row.append(&value);
+    let editors = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    editors.set_halign(gtk::Align::End);
+    let high_gain_permission = if control.name == "AE-5: Headphone Gain" {
+        let permission = gtk::CheckButton::with_label("Allow 150–600 Ω");
+        permission.set_tooltip_text(Some(
+            "Enable only when high-impedance headphones are connected.",
+        ));
+        editors.append(&permission);
+        Some(permission)
+    } else {
+        None
+    };
+    if control.selected.is_some() {
+        editors.append(&choice_editor(
+            card_index,
+            status,
+            control,
+            high_gain_permission,
+        ));
+    }
+    if let Some(enabled) = control.playback_switch {
+        editors.append(&labelled(
+            "Playback",
+            &switch_editor(card_index, status, &control.name, enabled, false),
+        ));
+    }
+    if let Some(level) = &control.playback_level {
+        editors.append(&level_editor(
+            card_index,
+            status,
+            &control.name,
+            level,
+            false,
+        ));
+    }
+    if let Some(enabled) = control.capture_switch {
+        editors.append(&labelled(
+            "Capture",
+            &switch_editor(card_index, status, &control.name, enabled, true),
+        ));
+    }
+    if let Some(level) = &control.capture_level {
+        editors.append(&level_editor(
+            card_index,
+            status,
+            &control.name,
+            level,
+            true,
+        ));
+    }
+    row.append(&editors);
 
     gtk::ListBoxRow::builder()
         .activatable(false)
@@ -147,24 +208,253 @@ fn control_row(control: &ControlSnapshot) -> gtk::ListBoxRow {
         .build()
 }
 
-fn control_value(control: &ControlSnapshot) -> String {
-    let mut values = Vec::new();
-    if let Some(value) = &control.selected {
-        values.push(value.clone());
+fn choice_editor(
+    card_index: i32,
+    status: &gtk::Label,
+    control: &ControlSnapshot,
+    high_gain_permission: Option<gtk::CheckButton>,
+) -> gtk::DropDown {
+    let choices = control
+        .choices
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    let dropdown = gtk::DropDown::from_strings(&choices);
+    dropdown.update_property(&[gtk::accessible::Property::Label(&format!(
+        "{} choice",
+        control.name
+    ))]);
+    let selected = control
+        .selected
+        .as_ref()
+        .and_then(|selected| control.choices.iter().position(|choice| choice == selected))
+        .unwrap_or_default() as u32;
+    dropdown.set_selected(selected);
+    dropdown.set_tooltip_text(Some("Changes are written and read back immediately."));
+
+    let verified = Rc::new(Cell::new(selected));
+    let updating = Rc::new(Cell::new(false));
+    let name = control.name.clone();
+    let choices = control.choices.clone();
+    let status = status.clone();
+    dropdown.connect_selected_notify(move |dropdown| {
+        if updating.get() {
+            return;
+        }
+        let requested_index = dropdown.selected();
+        let Some(requested) = choices.get(requested_index as usize) else {
+            return;
+        };
+        let allow_high_gain = high_gain_permission
+            .as_ref()
+            .is_some_and(gtk::CheckButton::is_active);
+        if is_high_gain(&name, requested) && !allow_high_gain {
+            revert_dropdown(dropdown, &updating, verified.get());
+            set_status(
+                &status,
+                false,
+                "High gain was not applied. Enable “Allow 150–600 Ω” first.",
+            );
+            return;
+        }
+
+        match with_mixer(card_index, |mixer| {
+            mixer.set_choice_checked(&name, requested, allow_high_gain)
+        }) {
+            Ok(actual) => {
+                verified.set(requested_index);
+                set_status(
+                    &status,
+                    true,
+                    &format!("Applied and verified: {}", control_summary(&actual)),
+                );
+            }
+            Err(error) => {
+                revert_dropdown(dropdown, &updating, verified.get());
+                set_status(&status, false, &format!("Change failed: {error}"));
+            }
+        }
+    });
+    dropdown
+}
+
+fn switch_editor(
+    card_index: i32,
+    status: &gtk::Label,
+    name: &str,
+    enabled: bool,
+    capture: bool,
+) -> gtk::Switch {
+    let control = gtk::Switch::builder()
+        .active(enabled)
+        .valign(gtk::Align::Center)
+        .build();
+    control.update_property(&[gtk::accessible::Property::Label(&format!(
+        "{} {} switch",
+        name,
+        if capture { "capture" } else { "playback" }
+    ))]);
+    let verified = Rc::new(Cell::new(enabled));
+    let updating = Rc::new(Cell::new(false));
+    let name = name.to_owned();
+    let status = status.clone();
+    control.connect_active_notify(move |control| {
+        if updating.get() {
+            return;
+        }
+        let requested = control.is_active();
+        let result = with_mixer(card_index, |mixer| {
+            if capture {
+                mixer.set_capture_switch(&name, requested)
+            } else {
+                mixer.set_playback_switch(&name, requested)
+            }
+        });
+        match result {
+            Ok(actual) => {
+                verified.set(requested);
+                set_status(
+                    &status,
+                    true,
+                    &format!("Applied and verified: {}", control_summary(&actual)),
+                );
+            }
+            Err(error) => {
+                updating.set(true);
+                control.set_active(verified.get());
+                updating.set(false);
+                set_status(&status, false, &format!("Change failed: {error}"));
+            }
+        }
+    });
+    control
+}
+
+fn level_editor(
+    card_index: i32,
+    status: &gtk::Label,
+    name: &str,
+    level: &Level,
+    capture: bool,
+) -> gtk::Widget {
+    if !(level.min..=level.max).contains(&level.value) {
+        let warning = gtk::Label::new(Some(&format!(
+            "{} (driver reports {}..{})",
+            level.value, level.min, level.max
+        )));
+        warning.add_css_class("warning-value");
+        warning.set_tooltip_text(Some(
+            "The driver returned an out-of-range value; editing is disabled.",
+        ));
+        return warning.upcast();
     }
-    if let Some(value) = control.playback_switch {
-        values.push(if value { "Playback on" } else { "Playback off" }.to_owned());
-    }
-    if let Some(level) = &control.playback_level {
-        values.push(format!("{}", level.value));
-    }
-    if let Some(value) = control.capture_switch {
-        values.push(if value { "Capture on" } else { "Capture off" }.to_owned());
-    }
-    if let Some(level) = &control.capture_level {
-        values.push(format!("{}", level.value));
-    }
-    values.join(" · ")
+
+    let scale = gtk::Scale::with_range(
+        gtk::Orientation::Horizontal,
+        level.min as f64,
+        level.max as f64,
+        1.0,
+    );
+    scale.set_value(level.value as f64);
+    scale.set_digits(0);
+    scale.set_draw_value(true);
+    scale.set_width_request(210);
+    scale.update_property(&[gtk::accessible::Property::Label(&format!(
+        "{} {} level",
+        name,
+        if capture { "capture" } else { "playback" }
+    ))]);
+
+    let verified = Rc::new(Cell::new(level.value));
+    let updating = Rc::new(Cell::new(false));
+    let pending = Rc::new(RefCell::new(None::<gtk::glib::SourceId>));
+    let name = name.to_owned();
+    let status = status.clone();
+    scale.connect_value_changed(move |scale| {
+        if updating.get() {
+            return;
+        }
+        if let Some(source) = pending.borrow_mut().take() {
+            source.remove();
+        }
+        let requested = scale.value().round() as i64;
+        let scale = scale.clone();
+        let verified = verified.clone();
+        let updating = updating.clone();
+        let pending_for_timeout = pending.clone();
+        let name = name.clone();
+        let status = status.clone();
+        let source = gtk::glib::timeout_add_local_once(Duration::from_millis(160), move || {
+            pending_for_timeout.borrow_mut().take();
+            let result = with_mixer(card_index, |mixer| {
+                if capture {
+                    mixer.set_capture_level(&name, requested)
+                } else {
+                    mixer.set_playback_level(&name, requested)
+                }
+            });
+            match result {
+                Ok(actual) => {
+                    verified.set(requested);
+                    set_status(
+                        &status,
+                        true,
+                        &format!("Applied and verified: {}", control_summary(&actual)),
+                    );
+                }
+                Err(error) => {
+                    updating.set(true);
+                    scale.set_value(verified.get() as f64);
+                    updating.set(false);
+                    set_status(&status, false, &format!("Change failed: {error}"));
+                }
+            }
+        });
+        *pending.borrow_mut() = Some(source);
+    });
+    scale.upcast()
+}
+
+fn labelled(label: &str, widget: &impl IsA<gtk::Widget>) -> gtk::Box {
+    let group = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    let label = gtk::Label::new(Some(label));
+    label.add_css_class("dim-label");
+    group.append(&label);
+    group.append(widget);
+    group
+}
+
+fn with_mixer<T>(
+    card_index: i32,
+    operation: impl FnOnce(&Ae5Mixer) -> Result<T, ControlError>,
+) -> Result<T, String> {
+    let mixer = Ae5Mixer::open(card_index).map_err(|error| error.to_string())?;
+    operation(&mixer).map_err(|error| error.to_string())
+}
+
+fn is_high_gain(name: &str, requested: &str) -> bool {
+    name == "AE-5: Headphone Gain" && requested.to_ascii_lowercase().starts_with("high")
+}
+
+fn revert_dropdown(dropdown: &gtk::DropDown, updating: &Cell<bool>, selected: u32) {
+    updating.set(true);
+    dropdown.set_selected(selected);
+    updating.set(false);
+}
+
+fn control_summary(control: &ControlSnapshot) -> String {
+    control.to_string()
+}
+
+fn set_status(status: &gtk::Label, success: bool, message: &str) {
+    status.remove_css_class("operation-ok");
+    status.remove_css_class("operation-error");
+    status.add_css_class(if success {
+        "operation-ok"
+    } else {
+        "operation-error"
+    });
+    status.set_text(message);
 }
 
 fn error_view(message: &str) -> gtk::Box {
@@ -266,13 +556,21 @@ fn install_css() {
             padding: 7px 12px;
             font-weight: 600;
         }
+        .operation-status {
+            padding: 8px 30px;
+            background: #11161c;
+            color: #9daebe;
+            border-bottom: 1px solid alpha(#ffffff, 0.08);
+        }
+        .operation-ok { color: #8ee3c5; }
+        .operation-error, .warning-value { color: #ffb4a9; }
         .navigation-sidebar { background: #141b22; padding: 12px 8px; }
         .control-list { background: transparent; }
         .control-row {
             padding: 14px 16px;
             border-bottom: 1px solid alpha(#ffffff, 0.08);
         }
-        .control-value { color: #9fd6ff; font-weight: 600; }
+        scale { min-width: 210px; }
         ",
     );
     gtk::style_context_add_provider_for_display(

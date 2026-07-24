@@ -110,17 +110,10 @@ fn print_control(name: &str) -> Result<(), Box<dyn Error>> {
 }
 
 fn set_choice(name: &str, choice: &str, allow_high_gain: bool) -> Result<(), Box<dyn Error>> {
-    if name == "AE-5: Headphone Gain"
-        && choice.to_ascii_lowercase().starts_with("high")
-        && !allow_high_gain
-    {
-        return Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            "high headphone gain requires --allow-high-gain",
-        )
-        .into());
-    }
-    println!("{}", mixer()?.set_choice(name, choice)?);
+    println!(
+        "{}",
+        mixer()?.set_choice_checked(name, choice, allow_high_gain)?
+    );
     Ok(())
 }
 

@@ -175,6 +175,8 @@ The **Profiles** page can:
 
 - list reusable profiles from the per-user library with a guarded preview and
   apply action;
+- rename profiles in place and move unwanted profiles to the recoverable
+  desktop Trash;
 - save the current hardware state as a native JSON profile;
 - validate and preview a native profile before applying it transactionally;
 - import the active setup from a mounted Windows `user.config` and AE-5 product

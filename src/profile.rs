@@ -7,11 +7,13 @@ use std::fmt;
 use std::fs::{self, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 const FORMAT_VERSION: u32 = 1;
 const TARGET: &str = "1102:0012/1102:0051";
 const MAX_PROFILE_BYTES: u64 = 1024 * 1024;
 const MAX_CONTROLS: usize = 128;
+static NEXT_TEMP_FILE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Profile {
@@ -112,6 +114,48 @@ impl Profile {
         file.write_all(&contents)?;
         file.write_all(b"\n")?;
         Ok(())
+    }
+
+    pub(crate) fn save_replace(&self, path: &Path) -> Result<(), ProfileError> {
+        self.validate_structure()?;
+        let contents = serde_json::to_vec_pretty(self)?;
+        let parent = path.parent().unwrap_or_else(|| Path::new("."));
+        let file_name = path
+            .file_name()
+            .ok_or_else(|| ProfileError::Invalid("profile path has no file name".to_owned()))?
+            .to_string_lossy();
+
+        let (temporary, mut file) = loop {
+            let candidate = parent.join(format!(
+                ".{file_name}.{}.{}.tmp",
+                std::process::id(),
+                NEXT_TEMP_FILE.fetch_add(1, Ordering::Relaxed)
+            ));
+            match OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&candidate)
+            {
+                Ok(file) => break (candidate, file),
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+                Err(error) => return Err(error.into()),
+            }
+        };
+
+        let result = (|| -> io::Result<()> {
+            if let Ok(metadata) = fs::metadata(path) {
+                file.set_permissions(metadata.permissions())?;
+            }
+            file.write_all(&contents)?;
+            file.write_all(b"\n")?;
+            file.sync_all()?;
+            drop(file);
+            fs::rename(&temporary, path)
+        })();
+        if result.is_err() {
+            let _ = fs::remove_file(&temporary);
+        }
+        result.map_err(Into::into)
     }
 
     pub fn check(&self, mixer: &Ae5Mixer, allow_high_gain: bool) -> Result<(), ProfileError> {

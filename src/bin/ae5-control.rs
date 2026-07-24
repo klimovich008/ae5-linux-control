@@ -2,8 +2,9 @@ use ae5_control::{
     Ae5Device, Ae5Mixer, ChannelLevel, ControlError, ControlSnapshot, Level, NativeRatesConfig,
     PipeWireNode, Profile, ProfileControl, SbCommandImport, SbCommandTarget, ae5_input, ae5_output,
     import_active_sbcommand_profile_with_report, import_sbcommand_profile_with_report,
-    native_rates_config, playback_switch_block_reason, profile_library, profile_library_directory,
-    set_ae5_default_input, set_ae5_default_output, set_native_rates_enabled, snapshot_controls,
+    library_profile, native_rates_config, playback_switch_block_reason, profile_library,
+    profile_library_directory, rename_library_profile, set_ae5_default_input,
+    set_ae5_default_output, set_native_rates_enabled, snapshot_controls,
 };
 use gtk::prelude::*;
 use gtk::{gdk::Display, gio};
@@ -812,9 +813,20 @@ fn saved_profile_actions(
             }
             for entry in library.profiles {
                 let row = gtk::Box::new(gtk::Orientation::Horizontal, 12);
-                let details = gtk::Label::new(Some(&format!(
-                    "{}\n{} controls · {}",
-                    entry.profile.name,
+                row.add_css_class("profile-library-row");
+                let details = gtk::Box::new(gtk::Orientation::Vertical, 4);
+                details.set_hexpand(true);
+                let name = gtk::Entry::builder()
+                    .text(&entry.profile.name)
+                    .max_length(80)
+                    .hexpand(true)
+                    .build();
+                name.update_property(&[gtk::accessible::Property::Label(&format!(
+                    "Name for saved profile {}",
+                    entry.profile.name
+                ))]);
+                let file = gtk::Label::new(Some(&format!(
+                    "{} controls · {}",
                     entry.profile.controls.len(),
                     entry
                         .path
@@ -822,31 +834,88 @@ fn saved_profile_actions(
                         .and_then(|name| name.to_str())
                         .unwrap_or("profile.json")
                 )));
-                details.set_xalign(0.0);
-                details.set_hexpand(true);
-                details.set_wrap(true);
+                file.set_xalign(0.0);
+                file.set_wrap(true);
+                file.add_css_class("dim-label");
+                details.append(&name);
+                details.append(&file);
+
                 let apply = gtk::Button::with_label("Preview & apply");
-                let path = entry.path;
-                let window = window.clone();
-                let status = status.clone();
-                apply.connect_clicked(move |_| {
-                    let path = path.clone();
+                let rename = gtk::Button::with_label("Rename");
+                let trash = gtk::Button::with_label("Move to Trash");
+                trash.add_css_class("destructive-action");
+                trash.set_tooltip_text(Some("The profile can be restored from the desktop Trash."));
+
+                {
+                    let path = entry.path.clone();
                     let window = window.clone();
                     let status = status.clone();
-                    gtk::glib::spawn_future_local(async move {
-                        match apply_profile_path(&window, card_index, &path).await {
-                            Ok(Some(message)) => {
+                    apply.connect_clicked(move |_| {
+                        let path = path.clone();
+                        let window = window.clone();
+                        let status = status.clone();
+                        gtk::glib::spawn_future_local(async move {
+                            match apply_profile_path(&window, card_index, &path).await {
+                                Ok(Some(message)) => {
+                                    let _ = refresh_window(&window, Some(&message));
+                                }
+                                Ok(None) => {}
+                                Err(error) => {
+                                    set_status(&status, false, &format!("Apply failed: {error}"))
+                                }
+                            }
+                        });
+                    });
+                }
+
+                {
+                    let path = entry.path.clone();
+                    let window = window.clone();
+                    let status = status.clone();
+                    let name = name.clone();
+                    rename.connect_clicked(move |_| {
+                        match rename_library_profile(&path, name.text().as_str()) {
+                            Ok(stored) => {
+                                let message =
+                                    format!("Renamed saved profile to “{}”.", stored.profile.name);
                                 let _ = refresh_window(&window, Some(&message));
                             }
-                            Ok(None) => {}
                             Err(error) => {
-                                set_status(&status, false, &format!("Apply failed: {error}"))
+                                set_status(&status, false, &format!("Rename failed: {error}"))
                             }
                         }
                     });
-                });
+                }
+                {
+                    let rename = rename.clone();
+                    name.connect_activate(move |_| rename.emit_clicked());
+                }
+                {
+                    let path = entry.path;
+                    let window = window.clone();
+                    let status = status.clone();
+                    trash.connect_clicked(move |_| {
+                        let path = path.clone();
+                        let window = window.clone();
+                        let status = status.clone();
+                        gtk::glib::spawn_future_local(async move {
+                            match trash_saved_profile(&window, &path).await {
+                                Ok(Some(message)) => {
+                                    let _ = refresh_window(&window, Some(&message));
+                                }
+                                Ok(None) => {}
+                                Err(error) => {
+                                    set_status(&status, false, &format!("Move failed: {error}"))
+                                }
+                            }
+                        });
+                    });
+                }
+
                 row.append(&details);
                 row.append(&apply);
+                row.append(&rename);
+                row.append(&trash);
                 actions.append(&row);
             }
             if !library.skipped.is_empty() {
@@ -1068,6 +1137,33 @@ async fn choose_import_target(
         Err(error) if is_cancelled(&error) => Ok(None),
         Err(error) => Err(error.to_string()),
     }
+}
+
+async fn trash_saved_profile(
+    window: &gtk::ApplicationWindow,
+    path: &Path,
+) -> Result<Option<String>, String> {
+    let stored = library_profile(path).map_err(|error| error.to_string())?;
+    let dialog = gtk::AlertDialog::builder()
+        .modal(true)
+        .message(format!("Move “{}” to Trash?", stored.profile.name))
+        .detail("This removes the profile from AE-5 Control. You can restore it from the desktop Trash.")
+        .buttons(["Cancel", "Move to Trash"])
+        .cancel_button(0)
+        .default_button(0)
+        .build();
+    match dialog.choose_future(Some(window)).await {
+        Ok(1) => {}
+        Ok(_) => return Ok(None),
+        Err(error) if is_cancelled(&error) => return Ok(None),
+        Err(error) => return Err(error.to_string()),
+    }
+
+    gio::File::for_path(&stored.path)
+        .trash_future(gtk::glib::Priority::DEFAULT)
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(Some(format!("Moved “{}” to Trash.", stored.profile.name)))
 }
 
 async fn confirm_profile(
@@ -1976,6 +2072,10 @@ fn install_css() {
             border-left: 3px solid #39d0aa;
             border-radius: 4px;
             padding: 20px;
+        }
+        .profile-library-row {
+            padding: 10px 0;
+            border-bottom: 1px solid alpha(#ffffff, 0.08);
         }
         .section-index {
             background: #173d35;

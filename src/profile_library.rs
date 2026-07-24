@@ -1,4 +1,4 @@
-use crate::Profile;
+use crate::{Profile, ProfileError};
 use std::ffi::OsString;
 use std::fs;
 use std::io;
@@ -26,6 +26,14 @@ pub fn profile_library_directory() -> io::Result<PathBuf> {
 
 pub fn profile_library() -> io::Result<ProfileLibrary> {
     scan_library_at(&profile_library_directory()?)
+}
+
+pub fn library_profile(path: &Path) -> Result<StoredProfile, ProfileError> {
+    load_library_profile_at(&profile_library_directory()?, path)
+}
+
+pub fn rename_library_profile(path: &Path, new_name: &str) -> Result<StoredProfile, ProfileError> {
+    rename_library_profile_at(&profile_library_directory()?, path, new_name)
 }
 
 fn profile_directory_from(
@@ -92,6 +100,47 @@ fn scan_library_at(directory: &Path) -> io::Result<ProfileLibrary> {
     })
 }
 
+fn load_library_profile_at(directory: &Path, path: &Path) -> Result<StoredProfile, ProfileError> {
+    let path = direct_regular_profile_path(directory, path)?;
+    let profile = Profile::load(&path)?;
+    Ok(StoredProfile { path, profile })
+}
+
+fn rename_library_profile_at(
+    directory: &Path,
+    path: &Path,
+    new_name: &str,
+) -> Result<StoredProfile, ProfileError> {
+    let mut stored = load_library_profile_at(directory, path)?;
+    stored.profile.name = new_name.trim().to_owned();
+    stored.profile.save_replace(&stored.path)?;
+    Ok(stored)
+}
+
+fn direct_regular_profile_path(directory: &Path, path: &Path) -> io::Result<PathBuf> {
+    fs::create_dir_all(directory)?;
+    let directory = fs::canonicalize(directory)?;
+    let metadata = fs::symlink_metadata(path)?;
+    if !metadata.file_type().is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "profile is not a regular file",
+        ));
+    }
+    let path = fs::canonicalize(path)?;
+    let is_json = path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("json"));
+    if path.parent() != Some(directory.as_path()) || !is_json {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "profile is not a JSON file directly inside the profile library",
+        ));
+    }
+    Ok(path)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -153,6 +202,39 @@ mod tests {
         assert!(library.skipped[0].contains("broken.json"));
 
         fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn renames_only_regular_profiles_inside_the_library() {
+        let directory = test_directory();
+        let path = directory.join("headphones.json");
+        sample_profile("Headphones").save_new(&path).unwrap();
+
+        let renamed = rename_library_profile_at(&directory, &path, "  Late night  ").unwrap();
+        assert_eq!(renamed.profile.name, "Late night");
+        assert_eq!(Profile::load(&path).unwrap().name, "Late night");
+
+        let outside_directory = test_directory();
+        let outside = outside_directory.join("outside.json");
+        sample_profile("Outside").save_new(&outside).unwrap();
+        assert!(rename_library_profile_at(&directory, &outside, "No").is_err());
+        assert_eq!(Profile::load(&outside).unwrap().name, "Outside");
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::symlink;
+
+            let linked = directory.join("linked.json");
+            symlink(&outside, &linked).unwrap();
+            assert!(rename_library_profile_at(&directory, &linked, "No").is_err());
+            assert_eq!(Profile::load(&outside).unwrap().name, "Outside");
+        }
+
+        assert!(rename_library_profile_at(&directory, &path, "   ").is_err());
+        assert_eq!(Profile::load(&path).unwrap().name, "Late night");
+
+        fs::remove_dir_all(directory).unwrap();
+        fs::remove_dir_all(outside_directory).unwrap();
     }
 
     fn test_directory() -> PathBuf {

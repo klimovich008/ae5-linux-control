@@ -53,5 +53,12 @@ this mostly static interface to GTK's Cairo renderer. Setting `GSK_RENDERER`
 explicitly still overrides that default for troubleshooting or accelerated
 renderer comparison.
 
+The release GUI was also opened under the native Nobara GTK theme and all seven
+pages were selected without changing a control. GTK 4.22 otherwise reports a
+negative minimum size for the theme's 6 px scrollbar slider with its negative
+margins and transparent border. AE-5 Control gives scrollbar sliders an 8 px
+minimum on their narrow axis, preserving the theme while keeping every
+slider's measured minimum non-negative.
+
 These numbers prove the software budgets on the recorded reference system.
 They do not replace audio latency, DSP, cold-boot, or suspend/resume tests.

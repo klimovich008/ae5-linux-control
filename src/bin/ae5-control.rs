@@ -2159,6 +2159,8 @@ fn install_css() {
             border-bottom: 1px solid alpha(#ffffff, 0.08);
         }
         scale { min-width: 210px; }
+        scrollbar slider { min-width: 8px; }
+        scrollbar.horizontal slider { min-height: 8px; }
         ",
     );
     gtk::style_context_add_provider_for_display(

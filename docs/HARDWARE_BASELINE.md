@@ -129,6 +129,35 @@ journal remained clean. The full method, hashes, tables, and remaining analog
 and Windows limits are in
 [`PIPEWIRE_RATE_PARITY.md`](PIPEWIRE_RATE_PARITY.md).
 
+## Playback mixer write and mute matrix
+
+A guarded hardware matrix exercised every generic playback mixer control
+exposed by the app while no PipeWire stream was active. A fresh validated
+47-control recovery profile was installed as an exit trap, and Master was
+muted before the other controls changed.
+
+- Master read back raw levels 0, 49, and 99 exactly.
+- PCM read back 0, 128, and 255 on both channels exactly.
+- Front and Surround read back 0, 49, and 99 on both channels exactly.
+- Center and LFE read back 0, 49, and 99 exactly.
+- Front, Surround, Center, LFE, IEC958, and IEC958 Default PCM each read back
+  on and off exactly.
+
+The retained physical What U Hear capture with Master muted contains zero
+minimum, maximum, and RMS amplitude across 384,000 samples, while the
+corresponding Master-on capture is non-zero. Separate native-rate captures
+measured PCM raw 251 versus 255 at `-0.81 dB` at 44.1 kHz and `-0.80 dB` at
+96 kHz, exactly matching the control's four 0.20 dB steps.
+
+The recovery profile restored all 47 controls and the complete mixer hash
+`7a61ac34dbca132e929806a1198a61f9334c5241bcb83e9da205152008ffea6e`.
+No stream remained and no matching kernel warning appeared.
+
+What U Hear is tapped before the analog output attenuators, so this evidence
+does not claim that Master, Front, Surround, Center, or LFE produce their
+advertised analog dB changes. That remaining gate requires a safely attenuated
+physical output-to-line-input capture; IEC958 requires an optical receiver.
+
 ## Isolated output effects
 
 Separate physical What U Hear captures verified repeatable DSP changes from

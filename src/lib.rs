@@ -4,7 +4,8 @@ pub mod profile;
 pub mod sbcommand;
 
 pub use controls::{
-    Ae5Mixer, ChannelLevel, ControlError, ControlSnapshot, Level, snapshot_controls,
+    Ae5Mixer, ChannelLevel, ControlError, ControlSnapshot, Level, playback_switch_block_reason,
+    snapshot_controls,
 };
 pub use device::Ae5Device;
 pub use profile::{ApplyReport, Profile, ProfileControl, ProfileError};

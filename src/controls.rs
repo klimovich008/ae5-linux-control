@@ -58,6 +58,57 @@ pub fn snapshot_controls(card_index: i32) -> alsa::Result<Vec<ControlSnapshot>> 
     Ae5Mixer::open(card_index)?.snapshots()
 }
 
+pub fn playback_switch_block_reason(
+    name: &str,
+    enabled: bool,
+    controls: &[ControlSnapshot],
+) -> Option<&'static str> {
+    if !enabled {
+        return None;
+    }
+    let speakers_selected = controls.iter().any(|control| {
+        control.name == "Output Select" && control.selected.as_deref() == Some("Speakers")
+    });
+    let has_lfe = controls.iter().any(|control| {
+        control.name == "Surround Channel Config"
+            && control
+                .selected
+                .as_deref()
+                .is_some_and(|layout| layout.ends_with(".1"))
+    });
+
+    match name {
+        "Bass Redirection" if !speakers_selected => {
+            Some("Select Speakers output before enabling bass redirection.")
+        }
+        "Bass Redirection" if !has_lfe => Some("Select a 2.1, 4.1, or 5.1 speaker layout first."),
+        "Bass Redirection"
+            if controls.iter().any(|control| {
+                control.name == "FX: X-Bass" && control.playback_switch == Some(true)
+            }) =>
+        {
+            Some("Turn off X-Bass before enabling speaker bass redirection.")
+        }
+        "FX: X-Bass" if speakers_selected && has_lfe => {
+            Some("X-Bass is unavailable for speaker layouts with an LFE channel.")
+        }
+        _ => None,
+    }
+}
+
+pub(crate) fn invalid_bass_state_reason(controls: &[ControlSnapshot]) -> Option<&'static str> {
+    ["Bass Redirection", "FX: X-Bass"]
+        .into_iter()
+        .find_map(|name| {
+            let enabled = controls
+                .iter()
+                .find(|control| control.name == name)
+                .and_then(|control| control.playback_switch)
+                .unwrap_or(false);
+            playback_switch_block_reason(name, enabled, controls)
+        })
+}
+
 impl Ae5Mixer {
     pub fn open(card_index: i32) -> alsa::Result<Self> {
         Ok(Self {
@@ -116,6 +167,17 @@ impl Ae5Mixer {
             )));
         };
         let expected = &choices[index];
+        if matches!(name, "Output Select" | "Surround Channel Config") {
+            let mut controls = self.snapshots()?;
+            if let Some(control) = controls.iter_mut().find(|control| control.name == name)
+                && control.selected.as_deref() != Some(expected)
+            {
+                control.selected = Some(expected.clone());
+                if let Some(reason) = invalid_bass_state_reason(&controls) {
+                    return Err(ControlError::Invalid(reason.to_owned()));
+                }
+            }
+        }
         element.set_enum_item(SelemChannelId::FrontLeft, index as u32)?;
         let actual = read_control(element)?;
         if actual.selected.as_deref() != Some(expected) {
@@ -137,6 +199,12 @@ impl Ae5Mixer {
             return Err(ControlError::Invalid(format!(
                 "'{name}' has no playback switch"
             )));
+        }
+        if enabled
+            && matches!(name, "Bass Redirection" | "FX: X-Bass")
+            && let Some(reason) = playback_switch_block_reason(name, true, &self.snapshots()?)
+        {
+            return Err(ControlError::Invalid(reason.to_owned()));
         }
         element.set_playback_switch_all(i32::from(enabled))?;
         let actual = read_control(element)?;
@@ -522,6 +590,34 @@ fn on_off(enabled: bool) -> &'static str {
 mod tests {
     use super::*;
 
+    fn playback_switch(name: &str, enabled: bool) -> ControlSnapshot {
+        ControlSnapshot {
+            name: name.to_owned(),
+            selected: None,
+            choices: Vec::new(),
+            playback_switch: Some(enabled),
+            capture_switch: None,
+            playback_level: None,
+            capture_level: None,
+            playback_channels: Vec::new(),
+            capture_channels: Vec::new(),
+        }
+    }
+
+    fn selected_choice(name: &str, selected: &str) -> ControlSnapshot {
+        ControlSnapshot {
+            name: name.to_owned(),
+            selected: Some(selected.to_owned()),
+            choices: vec![selected.to_owned()],
+            playback_switch: None,
+            capture_switch: None,
+            playback_level: None,
+            capture_level: None,
+            playback_channels: Vec::new(),
+            capture_channels: Vec::new(),
+        }
+    }
+
     #[test]
     fn formats_a_compound_control_readably() {
         let control = ControlSnapshot {
@@ -564,5 +660,54 @@ mod tests {
         ));
         assert!(validate_range("Level", 50, 0, 100).is_ok());
         assert!(validate_range("Level", 101, 0, 100).is_err());
+    }
+
+    #[test]
+    fn rejects_incompatible_bass_features_but_always_allows_disabling() {
+        let controls = vec![
+            playback_switch("FX: X-Bass", true),
+            playback_switch("Bass Redirection", false),
+            selected_choice("Surround Channel Config", "5.1"),
+            selected_choice("Output Select", "Speakers"),
+        ];
+
+        assert_eq!(
+            playback_switch_block_reason("Bass Redirection", true, &controls),
+            Some("Turn off X-Bass before enabling speaker bass redirection.")
+        );
+        assert_eq!(
+            playback_switch_block_reason("FX: X-Bass", false, &controls),
+            None
+        );
+        assert_eq!(
+            invalid_bass_state_reason(&controls),
+            Some("X-Bass is unavailable for speaker layouts with an LFE channel.")
+        );
+
+        let controls = vec![
+            playback_switch("FX: X-Bass", false),
+            playback_switch("Bass Redirection", false),
+            selected_choice("Surround Channel Config", "2.0"),
+            selected_choice("Output Select", "Speakers"),
+        ];
+        assert_eq!(
+            playback_switch_block_reason("Bass Redirection", true, &controls),
+            Some("Select a 2.1, 4.1, or 5.1 speaker layout first.")
+        );
+
+        let controls = vec![
+            playback_switch("FX: X-Bass", false),
+            playback_switch("Bass Redirection", false),
+            selected_choice("Surround Channel Config", "5.1"),
+            selected_choice("Output Select", "Headphone"),
+        ];
+        assert_eq!(
+            playback_switch_block_reason("Bass Redirection", true, &controls),
+            Some("Select Speakers output before enabling bass redirection.")
+        );
+        assert_eq!(
+            playback_switch_block_reason("FX: X-Bass", true, &controls),
+            None
+        );
     }
 }

@@ -1,7 +1,7 @@
 use ae5_control::{
     Ae5Device, Ae5Mixer, ChannelLevel, ControlError, ControlSnapshot, Level, Profile,
     ProfileControl, SbCommandImport, SbCommandTarget, import_sbcommand_profile_with_report,
-    snapshot_controls,
+    playback_switch_block_reason, snapshot_controls,
 };
 use gtk::prelude::*;
 use gtk::{gdk::Display, gio};
@@ -635,11 +635,14 @@ fn control_page<'a>(
     list.set_selection_mode(gtk::SelectionMode::None);
     list.add_css_class("control-list");
     for control in controls {
+        let playback_switch_block = (control.playback_switch == Some(false))
+            .then(|| playback_switch_block_reason(&control.name, true, all_controls))
+            .flatten();
         list.append(&control_row(
             card_index,
             status,
             control,
-            playback_switch_block_reason(control, all_controls),
+            playback_switch_block,
         ));
     }
 
@@ -873,46 +876,6 @@ fn switch_editor(
         }
     });
     control
-}
-
-fn playback_switch_block_reason(
-    control: &ControlSnapshot,
-    controls: &[ControlSnapshot],
-) -> Option<&'static str> {
-    if control.playback_switch != Some(false) {
-        return None;
-    }
-    let speakers_selected = controls.iter().any(|candidate| {
-        candidate.name == "Output Select" && candidate.selected.as_deref() == Some("Speakers")
-    });
-    let has_lfe = controls.iter().any(|candidate| {
-        candidate.name == "Surround Channel Config"
-            && candidate
-                .selected
-                .as_deref()
-                .is_some_and(|layout| layout.ends_with(".1"))
-    });
-    match control.name.as_str() {
-        "Bass Redirection" => {
-            if !speakers_selected {
-                return Some("Select Speakers output before enabling bass redirection.");
-            }
-            if !has_lfe {
-                return Some("Select a 2.1, 4.1, or 5.1 speaker layout first.");
-            }
-            controls
-                .iter()
-                .any(|candidate| {
-                    candidate.name == "FX: X-Bass" && candidate.playback_switch == Some(true)
-                })
-                .then_some("Turn off X-Bass before enabling speaker bass redirection.")
-        }
-        "FX: X-Bass" if speakers_selected && has_lfe => {
-            Some("X-Bass is unavailable for speaker layouts with an LFE channel.")
-        }
-        "FX: X-Bass" => None,
-        _ => None,
-    }
 }
 
 fn level_editors(
@@ -1331,34 +1294,6 @@ mod tests {
     use super::*;
     use ae5_control::SbCommandImportReport;
 
-    fn playback_switch(name: &str, enabled: bool) -> ControlSnapshot {
-        ControlSnapshot {
-            name: name.to_owned(),
-            selected: None,
-            choices: Vec::new(),
-            playback_switch: Some(enabled),
-            capture_switch: None,
-            playback_level: None,
-            capture_level: None,
-            playback_channels: Vec::new(),
-            capture_channels: Vec::new(),
-        }
-    }
-
-    fn selected_choice(name: &str, selected: &str) -> ControlSnapshot {
-        ControlSnapshot {
-            name: name.to_owned(),
-            selected: Some(selected.to_owned()),
-            choices: vec![selected.to_owned()],
-            playback_switch: None,
-            capture_switch: None,
-            playback_level: None,
-            capture_level: None,
-            playback_channels: Vec::new(),
-            capture_channels: Vec::new(),
-        }
-    }
-
     #[test]
     fn every_control_category_is_exclusive() {
         for name in [
@@ -1412,56 +1347,6 @@ mod tests {
         assert!(profile_requires_high_gain(&profile));
         assert!(profile_preview(&profile).contains("High (150-600 Ohms)"));
         assert!(profile_preview(&profile).contains("Front Right=82"));
-    }
-
-    #[test]
-    fn blocks_only_the_inactive_conflicting_bass_feature() {
-        let controls = vec![
-            playback_switch("FX: X-Bass", true),
-            playback_switch("Bass Redirection", false),
-            selected_choice("Surround Channel Config", "5.1"),
-            selected_choice("Output Select", "Speakers"),
-        ];
-
-        assert_eq!(
-            playback_switch_block_reason(&controls[1], &controls),
-            Some("Turn off X-Bass before enabling speaker bass redirection.")
-        );
-        assert_eq!(playback_switch_block_reason(&controls[0], &controls), None);
-
-        let controls = vec![
-            playback_switch("FX: X-Bass", false),
-            playback_switch("Bass Redirection", false),
-            selected_choice("Surround Channel Config", "5.1"),
-            selected_choice("Output Select", "Speakers"),
-        ];
-        assert_eq!(
-            playback_switch_block_reason(&controls[0], &controls),
-            Some("X-Bass is unavailable for speaker layouts with an LFE channel.")
-        );
-
-        let controls = vec![
-            playback_switch("FX: X-Bass", false),
-            playback_switch("Bass Redirection", false),
-            selected_choice("Surround Channel Config", "2.0"),
-            selected_choice("Output Select", "Speakers"),
-        ];
-        assert_eq!(
-            playback_switch_block_reason(&controls[1], &controls),
-            Some("Select a 2.1, 4.1, or 5.1 speaker layout first.")
-        );
-
-        let controls = vec![
-            playback_switch("FX: X-Bass", false),
-            playback_switch("Bass Redirection", false),
-            selected_choice("Surround Channel Config", "5.1"),
-            selected_choice("Output Select", "Headphone"),
-        ];
-        assert_eq!(playback_switch_block_reason(&controls[0], &controls), None);
-        assert_eq!(
-            playback_switch_block_reason(&controls[1], &controls),
-            Some("Select Speakers output before enabling bass redirection.")
-        );
     }
 
     #[test]

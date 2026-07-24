@@ -1,7 +1,7 @@
 use ae5_control::{
     Ae5Device, Ae5Mixer, Profile, SbCommandImportReport, SbCommandTarget,
     import_active_sbcommand_profile_with_report, import_sbcommand_profile_with_report,
-    snapshot_controls,
+    profile_library, snapshot_controls,
 };
 use std::error::Error;
 use std::io;
@@ -30,6 +30,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         [] => print_status(),
         [command] if command == "status" => print_status(),
         [command] if command == "controls" => print_controls(),
+        [command] if command == "profile-library" => print_profile_library(),
         [command, name] if command == "get" => print_control(name),
         [command, name, choice] if command == "set-choice" => set_choice(name, choice, false),
         [command, name, choice, flag] if command == "set-choice" && flag == "--allow-high-gain" => {
@@ -230,6 +231,30 @@ fn save_profile(name: &str, path: &str) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+fn print_profile_library() -> Result<(), Box<dyn Error>> {
+    let library = profile_library()?;
+    println!("Profile library: {}", library.directory.display());
+    for entry in &library.profiles {
+        println!(
+            "  {} — {} controls ({})",
+            entry.profile.name,
+            entry.profile.controls.len(),
+            entry
+                .path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("profile.json")
+        );
+    }
+    if library.profiles.is_empty() {
+        println!("  no saved profiles");
+    }
+    for warning in &library.skipped {
+        println!("  skipped: {warning}");
+    }
+    Ok(())
+}
+
 fn show_profile(path: &str) -> Result<(), Box<dyn Error>> {
     let profile = Profile::load(Path::new(path))?;
     println!("Profile: {}", profile.name);
@@ -366,6 +391,7 @@ fn print_help() {
          \x20 set-playback-channel-level NAME CHANNEL VALUE\n\
          \x20 set-capture-channel-level NAME CHANNEL VALUE\n\
          \x20 smoke-test  Safely change, verify, and restore a disabled effect level\n\
+         \x20 profile-library  List native profiles in the per-user library\n\
          \x20 profile-save NAME FILE\n\
          \x20 profile-show FILE\n\
          \x20 profile-check FILE [--allow-high-gain]\n\

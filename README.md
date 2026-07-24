@@ -47,11 +47,18 @@ hardware; applying verifies every write and rolls back the targeted controls
 if a write fails:
 
 ```sh
+cargo run -- profile-library
 cargo run -- profile-save "My headphones" headphones.json
 cargo run -- profile-show headphones.json
 cargo run -- profile-check headphones.json
 cargo run -- profile-apply headphones.json
 ```
+
+The desktop keeps reusable profiles in
+`$XDG_CONFIG_HOME/ae5-control/profiles`, falling back to
+`~/.config/ae5-control/profiles`. The library command lists every valid profile
+and reports malformed JSON without hiding usable entries. Desktop save and
+import dialogs start in this folder but can still target another local folder.
 
 ## Import Sound Blaster Command settings
 
@@ -112,6 +119,8 @@ CLI, desktop entry, AppStream metadata, and icon without a privileged helper.
 
 The **Profiles** page can:
 
+- list reusable profiles from the per-user library with a guarded preview and
+  apply action;
 - save the current hardware state as a native JSON profile;
 - validate and preview a native profile before applying it transactionally;
 - import the active setup from a mounted Windows `user.config` and AE-5 product

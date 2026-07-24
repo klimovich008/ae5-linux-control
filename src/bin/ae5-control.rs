@@ -1,7 +1,8 @@
 use ae5_control::{
     Ae5Device, Ae5Mixer, ChannelLevel, ControlError, ControlSnapshot, Level, Profile,
     ProfileControl, SbCommandImport, SbCommandTarget, import_active_sbcommand_profile_with_report,
-    import_sbcommand_profile_with_report, snapshot_controls,
+    import_sbcommand_profile_with_report, profile_library, profile_library_directory,
+    snapshot_controls,
 };
 use gtk::prelude::*;
 use gtk::{gdk::Display, gio};
@@ -189,6 +190,15 @@ fn profile_page(
     intro.add_css_class("dim-label");
     page.append(&intro);
 
+    let saved_actions = saved_profile_actions(window, card_index, status);
+    page.append(&profile_card(
+        "01",
+        "Saved profiles",
+        "Profiles in the standard per-user library are available immediately after \
+         an app restart. Every apply still uses preview, validation, readback, and rollback.",
+        &saved_actions,
+    ));
+
     let native_actions = gtk::Box::new(gtk::Orientation::Horizontal, 10);
     let save = gtk::Button::with_label("Save current state");
     save.add_css_class("suggested-action");
@@ -196,8 +206,8 @@ fn profile_page(
     native_actions.append(&save);
     native_actions.append(&apply);
     page.append(&profile_card(
-        "01",
-        "Native profiles",
+        "02",
+        "Profile files",
         "Portable JSON uses semantic ALSA names. Applying validates every value, \
          verifies readback, and rolls back the targeted controls on failure.",
         &native_actions,
@@ -210,7 +220,7 @@ fn profile_page(
     import_actions.append(&import_active);
     import_actions.append(&import);
     page.append(&profile_card(
-        "02",
+        "03",
         "Sound Blaster Command",
         "Import the active setup from a mounted Windows installation, or choose \
          Creative profile and EQ files manually. Review every mapping before saving.",
@@ -225,7 +235,9 @@ fn profile_page(
             let status = status.clone();
             gtk::glib::spawn_future_local(async move {
                 match save_current_profile(&window, card_index).await {
-                    Ok(Some(message)) => set_status(&status, true, &message),
+                    Ok(Some(message)) => {
+                        let _ = refresh_window(&window, Some(&message));
+                    }
                     Ok(None) => {}
                     Err(error) => set_status(&status, false, &format!("Save failed: {error}")),
                 }
@@ -257,7 +269,9 @@ fn profile_page(
             let status = status.clone();
             gtk::glib::spawn_future_local(async move {
                 match import_active_windows_profile(&window, card_index).await {
-                    Ok(Some(message)) => set_status(&status, true, &message),
+                    Ok(Some(message)) => {
+                        let _ = refresh_window(&window, Some(&message));
+                    }
                     Ok(None) => {}
                     Err(error) => set_status(&status, false, &format!("Import failed: {error}")),
                 }
@@ -272,7 +286,9 @@ fn profile_page(
             let status = status.clone();
             gtk::glib::spawn_future_local(async move {
                 match import_windows_profile(&window, card_index).await {
-                    Ok(Some(message)) => set_status(&status, true, &message),
+                    Ok(Some(message)) => {
+                        let _ = refresh_window(&window, Some(&message));
+                    }
                     Ok(None) => {}
                     Err(error) => set_status(&status, false, &format!("Import failed: {error}")),
                 }
@@ -284,6 +300,95 @@ fn profile_page(
         .hscrollbar_policy(gtk::PolicyType::Never)
         .child(&page)
         .build()
+}
+
+fn saved_profile_actions(
+    window: &gtk::ApplicationWindow,
+    card_index: i32,
+    status: &gtk::Label,
+) -> gtk::Box {
+    let actions = gtk::Box::new(gtk::Orientation::Vertical, 8);
+    match profile_library() {
+        Ok(library) => {
+            if library.profiles.is_empty() {
+                let empty = gtk::Label::new(Some(
+                    "No saved profiles yet. New and converted profiles start in this library.",
+                ));
+                empty.set_xalign(0.0);
+                empty.set_wrap(true);
+                empty.add_css_class("dim-label");
+                actions.append(&empty);
+            }
+            for entry in library.profiles {
+                let row = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+                let details = gtk::Label::new(Some(&format!(
+                    "{}\n{} controls · {}",
+                    entry.profile.name,
+                    entry.profile.controls.len(),
+                    entry
+                        .path
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or("profile.json")
+                )));
+                details.set_xalign(0.0);
+                details.set_hexpand(true);
+                details.set_wrap(true);
+                let apply = gtk::Button::with_label("Preview & apply");
+                let path = entry.path;
+                let window = window.clone();
+                let status = status.clone();
+                apply.connect_clicked(move |_| {
+                    let path = path.clone();
+                    let window = window.clone();
+                    let status = status.clone();
+                    gtk::glib::spawn_future_local(async move {
+                        match apply_profile_path(&window, card_index, &path).await {
+                            Ok(Some(message)) => {
+                                let _ = refresh_window(&window, Some(&message));
+                            }
+                            Ok(None) => {}
+                            Err(error) => {
+                                set_status(&status, false, &format!("Apply failed: {error}"))
+                            }
+                        }
+                    });
+                });
+                row.append(&details);
+                row.append(&apply);
+                actions.append(&row);
+            }
+            if !library.skipped.is_empty() {
+                let warning = gtk::Label::new(Some(&format!(
+                    "{} invalid JSON profile{} skipped. Open the library folder to inspect them.",
+                    library.skipped.len(),
+                    if library.skipped.len() == 1 {
+                        " was"
+                    } else {
+                        "s were"
+                    }
+                )));
+                warning.set_xalign(0.0);
+                warning.set_wrap(true);
+                warning.add_css_class("warning-label");
+                actions.append(&warning);
+            }
+            let location = gtk::Label::new(Some(&library.directory.display().to_string()));
+            location.set_xalign(0.0);
+            location.set_selectable(true);
+            location.set_wrap(true);
+            location.add_css_class("dim-label");
+            actions.append(&location);
+        }
+        Err(error) => {
+            let warning = gtk::Label::new(Some(&format!("Profile library unavailable: {error}")));
+            warning.set_xalign(0.0);
+            warning.set_wrap(true);
+            warning.add_css_class("warning-label");
+            actions.append(&warning);
+        }
+    }
+    actions
 }
 
 fn profile_card(index: &str, title: &str, description: &str, actions: &gtk::Box) -> gtk::Box {
@@ -336,10 +441,18 @@ async fn apply_native_profile(
     window: &gtk::ApplicationWindow,
     card_index: i32,
 ) -> Result<Option<String>, String> {
-    let Some(path) = open_json_path(window, "Open native AE-5 profile").await? else {
+    let Some(path) = open_native_profile_path(window, "Open native AE-5 profile").await? else {
         return Ok(None);
     };
-    let profile = Profile::load(&path).map_err(|error| error.to_string())?;
+    apply_profile_path(window, card_index, &path).await
+}
+
+async fn apply_profile_path(
+    window: &gtk::ApplicationWindow,
+    card_index: i32,
+    path: &Path,
+) -> Result<Option<String>, String> {
+    let profile = Profile::load(path).map_err(|error| error.to_string())?;
     let mixer = Ae5Mixer::open(card_index).map_err(|error| error.to_string())?;
     profile
         .check(&mixer, true)
@@ -579,6 +692,22 @@ async fn open_json_path(
     }
 }
 
+async fn open_native_profile_path(
+    window: &gtk::ApplicationWindow,
+    title: &str,
+) -> Result<Option<PathBuf>, String> {
+    let dialog = json_dialog(title);
+    set_initial_profile_folder(&dialog)?;
+    match dialog.open_future(Some(window)).await {
+        Ok(file) => file
+            .path()
+            .map(Some)
+            .ok_or_else(|| "only local files are supported".to_owned()),
+        Err(error) if is_cancelled(&error) => Ok(None),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
 async fn open_config_path(window: &gtk::ApplicationWindow) -> Result<Option<PathBuf>, String> {
     let filter = gtk::FileFilter::new();
     filter.set_name(Some("Sound Blaster Command user.config"));
@@ -622,6 +751,7 @@ async fn save_json_path(
     initial_name: &str,
 ) -> Result<Option<PathBuf>, String> {
     let dialog = json_dialog(title);
+    set_initial_profile_folder(&dialog)?;
     dialog.set_initial_name(Some(initial_name));
     match dialog.save_future(Some(window)).await {
         Ok(file) => file
@@ -631,6 +761,13 @@ async fn save_json_path(
         Err(error) if is_cancelled(&error) => Ok(None),
         Err(error) => Err(error.to_string()),
     }
+}
+
+fn set_initial_profile_folder(dialog: &gtk::FileDialog) -> Result<(), String> {
+    let directory = profile_library_directory().map_err(|error| error.to_string())?;
+    std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
+    dialog.set_initial_folder(Some(&gio::File::for_path(directory)));
+    Ok(())
 }
 
 fn is_cancelled(error: &gtk::glib::Error) -> bool {
@@ -1312,7 +1449,7 @@ fn install_css() {
             border-bottom: 1px solid alpha(#ffffff, 0.08);
         }
         .operation-ok { color: #8ee3c5; }
-        .operation-error, .warning-value { color: #ffb4a9; }
+        .operation-error, .warning-label, .warning-value { color: #ffb4a9; }
         .navigation-sidebar { background: #141b22; padding: 12px 8px; }
         .profile-page { padding: 26px 30px; }
         .page-title { font-size: 22px; font-weight: 700; }

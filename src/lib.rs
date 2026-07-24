@@ -3,7 +3,9 @@ pub mod device;
 pub mod profile;
 pub mod sbcommand;
 
-pub use controls::{Ae5Mixer, ControlError, ControlSnapshot, Level, snapshot_controls};
+pub use controls::{
+    Ae5Mixer, ChannelLevel, ControlError, ControlSnapshot, Level, snapshot_controls,
+};
 pub use device::Ae5Device;
 pub use profile::{ApplyReport, Profile, ProfileControl, ProfileError};
 pub use sbcommand::{

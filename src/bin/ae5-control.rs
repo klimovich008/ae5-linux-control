@@ -1,6 +1,7 @@
 use ae5_control::{
-    Ae5Device, Ae5Mixer, ControlError, ControlSnapshot, Level, Profile, ProfileControl,
-    SbCommandImport, SbCommandTarget, import_sbcommand_profile_with_report, snapshot_controls,
+    Ae5Device, Ae5Mixer, ChannelLevel, ControlError, ControlSnapshot, Level, Profile,
+    ProfileControl, SbCommandImport, SbCommandTarget, import_sbcommand_profile_with_report,
+    snapshot_controls,
 };
 use gtk::prelude::*;
 use gtk::{gdk::Display, gio};
@@ -594,13 +595,33 @@ fn profile_control_summary(control: &ProfileControl) -> String {
     if let Some(level) = control.playback_level {
         values.push(format!("playback level {level}"));
     }
+    if !control.playback_channels.is_empty() {
+        values.push(format!(
+            "playback channels {}",
+            format_profile_channels(&control.playback_channels)
+        ));
+    }
     if let Some(enabled) = control.capture_switch {
         values.push(format!("capture {}", if enabled { "on" } else { "off" }));
     }
     if let Some(level) = control.capture_level {
         values.push(format!("capture level {level}"));
     }
+    if !control.capture_channels.is_empty() {
+        values.push(format!(
+            "capture channels {}",
+            format_profile_channels(&control.capture_channels)
+        ));
+    }
     values.join(", ")
+}
+
+fn format_profile_channels(channels: &std::collections::BTreeMap<String, i64>) -> String {
+    channels
+        .iter()
+        .map(|(name, value)| format!("{name}={value}"))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn control_page<'a>(
@@ -665,11 +686,12 @@ fn control_row(card_index: i32, status: &gtk::Label, control: &ControlSnapshot) 
         ));
     }
     if let Some(level) = &control.playback_level {
-        editors.append(&level_editor(
+        editors.append(&level_editors(
             card_index,
             status,
             &control.name,
             level,
+            &control.playback_channels,
             false,
         ));
     }
@@ -680,11 +702,12 @@ fn control_row(card_index: i32, status: &gtk::Label, control: &ControlSnapshot) 
         ));
     }
     if let Some(level) = &control.capture_level {
-        editors.append(&level_editor(
+        editors.append(&level_editors(
             card_index,
             status,
             &control.name,
             level,
+            &control.capture_channels,
             true,
         ));
     }
@@ -819,12 +842,52 @@ fn switch_editor(
     control
 }
 
+fn level_editors(
+    card_index: i32,
+    status: &gtk::Label,
+    name: &str,
+    level: &Level,
+    channels: &[ChannelLevel],
+    capture: bool,
+) -> gtk::Widget {
+    if channels.len() < 2 {
+        return level_editor(card_index, status, name, level, capture, None);
+    }
+
+    let group = gtk::Box::new(gtk::Orientation::Vertical, 6);
+    for channel in channels {
+        let channel_level = Level {
+            value: channel.value,
+            min: level.min,
+            max: level.max,
+        };
+        let editor = level_editor(
+            card_index,
+            status,
+            name,
+            &channel_level,
+            capture,
+            Some(&channel.name),
+        );
+        group.append(&labelled(
+            &format!(
+                "{} · {}",
+                if capture { "Capture" } else { "Playback" },
+                channel.name
+            ),
+            &editor,
+        ));
+    }
+    group.upcast()
+}
+
 fn level_editor(
     card_index: i32,
     status: &gtk::Label,
     name: &str,
     level: &Level,
     capture: bool,
+    channel: Option<&str>,
 ) -> gtk::Widget {
     if !(level.min..=level.max).contains(&level.value) {
         let warning = gtk::Label::new(Some(&format!(
@@ -848,16 +911,26 @@ fn level_editor(
     scale.set_digits(0);
     scale.set_draw_value(true);
     scale.set_width_request(210);
-    scale.update_property(&[gtk::accessible::Property::Label(&format!(
-        "{} {} level",
-        name,
-        if capture { "capture" } else { "playback" }
-    ))]);
+    let accessible_label = match channel {
+        Some(channel) => format!(
+            "{} {} {} level",
+            name,
+            if capture { "capture" } else { "playback" },
+            channel
+        ),
+        None => format!(
+            "{} {} level",
+            name,
+            if capture { "capture" } else { "playback" }
+        ),
+    };
+    scale.update_property(&[gtk::accessible::Property::Label(&accessible_label)]);
 
     let verified = Rc::new(Cell::new(level.value));
     let updating = Rc::new(Cell::new(false));
     let pending = Rc::new(RefCell::new(None::<gtk::glib::SourceId>));
     let name = name.to_owned();
+    let channel = channel.map(str::to_owned);
     let status = status.clone();
     scale.connect_value_changed(move |scale| {
         if updating.get() {
@@ -872,15 +945,17 @@ fn level_editor(
         let updating = updating.clone();
         let pending_for_timeout = pending.clone();
         let name = name.clone();
+        let channel = channel.clone();
         let status = status.clone();
         let source = gtk::glib::timeout_add_local_once(Duration::from_millis(160), move || {
             pending_for_timeout.borrow_mut().take();
-            let result = with_mixer(card_index, |mixer| {
-                if capture {
-                    mixer.set_capture_level(&name, requested)
-                } else {
-                    mixer.set_playback_level(&name, requested)
+            let result = with_mixer(card_index, |mixer| match (capture, channel.as_deref()) {
+                (true, Some(channel)) => mixer.set_capture_channel_level(&name, channel, requested),
+                (false, Some(channel)) => {
+                    mixer.set_playback_channel_level(&name, channel, requested)
                 }
+                (true, None) => mixer.set_capture_level(&name, requested),
+                (false, None) => mixer.set_playback_level(&name, requested),
             });
             match result {
                 Ok(actual) => {
@@ -1207,13 +1282,26 @@ mod tests {
             format_version: 1,
             name: "Test".to_owned(),
             target: "1102:0012/1102:0051".to_owned(),
-            controls: std::collections::BTreeMap::from([(
-                "AE-5: Headphone Gain".to_owned(),
-                ProfileControl {
-                    choice: Some("High (150-600 Ohms)".to_owned()),
-                    ..ProfileControl::default()
-                },
-            )]),
+            controls: std::collections::BTreeMap::from([
+                (
+                    "AE-5: Headphone Gain".to_owned(),
+                    ProfileControl {
+                        choice: Some("High (150-600 Ohms)".to_owned()),
+                        ..ProfileControl::default()
+                    },
+                ),
+                (
+                    "Front".to_owned(),
+                    ProfileControl {
+                        playback_level: Some(90),
+                        playback_channels: std::collections::BTreeMap::from([
+                            ("Front Left".to_owned(), 90),
+                            ("Front Right".to_owned(), 82),
+                        ]),
+                        ..ProfileControl::default()
+                    },
+                ),
+            ]),
         };
 
         assert_eq!(
@@ -1222,6 +1310,7 @@ mod tests {
         );
         assert!(profile_requires_high_gain(&profile));
         assert!(profile_preview(&profile).contains("High (150-600 Ohms)"));
+        assert!(profile_preview(&profile).contains("Front Right=82"));
     }
 
     #[test]

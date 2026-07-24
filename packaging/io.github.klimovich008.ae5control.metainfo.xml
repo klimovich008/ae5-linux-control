@@ -9,7 +9,8 @@
     <p>
       AE-5 Control is a native GTK application for the Creative Sound BlasterX
       AE-5. It exposes the card's verified ALSA routing, playback, recording,
-      DSP effect, equalizer, and profile controls without a background daemon.
+      channel balance, DSP effect, equalizer, and profile controls without a
+      background daemon.
     </p>
     <p>
       Profiles can be saved locally or converted from compatible Sound Blaster

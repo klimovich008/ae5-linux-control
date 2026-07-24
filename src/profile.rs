@@ -32,6 +32,10 @@ pub struct ProfileControl {
     pub playback_level: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub capture_level: Option<i64>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub playback_channels: BTreeMap<String, i64>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub capture_channels: BTreeMap<String, i64>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -192,11 +196,15 @@ impl ProfileControl {
             && self.capture_switch.is_none()
             && self.playback_level.is_none()
             && self.capture_level.is_none()
+            && self.playback_channels.is_empty()
+            && self.capture_channels.is_empty()
     }
 }
 
 impl From<ControlSnapshot> for ProfileControl {
     fn from(control: ControlSnapshot) -> Self {
+        let playback_channels = profile_channels(&control.playback_channels);
+        let capture_channels = profile_channels(&control.capture_channels);
         Self {
             choice: control.selected,
             playback_switch: control.playback_switch,
@@ -211,7 +219,20 @@ impl From<ControlSnapshot> for ProfileControl {
                     .contains(&level.value)
                     .then_some(level.value)
             }),
+            playback_channels,
+            capture_channels,
         }
+    }
+}
+
+fn profile_channels(channels: &[crate::ChannelLevel]) -> BTreeMap<String, i64> {
+    if channels.len() < 2 {
+        BTreeMap::new()
+    } else {
+        channels
+            .iter()
+            .map(|channel| (channel.name.clone(), channel.value))
+            .collect()
     }
 }
 
@@ -271,6 +292,26 @@ fn validate_control(
             .capture_level
             .as_ref()
             .map(|level| (level.min, level.max)),
+    )?;
+    validate_channels(
+        name,
+        "playback",
+        &requested.playback_channels,
+        &current.playback_channels,
+        current
+            .playback_level
+            .as_ref()
+            .map(|level| (level.min, level.max)),
+    )?;
+    validate_channels(
+        name,
+        "capture",
+        &requested.capture_channels,
+        &current.capture_channels,
+        current
+            .capture_level
+            .as_ref()
+            .map(|level| (level.min, level.max)),
     )
 }
 
@@ -301,6 +342,33 @@ fn validate_level(
         return Err(ProfileError::Invalid(format!(
             "{value} is outside the valid range for '{name}' {field} ({min}..{max})"
         )));
+    }
+    Ok(())
+}
+
+fn validate_channels(
+    name: &str,
+    field: &str,
+    requested: &BTreeMap<String, i64>,
+    available: &[crate::ChannelLevel],
+    range: Option<(i64, i64)>,
+) -> Result<(), ProfileError> {
+    for (channel, value) in requested {
+        if available.iter().all(|item| item.name != *channel) {
+            return Err(ProfileError::Invalid(format!(
+                "'{name}' has no {field} channel '{channel}'"
+            )));
+        }
+        let Some((min, max)) = range else {
+            return Err(ProfileError::Invalid(format!(
+                "'{name}' has no {field} level"
+            )));
+        };
+        if !(min..=max).contains(value) {
+            return Err(ProfileError::Invalid(format!(
+                "{value} is outside the valid range for '{name}' {field} channel '{channel}' ({min}..{max})"
+            )));
+        }
     }
     Ok(())
 }
@@ -339,6 +407,12 @@ fn apply_controls(
             && current.capture_level.as_ref().map(|level| level.value) != Some(value)
         {
             mixer.set_capture_level(name, value)?;
+        }
+        for (channel, value) in &control.playback_channels {
+            mixer.set_playback_channel_level(name, channel, *value)?;
+        }
+        for (channel, value) in &control.capture_channels {
+            mixer.set_capture_channel_level(name, channel, *value)?;
         }
     }
     Ok(())
@@ -422,9 +496,73 @@ mod tests {
 
     #[test]
     fn native_profile_round_trips_as_json() {
-        let profile = sample_profile();
+        let mut profile = sample_profile();
+        profile.controls.insert(
+            "Front".to_owned(),
+            ProfileControl {
+                playback_level: Some(90),
+                playback_channels: BTreeMap::from([
+                    ("Front Left".to_owned(), 90),
+                    ("Front Right".to_owned(), 82),
+                ]),
+                ..ProfileControl::default()
+            },
+        );
         let json = serde_json::to_string(&profile).unwrap();
         assert_eq!(serde_json::from_str::<Profile>(&json).unwrap(), profile);
+    }
+
+    #[test]
+    fn accepts_legacy_scalar_profile_without_channel_maps() {
+        let json = r#"{
+            "format_version": 1,
+            "name": "Legacy headphones",
+            "target": "1102:0012/1102:0051",
+            "controls": {
+                "Front": {
+                    "playback_level": 90
+                }
+            }
+        }"#;
+
+        let profile: Profile = serde_json::from_str(json).unwrap();
+        let front = &profile.controls["Front"];
+        assert_eq!(front.playback_level, Some(90));
+        assert!(front.playback_channels.is_empty());
+        assert!(front.capture_channels.is_empty());
+    }
+
+    #[test]
+    fn captures_stereo_balance_without_changing_legacy_level() {
+        let control = ControlSnapshot {
+            name: "Front".to_owned(),
+            selected: None,
+            choices: Vec::new(),
+            playback_switch: Some(true),
+            capture_switch: None,
+            playback_level: Some(crate::Level {
+                value: 90,
+                min: 0,
+                max: 99,
+            }),
+            capture_level: None,
+            playback_channels: vec![
+                crate::ChannelLevel {
+                    name: "Front Left".to_owned(),
+                    value: 90,
+                },
+                crate::ChannelLevel {
+                    name: "Front Right".to_owned(),
+                    value: 82,
+                },
+            ],
+            capture_channels: Vec::new(),
+        };
+
+        let profile = ProfileControl::from(control);
+        assert_eq!(profile.playback_level, Some(90));
+        assert_eq!(profile.playback_channels["Front Left"], 90);
+        assert_eq!(profile.playback_channels["Front Right"], 82);
     }
 
     #[test]

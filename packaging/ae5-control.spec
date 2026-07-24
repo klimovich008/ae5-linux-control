@@ -1,3 +1,5 @@
+%undefine _debugsource_packages
+
 Name:           ae5-control
 Version:        0.1.0
 Release:        1%{?dist}
@@ -28,7 +30,7 @@ and conversion of compatible Sound Blaster Command JSON profiles.
 
 %build
 export CARGO_NET_OFFLINE=true
-export RUSTFLAGS="%{build_rustflags}"
+export RUSTFLAGS="%{build_rustflags} --remap-path-prefix=$PWD=."
 cargo build --frozen --offline --release --all-features
 
 %install
@@ -47,11 +49,18 @@ install -Dm0644 packaging/io.github.klimovich008.ae5control.metainfo.xml \
 
 %check
 export CARGO_NET_OFFLINE=true
+export RUSTFLAGS="%{build_rustflags} --remap-path-prefix=$PWD=."
 cargo test --frozen --offline --release --all-features
 bash scripts/collect-linux-report.sh --self-test
 desktop-file-validate packaging/io.github.klimovich008.ae5control.desktop
 appstreamcli validate --no-net --strict \
   packaging/io.github.klimovich008.ae5control.metainfo.xml
+if grep -aF "$PWD" \
+  %{buildroot}%{_bindir}/ae5-control \
+  %{buildroot}%{_bindir}/ae5ctl >/dev/null; then
+  echo "installed binaries contain the private RPM build path" >&2
+  exit 1
+fi
 
 %files
 %license LICENSE-APACHE LICENSE-MIT vendor/unicode-ident/LICENSE-UNICODE

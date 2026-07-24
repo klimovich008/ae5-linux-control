@@ -28,6 +28,7 @@ cargo run -- get "Output Select"
 cargo run -- set-choice "Output Select" Headphone
 cargo run -- set-playback-switch "FX: Surround" off
 cargo run -- set-playback-level "FX: Surround" 50
+cargo run -- set-playback-channel-level Front "Front Right" 82
 ```
 
 High headphone gain is rejected unless `--allow-high-gain` is supplied. The
@@ -38,10 +39,12 @@ the original value:
 cargo run -- smoke-test
 ```
 
-Native profiles use semantic control names and values rather than ALSA card
-indexes or numeric control IDs. Saving refuses to overwrite an existing file;
-checking performs all validation without changing hardware; applying verifies
-every write and rolls back the targeted controls if a write fails:
+Native profiles use semantic control and channel names rather than ALSA card
+indexes or numeric control IDs. Stereo balances are captured and restored
+without breaking profiles created before channel support. Saving refuses to
+overwrite an existing file; checking performs all validation without changing
+hardware; applying verifies every write and rolls back the targeted controls
+if a write fails:
 
 ```sh
 cargo run -- profile-save "My headphones" headphones.json
@@ -73,11 +76,12 @@ band counts, and frequencies are still rejected.
 ## Native desktop application
 
 The GTK 4 application groups every live control into profiles, playback,
-effects, equalizer, and recording pages. Selectors, switches, and bounded
-sliders write through the verified ALSA backend; high headphone gain requires
-an explicit opt-in. It listens for native ALSA mixer events, so changes made by
-another mixer application or command-line process are reflected without a
-polling loop while the selected page remains open:
+effects, equalizer, and recording pages. Stereo ALSA controls receive separate
+accessible channel sliders; selectors, switches, and bounded sliders write
+through the verified ALSA backend. High headphone gain requires an explicit
+opt-in. It listens for native ALSA mixer events, so changes made by another
+mixer application or command-line process are reflected without a polling loop
+while the selected page remains open:
 
 ```sh
 sudo dnf install gtk4-devel

@@ -3,6 +3,18 @@ use std::error::Error;
 use std::fmt;
 use std::time::Duration;
 
+const CHANNELS: &[SelemChannelId] = &[
+    SelemChannelId::FrontLeft,
+    SelemChannelId::FrontRight,
+    SelemChannelId::RearLeft,
+    SelemChannelId::RearRight,
+    SelemChannelId::FrontCenter,
+    SelemChannelId::Woofer,
+    SelemChannelId::SideLeft,
+    SelemChannelId::SideRight,
+    SelemChannelId::RearCenter,
+];
+
 #[derive(Debug)]
 pub enum ControlError {
     Alsa(alsa::Error),
@@ -19,6 +31,12 @@ pub struct Level {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ChannelLevel {
+    pub name: String,
+    pub value: i64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ControlSnapshot {
     pub name: String,
     pub selected: Option<String>,
@@ -27,6 +45,8 @@ pub struct ControlSnapshot {
     pub capture_switch: Option<bool>,
     pub playback_level: Option<Level>,
     pub capture_level: Option<Level>,
+    pub playback_channels: Vec<ChannelLevel>,
+    pub capture_channels: Vec<ChannelLevel>,
 }
 
 #[derive(Debug)]
@@ -156,12 +176,28 @@ impl Ae5Mixer {
         validate_range(name, value, min, max)?;
         element.set_playback_volume_all(value)?;
         let actual = read_control(element)?;
-        verify(
-            name,
-            "playback level",
-            value,
-            actual.playback_level.as_ref().map(|level| level.value),
-        )?;
+        verify_channels(name, "playback level", value, &actual.playback_channels)?;
+        Ok(actual)
+    }
+
+    pub fn set_playback_channel_level(
+        &self,
+        name: &str,
+        channel: &str,
+        value: i64,
+    ) -> Result<ControlSnapshot, ControlError> {
+        let element = self.find(name)?;
+        if !element.has_playback_volume() {
+            return Err(ControlError::Invalid(format!(
+                "'{name}' has no playback level"
+            )));
+        }
+        let (min, max) = element.get_playback_volume_range();
+        validate_range(name, value, min, max)?;
+        let channel_id = find_channel(&element, channel, false)?;
+        element.set_playback_volume(channel_id, value)?;
+        let actual = read_control(element)?;
+        verify_channel(name, "playback", channel, value, &actual.playback_channels)?;
         Ok(actual)
     }
 
@@ -180,12 +216,28 @@ impl Ae5Mixer {
         validate_range(name, value, min, max)?;
         element.set_capture_volume_all(value)?;
         let actual = read_control(element)?;
-        verify(
-            name,
-            "capture level",
-            value,
-            actual.capture_level.as_ref().map(|level| level.value),
-        )?;
+        verify_channels(name, "capture level", value, &actual.capture_channels)?;
+        Ok(actual)
+    }
+
+    pub fn set_capture_channel_level(
+        &self,
+        name: &str,
+        channel: &str,
+        value: i64,
+    ) -> Result<ControlSnapshot, ControlError> {
+        let element = self.find(name)?;
+        if !element.has_capture_volume() || name == "Bass Redirection Crossover" {
+            return Err(ControlError::Invalid(format!(
+                "'{name}' has no capture level"
+            )));
+        }
+        let (min, max) = element.get_capture_volume_range();
+        validate_range(name, value, min, max)?;
+        let channel_id = find_channel(&element, channel, true)?;
+        element.set_capture_volume(channel_id, value)?;
+        let actual = read_control(element)?;
+        verify_channel(name, "capture", channel, value, &actual.capture_channels)?;
         Ok(actual)
     }
 
@@ -207,6 +259,16 @@ fn read_control(element: Selem<'_>) -> alsa::Result<ControlSnapshot> {
         (None, Vec::new())
     };
     let has_capture_level = name != "Bass Redirection Crossover" && element.has_capture_volume();
+    let playback_channels = if element.has_playback_volume() {
+        read_channels(&element, false)?
+    } else {
+        Vec::new()
+    };
+    let capture_channels = if has_capture_level {
+        read_channels(&element, true)?
+    } else {
+        Vec::new()
+    };
 
     Ok(ControlSnapshot {
         name,
@@ -228,24 +290,84 @@ fn read_control(element: Selem<'_>) -> alsa::Result<ControlSnapshot> {
                     .map(|value| value != 0)
             })
             .transpose()?,
-        playback_level: element
-            .has_playback_volume()
-            .then(|| {
-                let (min, max) = element.get_playback_volume_range();
-                element
-                    .get_playback_volume(SelemChannelId::FrontLeft)
-                    .map(|value| Level { value, min, max })
-            })
-            .transpose()?,
-        capture_level: has_capture_level
-            .then(|| {
-                let (min, max) = element.get_capture_volume_range();
-                element
-                    .get_capture_volume(SelemChannelId::FrontLeft)
-                    .map(|value| Level { value, min, max })
-            })
-            .transpose()?,
+        playback_level: playback_channels.first().map(|channel| {
+            let (min, max) = element.get_playback_volume_range();
+            Level {
+                value: channel.value,
+                min,
+                max,
+            }
+        }),
+        capture_level: capture_channels.first().map(|channel| {
+            let (min, max) = element.get_capture_volume_range();
+            Level {
+                value: channel.value,
+                min,
+                max,
+            }
+        }),
+        playback_channels,
+        capture_channels,
     })
+}
+
+fn read_channels(element: &Selem<'_>, capture: bool) -> alsa::Result<Vec<ChannelLevel>> {
+    CHANNELS
+        .iter()
+        .copied()
+        .filter(|channel| {
+            if capture {
+                element.has_capture_channel(*channel)
+            } else {
+                element.has_playback_channel(*channel)
+            }
+        })
+        .map(|channel| {
+            let value = if capture {
+                element.get_capture_volume(channel)?
+            } else {
+                element.get_playback_volume(channel)?
+            };
+            Ok(ChannelLevel {
+                name: Selem::channel_name(channel)?.to_owned(),
+                value,
+            })
+        })
+        .collect()
+}
+
+fn find_channel(
+    element: &Selem<'_>,
+    requested: &str,
+    capture: bool,
+) -> Result<SelemChannelId, ControlError> {
+    let channels = CHANNELS
+        .iter()
+        .copied()
+        .filter(|channel| {
+            if capture {
+                element.has_capture_channel(*channel)
+            } else {
+                element.has_playback_channel(*channel)
+            }
+        })
+        .collect::<Vec<_>>();
+    channels
+        .iter()
+        .copied()
+        .find(|channel| {
+            Selem::channel_name(*channel).is_ok_and(|name| name.eq_ignore_ascii_case(requested))
+        })
+        .ok_or_else(|| {
+            let choices = channels
+                .iter()
+                .filter_map(|channel| Selem::channel_name(*channel).ok())
+                .collect::<Vec<_>>()
+                .join(", ");
+            ControlError::Invalid(format!(
+                "'{requested}' is not a valid channel; expected one of: {choices}"
+            ))
+        })
 }
 
 fn choice_index(choices: &[String], requested: &str) -> Option<usize> {
@@ -279,6 +401,40 @@ where
             "'{name}' {field} read back as {actual:?}, expected {expected:?}"
         )))
     }
+}
+
+fn verify_channels(
+    name: &str,
+    field: &str,
+    expected: i64,
+    actual: &[ChannelLevel],
+) -> Result<(), ControlError> {
+    if !actual.is_empty() && actual.iter().all(|channel| channel.value == expected) {
+        Ok(())
+    } else {
+        Err(ControlError::Verification(format!(
+            "'{name}' {field} read back as {actual:?}, expected every channel to be {expected}"
+        )))
+    }
+}
+
+fn verify_channel(
+    name: &str,
+    field: &str,
+    channel: &str,
+    expected: i64,
+    actual: &[ChannelLevel],
+) -> Result<(), ControlError> {
+    let value = actual
+        .iter()
+        .find(|candidate| candidate.name.eq_ignore_ascii_case(channel))
+        .map(|candidate| candidate.value);
+    verify(
+        name,
+        &format!("{field} channel '{channel}' level"),
+        expected,
+        value,
+    )
 }
 
 impl fmt::Display for ControlError {
@@ -332,8 +488,30 @@ impl fmt::Display for ControlSnapshot {
                 level.value, level.min, level.max
             )?;
         }
+        if self.playback_channels.len() > 1 {
+            write!(
+                output,
+                " | playback {}",
+                format_channels(&self.playback_channels)
+            )?;
+        }
+        if self.capture_channels.len() > 1 {
+            write!(
+                output,
+                " | capture {}",
+                format_channels(&self.capture_channels)
+            )?;
+        }
         Ok(())
     }
+}
+
+fn format_channels(channels: &[ChannelLevel]) -> String {
+    channels
+        .iter()
+        .map(|channel| format!("{}={}", channel.name, channel.value))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn on_off(enabled: bool) -> &'static str {
@@ -358,6 +536,11 @@ mod tests {
                 max: 100,
             }),
             capture_level: None,
+            playback_channels: vec![ChannelLevel {
+                name: "Front Left".to_owned(),
+                value: 65,
+            }],
+            capture_channels: Vec::new(),
         };
 
         assert_eq!(

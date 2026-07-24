@@ -44,6 +44,12 @@ fn run() -> Result<(), Box<dyn Error>> {
             set_playback_level(name, value)
         }
         [command, name, value] if command == "set-capture-level" => set_capture_level(name, value),
+        [command, name, channel, value] if command == "set-playback-channel-level" => {
+            set_playback_channel_level(name, channel, value)
+        }
+        [command, name, channel, value] if command == "set-capture-channel-level" => {
+            set_capture_channel_level(name, channel, value)
+        }
         [command] if command == "smoke-test" => smoke_test(),
         [command, name, path] if command == "profile-save" => save_profile(name, path),
         [command, path] if command == "profile-show" => show_profile(path),
@@ -146,6 +152,26 @@ fn set_playback_level(name: &str, value: &str) -> Result<(), Box<dyn Error>> {
 
 fn set_capture_level(name: &str, value: &str) -> Result<(), Box<dyn Error>> {
     println!("{}", mixer()?.set_capture_level(name, value.parse()?)?);
+    Ok(())
+}
+
+fn set_playback_channel_level(
+    name: &str,
+    channel: &str,
+    value: &str,
+) -> Result<(), Box<dyn Error>> {
+    println!(
+        "{}",
+        mixer()?.set_playback_channel_level(name, channel, value.parse()?)?
+    );
+    Ok(())
+}
+
+fn set_capture_channel_level(name: &str, channel: &str, value: &str) -> Result<(), Box<dyn Error>> {
+    println!(
+        "{}",
+        mixer()?.set_capture_channel_level(name, channel, value.parse()?)?
+    );
     Ok(())
 }
 
@@ -307,6 +333,8 @@ fn print_help() {
          \x20 set-capture-switch NAME on|off\n\
          \x20 set-playback-level NAME VALUE\n\
          \x20 set-capture-level NAME VALUE\n\
+         \x20 set-playback-channel-level NAME CHANNEL VALUE\n\
+         \x20 set-capture-channel-level NAME CHANNEL VALUE\n\
          \x20 smoke-test  Safely change, verify, and restore a disabled effect level\n\
          \x20 profile-save NAME FILE\n\
          \x20 profile-show FILE\n\

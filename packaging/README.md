@@ -31,3 +31,10 @@ additionally requiring the Unicode-3.0 license shipped in the package.
 
 Normal use does not require root, a daemon, a setuid helper, or extra device
 rules. Uninstall with `sudo dnf remove ae5-control`.
+
+The reproducible build, clean Fedora 44 install/removal transaction, and
+read-only execution of the exact package payload on the target AE-5 are
+recorded in
+[`docs/PACKAGING_VALIDATION.md`](../docs/PACKAGING_VALIDATION.md). An
+authenticated host install and desktop-menu launch remain part of the final
+release gate.

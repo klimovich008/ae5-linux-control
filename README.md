@@ -215,6 +215,10 @@ evidence, and results are recorded in
 Nobara/Fedora RPM build and install instructions are in
 [packaging/README.md](packaging/README.md). The package installs the GTK app,
 CLI, desktop entry, AppStream metadata, and icon without a privileged helper.
+A clean Fedora 44 install/verify/remove transaction and a read-only run of the
+exact RPM payload on the physical AE-5 passed; the evidence and remaining
+authenticated-host install gate are in
+[docs/PACKAGING_VALIDATION.md](docs/PACKAGING_VALIDATION.md).
 
 The **Profiles** page can:
 

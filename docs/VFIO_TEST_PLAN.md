@@ -96,11 +96,11 @@ SHA-256
 
 It runs under the unprivileged `qemu:///session` connection with:
 
-- four host-passthrough vCPUs, 4 GiB RAM, KVM, Q35, and UEFI Secure Boot;
+- four host-passthrough vCPUs, 4 GiB RAM, KVM, Q35, and UEFI;
 - a 40 GiB copy-on-write disk backed by the verified Fedora image;
 - `passt` user networking and SSH bound only to `127.0.0.1:2222`;
 - no emulated audio device and no PCI host device;
-- Fedora 44 with kernel `6.19.10-300.fc44.x86_64`;
+- Fedora 44 with stock kernel `6.19.10-300.fc44.x86_64` retained as a fallback;
 - the existing `rog5_linux` SSH public key and no generated password.
 
 ```sh
@@ -115,6 +115,29 @@ detachment. The first physical-card test must therefore use
 `qemu:///system`. Its socket units are installed and enabled but were inactive
 at the end of this audit because they were installed after the current host
 boot.
+
+### Candidate kernel smoke test
+
+The Wedge Angle patch was applied to `sound.git` `for-next` commit
+`61471f29f315` and built in the guest as `7.2.0-rc2-ae5-wedge+`. Before any
+install or firmware change, powered-off `pre-wedge-install` and
+`pre-nosecure-boot` snapshots preserved the recoverable guest states.
+
+The guest's initial signed Fedora kernel was validated with Secure Boot.
+Secure Boot was then disabled for this VM only, using a separate OVMF variable
+store, because the local candidate is not distribution-signed. The candidate
+booted successfully with:
+
+- the Btrfs root and EFI environment intact;
+- VirtIO networking, the loopback-only SSH forward, and KVM intact;
+- the matching `snd-hda-codec-ca0132` module available and loadable;
+- no failed systemd units.
+
+No host device is present in the domain XML. During this smoke test the
+physical AE-5 remained in IOMMU group 28 and bound to the host
+`snd_hda_intel` driver. Physical validation of the corrected `30`-degree
+control default remains gated on the reviewed `qemu:///system` passthrough
+transition.
 
 ### Reviewed host-device fragment
 

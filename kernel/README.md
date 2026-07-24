@@ -123,6 +123,14 @@ The value must be `30`, remain within the advertised `20..180` range, and
 setting 20, 30, and 180 must read back exactly. Voice Focus recording tests
 must show no new kernel warning or DSP timeout.
 
+On 2026-07-24, the patch was applied to `sound.git` `for-next` at
+`61471f29f315` and built inside the Fedora 44 KVM guest. The resulting
+`7.2.0-rc2-ae5-wedge+` kernel booted from Btrfs with EFI, VirtIO networking,
+and SSH intact. Its matching `snd-hda-codec-ca0132` module loaded successfully,
+and no systemd unit failed. The guest had no emulated audio device or PCI host
+device, so this proves the candidate builds and boots but does not yet prove
+the physical control value or Voice Focus behavior.
+
 ## Factory EQ preset control cache
 
 `ca0132-eq-preset-control-cache.patch` fixes stale individual EQ controls

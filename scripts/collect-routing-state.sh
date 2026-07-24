@@ -2,7 +2,7 @@
 set -uo pipefail
 
 usage() {
-	printf 'usage: %s [label] [--append]\n' "$0" >&2
+	printf 'usage: %s [--self-test | [label] [--append]]\n' "$0" >&2
 }
 
 section() {
@@ -31,6 +31,18 @@ find_ae5_card() {
 	return 1
 }
 
+wait_for_alsa_control() {
+	local card_index=$1 attempt
+
+	for ((attempt = 1; attempt <= 50; attempt++)); do
+		if amixer -c "$card_index" info >/dev/null 2>&1; then
+			return 0
+		fi
+		(( attempt == 50 )) || sleep 0.1
+	done
+	return 1
+}
+
 collect_codec_pins() {
 	local card_index=$1 codec found=0
 
@@ -41,7 +53,7 @@ collect_codec_pins() {
 		printf 'codec=%s\n' "$codec"
 		awk '
 			/^Node 0x/ {
-				wanted = ($2 == "0x0b" || $2 == "0x0f" || $2 == "0x10")
+				wanted = ($2 == "0x0b" || $2 == "0x0f" || $2 == "0x10" || $2 == "0x11")
 			}
 			wanted && /^Node 0x/ {
 				print
@@ -141,10 +153,15 @@ collect() {
 
 	section 'ALSA route controls'
 	if command -v amixer >/dev/null 2>&1; then
-		amixer -c "$card_index" sget 'Output Select' 2>&1 || true
-		amixer -c "$card_index" sget 'HP/Speaker Auto Detect' 2>&1 || true
-		amixer -c "$card_index" \
-			cget "iface=CARD,name='Headphone Jack'" 2>&1 || true
+		if wait_for_alsa_control "$card_index"; then
+			printf 'alsa_control_ready=yes\n'
+			amixer -c "$card_index" sget 'Output Select' 2>&1 || true
+			amixer -c "$card_index" sget 'HP/Speaker Auto Detect' 2>&1 || true
+			amixer -c "$card_index" \
+				cget "iface=CARD,name='Headphone Jack'" 2>&1 || true
+		else
+			printf '[ALSA control did not become readable within 5 seconds]\n'
+		fi
 	else
 		printf '[amixer unavailable]\n'
 	fi
@@ -158,6 +175,45 @@ collect() {
 	section 'PipeWire route'
 	collect_pipewire "$card_index"
 }
+
+run_self_test() (
+	local calls=0
+
+	sleep() {
+		:
+	}
+	amixer() {
+		calls=$((calls + 1))
+		(( calls >= 3 ))
+	}
+
+	if ! wait_for_alsa_control 0 || (( calls != 3 )); then
+		printf 'self-test failed: ALSA readiness retry\n' >&2
+		return 1
+	fi
+
+	calls=0
+	amixer() {
+		calls=$((calls + 1))
+		return 1
+	}
+
+	if wait_for_alsa_control 0 || (( calls != 50 )); then
+		printf 'self-test failed: ALSA readiness timeout\n' >&2
+		return 1
+	fi
+
+	printf 'routing state self-test passed\n'
+)
+
+if [[ ${1:-} == --self-test ]]; then
+	[[ $# -eq 1 ]] || {
+		usage
+		exit 2
+	}
+	run_self_test
+	exit
+fi
 
 label=${1:-manual}
 append=false

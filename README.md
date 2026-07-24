@@ -243,7 +243,10 @@ unsupported; deferred rows name the acceptance evidence still required.
 
 For the reported first-use headphone routing problem, the current kernel
 already contains both relevant upstream CA0132 fixes. The read-only cold-boot
-probe and evidence matrix are documented in
+probe now waits for ALSA readiness and captures all four AE-5 output pins. Its
+first instrumented reboot found a consistent headphone route after PipeWire;
+the audible result and repeated-boot acceptance checks remain open. Evidence
+and interpretation are documented in
 [docs/DRIVER_ROUTING_INVESTIGATION.md](docs/DRIVER_ROUTING_INVESTIGATION.md).
 The exact Nobara/upstream driver source, public research references, firmware
 licence boundary, and pinned revisions are recorded in

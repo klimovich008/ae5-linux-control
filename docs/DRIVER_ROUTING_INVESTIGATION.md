@@ -45,12 +45,35 @@ already be fixed in Linux 7.1, may depend on state restored at boot, or may be
 a mismatch between the driver's logical control value and the DSP's actual
 route.
 
+### First instrumented reboot
+
+Boot `5c9efcee-2a1a-4cf3-ac07-bf5154ab6ef7` on 2026-07-24 provided the first
+instrumented cold-boot sample:
+
+- The kernel downloaded and started the CA0132 DSP without a relevant warning
+  or error.
+- The pre-PipeWire service found ALSA card 0, but its three `amixer` reads
+  failed with `Invalid card number '0'`. The sysfs card was visible before the
+  ALSA control device was ready for that user process, so this sample does not
+  establish the pre-PipeWire logical route.
+- After PipeWire started, ALSA reported `Headphone`, auto-detect off, and the
+  headphone jack on. PipeWire selected the matching headphone port.
+- Codec pins matched the driver's intended AE-5 headphone route: line-out
+  `0x0b`, surround `0x0f`, and front headphone/center-LFE `0x10` were off,
+  while rear headphone `0x11` was enabled for output.
+
+The post-PipeWire software and codec state is therefore internally consistent.
+The audible result and repeated cold-boot behavior are still required before
+calling the original problem fixed. This reboot also exposed two probe defects:
+it queried ALSA too early and omitted the AE-5 rear-headphone pin `0x11`.
+
 ## Safe cold-boot probe
 
 `collect-routing-state.sh` discovers the exact audited card by
 `1102:0012/1102:0051`; it does not assume card 1. It reads the route controls,
-jack state, relevant codec pins, service timing, and the matching PipeWire
-card/sink. It never writes a mixer control.
+jack state, all four AE-5 output pins, service timing, and the matching
+PipeWire card/sink. It waits up to five seconds for the ALSA control interface
+to become readable and never writes a mixer control.
 
 Install two temporary user services:
 

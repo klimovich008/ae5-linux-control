@@ -120,3 +120,9 @@ For the reported first-use headphone routing problem, the current kernel
 already contains both relevant upstream CA0132 fixes. The read-only cold-boot
 probe and evidence matrix are documented in
 [docs/DRIVER_ROUTING_INVESTIGATION.md](docs/DRIVER_ROUTING_INVESTIGATION.md).
+
+Objective Windows/Linux level, frequency-response, and noise comparison is
+documented in
+[docs/AUDIO_PARITY_MEASUREMENT.md](docs/AUDIO_PARITY_MEASUREMENT.md). The
+SoX-based harness generates one hash-verified reference set and compares
+unaltered 48 kHz/24-bit stereo captures without changing mixer controls.

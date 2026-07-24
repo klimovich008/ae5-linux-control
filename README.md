@@ -84,6 +84,13 @@ cargo run -- profile-check headphones.json
 cargo run -- profile-apply headphones.json
 ```
 
+`profile-export` takes a library filename shown by `profile-library`, writes a
+standalone copy anywhere, and refuses to overwrite an existing file:
+
+```sh
+cargo run -- profile-export headphones.json ~/Documents/headphones.json
+```
+
 The desktop keeps reusable profiles in
 `$XDG_CONFIG_HOME/ae5-control/profiles`, falling back to
 `~/.config/ae5-control/profiles`. The library command lists every valid profile
@@ -175,6 +182,7 @@ The **Profiles** page can:
 
 - list reusable profiles from the per-user library with a guarded preview and
   apply action;
+- export a standalone copy without changing or overwriting the saved profile;
 - rename profiles in place and move unwanted profiles to the recoverable
   desktop Trash;
 - save the current hardware state as a native JSON profile;

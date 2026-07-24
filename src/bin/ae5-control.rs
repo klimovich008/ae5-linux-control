@@ -1,10 +1,11 @@
 use ae5_control::{
     Ae5Device, Ae5Mixer, ChannelLevel, ControlError, ControlSnapshot, Level, NativeRatesConfig,
     PipeWireNode, Profile, ProfileControl, SbCommandImport, SbCommandTarget, ae5_input, ae5_output,
-    import_active_sbcommand_profile_with_report, import_sbcommand_profile_with_report,
-    library_profile, native_rates_config, playback_switch_block_reason, profile_library,
-    profile_library_directory, rename_library_profile, set_ae5_default_input,
-    set_ae5_default_output, set_native_rates_enabled, snapshot_controls,
+    export_library_profile, import_active_sbcommand_profile_with_report,
+    import_sbcommand_profile_with_report, library_profile, native_rates_config,
+    playback_switch_block_reason, profile_library, profile_library_directory,
+    rename_library_profile, set_ae5_default_input, set_ae5_default_output,
+    set_native_rates_enabled, snapshot_controls,
 };
 use gtk::prelude::*;
 use gtk::{gdk::Display, gio};
@@ -812,7 +813,7 @@ fn saved_profile_actions(
                 actions.append(&empty);
             }
             for entry in library.profiles {
-                let row = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+                let row = gtk::Box::new(gtk::Orientation::Vertical, 8);
                 row.add_css_class("profile-library-row");
                 let details = gtk::Box::new(gtk::Orientation::Vertical, 4);
                 details.set_hexpand(true);
@@ -840,9 +841,15 @@ fn saved_profile_actions(
                 details.append(&name);
                 details.append(&file);
 
+                let buttons = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+                buttons.set_halign(gtk::Align::End);
                 let apply = gtk::Button::with_label("Preview & apply");
+                let export = gtk::Button::with_label("Export copy");
                 let rename = gtk::Button::with_label("Rename");
                 let trash = gtk::Button::with_label("Move to Trash");
+                export.set_tooltip_text(Some(
+                    "Save a standalone copy without changing the library profile.",
+                ));
                 trash.add_css_class("destructive-action");
                 trash.set_tooltip_text(Some("The profile can be restored from the desktop Trash."));
 
@@ -862,6 +869,26 @@ fn saved_profile_actions(
                                 Ok(None) => {}
                                 Err(error) => {
                                     set_status(&status, false, &format!("Apply failed: {error}"))
+                                }
+                            }
+                        });
+                    });
+                }
+
+                {
+                    let path = entry.path.clone();
+                    let window = window.clone();
+                    let status = status.clone();
+                    export.connect_clicked(move |_| {
+                        let path = path.clone();
+                        let window = window.clone();
+                        let status = status.clone();
+                        gtk::glib::spawn_future_local(async move {
+                            match export_saved_profile(&window, &path).await {
+                                Ok(Some(message)) => set_status(&status, true, &message),
+                                Ok(None) => {}
+                                Err(error) => {
+                                    set_status(&status, false, &format!("Export failed: {error}"))
                                 }
                             }
                         });
@@ -913,9 +940,11 @@ fn saved_profile_actions(
                 }
 
                 row.append(&details);
-                row.append(&apply);
-                row.append(&rename);
-                row.append(&trash);
+                buttons.append(&apply);
+                buttons.append(&export);
+                buttons.append(&rename);
+                buttons.append(&trash);
+                row.append(&buttons);
                 actions.append(&row);
             }
             if !library.skipped.is_empty() {
@@ -978,7 +1007,8 @@ async fn save_current_profile(
     window: &gtk::ApplicationWindow,
     card_index: i32,
 ) -> Result<Option<String>, String> {
-    let Some(path) = save_json_path(window, "Save native AE-5 profile", "ae5-profile.json").await?
+    let Some(path) =
+        save_json_path(window, "Save native AE-5 profile", "ae5-profile.json", true).await?
     else {
         return Ok(None);
     };
@@ -1049,7 +1079,7 @@ async fn import_windows_profile(
     };
     let initial_name = format!("windows-{}.json", target);
     let Some(output) =
-        save_json_path(window, "Save converted native profile", &initial_name).await?
+        save_json_path(window, "Save converted native profile", &initial_name, true).await?
     else {
         return Ok(None);
     };
@@ -1076,7 +1106,7 @@ async fn import_active_windows_profile(
     };
     let initial_name = format!("windows-active-{}.json", target);
     let Some(output) =
-        save_json_path(window, "Save converted native profile", &initial_name).await?
+        save_json_path(window, "Save converted native profile", &initial_name, true).await?
     else {
         return Ok(None);
     };
@@ -1164,6 +1194,29 @@ async fn trash_saved_profile(
         .await
         .map_err(|error| error.to_string())?;
     Ok(Some(format!("Moved “{}” to Trash.", stored.profile.name)))
+}
+
+async fn export_saved_profile(
+    window: &gtk::ApplicationWindow,
+    path: &Path,
+) -> Result<Option<String>, String> {
+    let stored = library_profile(path).map_err(|error| error.to_string())?;
+    let initial_name = stored
+        .path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("ae5-profile.json");
+    let Some(destination) =
+        save_json_path(window, "Export native AE-5 profile", initial_name, false).await?
+    else {
+        return Ok(None);
+    };
+    export_library_profile(&stored.path, &destination).map_err(|error| error.to_string())?;
+    Ok(Some(format!(
+        "Exported “{}” to {}.",
+        stored.profile.name,
+        destination.display()
+    )))
 }
 
 async fn confirm_profile(
@@ -1336,9 +1389,12 @@ async fn save_json_path(
     window: &gtk::ApplicationWindow,
     title: &str,
     initial_name: &str,
+    start_in_library: bool,
 ) -> Result<Option<PathBuf>, String> {
     let dialog = json_dialog(title);
-    set_initial_profile_folder(&dialog)?;
+    if start_in_library {
+        set_initial_profile_folder(&dialog)?;
+    }
     dialog.set_initial_name(Some(initial_name));
     match dialog.save_future(Some(window)).await {
         Ok(file) => file

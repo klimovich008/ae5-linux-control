@@ -1,7 +1,8 @@
 use ae5_control::{
     Ae5Device, Ae5Mixer, PipeWireNode, Profile, SbCommandImportReport, SbCommandTarget, ae5_input,
-    ae5_output, import_active_sbcommand_profile_with_report, import_sbcommand_profile_with_report,
-    native_rates_config, profile_library, set_ae5_default_input, set_ae5_default_output,
+    ae5_output, export_library_profile, import_active_sbcommand_profile_with_report,
+    import_sbcommand_profile_with_report, native_rates_config, profile_library,
+    profile_library_directory, set_ae5_default_input, set_ae5_default_output,
     set_native_rates_enabled, snapshot_controls,
 };
 use std::error::Error;
@@ -63,6 +64,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         }
         [command] if command == "smoke-test" => smoke_test(),
         [command, name, path] if command == "profile-save" => save_profile(name, path),
+        [command, source, output] if command == "profile-export" => export_profile(source, output),
         [command, path] if command == "profile-show" => show_profile(path),
         [command, path] if command == "profile-check" => check_profile(path, false),
         [command, path, flag] if command == "profile-check" && flag == "--allow-high-gain" => {
@@ -365,6 +367,16 @@ fn print_profile_library() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+fn export_profile(source: &str, output: &str) -> Result<(), Box<dyn Error>> {
+    let source = profile_library_directory()?.join(source);
+    let stored = export_library_profile(&source, Path::new(output))?;
+    println!(
+        "exported '{}' to {output} without changing the library copy",
+        stored.profile.name
+    );
+    Ok(())
+}
+
 fn show_profile(path: &str) -> Result<(), Box<dyn Error>> {
     let profile = Profile::load(Path::new(path))?;
     println!("Profile: {}", profile.name);
@@ -510,6 +522,7 @@ fn print_help() {
          \x20 smoke-test  Safely change, verify, and restore a disabled effect level\n\
          \x20 profile-library  List native profiles in the per-user library\n\
          \x20 profile-save NAME FILE\n\
+         \x20 profile-export LIBRARY_FILE OUTPUT\n\
          \x20 profile-show FILE\n\
          \x20 profile-check FILE [--allow-high-gain]\n\
          \x20 profile-apply FILE [--allow-high-gain]\n\

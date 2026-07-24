@@ -16,8 +16,8 @@ pub use pipewire::{
 };
 pub use profile::{ApplyReport, Profile, ProfileControl, ProfileError};
 pub use profile_library::{
-    ProfileLibrary, StoredProfile, library_profile, profile_library, profile_library_directory,
-    rename_library_profile,
+    ProfileLibrary, StoredProfile, export_library_profile, library_profile, profile_library,
+    profile_library_directory, rename_library_profile,
 };
 pub use sbcommand::{
     SbCommandError, SbCommandImport, SbCommandImportReport, SbCommandTarget,

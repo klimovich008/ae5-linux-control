@@ -32,6 +32,13 @@ pub fn library_profile(path: &Path) -> Result<StoredProfile, ProfileError> {
     load_library_profile_at(&profile_library_directory()?, path)
 }
 
+pub fn export_library_profile(
+    path: &Path,
+    destination: &Path,
+) -> Result<StoredProfile, ProfileError> {
+    export_library_profile_at(&profile_library_directory()?, path, destination)
+}
+
 pub fn rename_library_profile(path: &Path, new_name: &str) -> Result<StoredProfile, ProfileError> {
     rename_library_profile_at(&profile_library_directory()?, path, new_name)
 }
@@ -104,6 +111,16 @@ fn load_library_profile_at(directory: &Path, path: &Path) -> Result<StoredProfil
     let path = direct_regular_profile_path(directory, path)?;
     let profile = Profile::load(&path)?;
     Ok(StoredProfile { path, profile })
+}
+
+fn export_library_profile_at(
+    directory: &Path,
+    path: &Path,
+    destination: &Path,
+) -> Result<StoredProfile, ProfileError> {
+    let stored = load_library_profile_at(directory, path)?;
+    stored.profile.save_new(destination)?;
+    Ok(stored)
 }
 
 fn rename_library_profile_at(
@@ -235,6 +252,27 @@ mod tests {
 
         fs::remove_dir_all(directory).unwrap();
         fs::remove_dir_all(outside_directory).unwrap();
+    }
+
+    #[test]
+    fn exports_a_validated_profile_without_overwriting() {
+        let directory = test_directory();
+        let source = directory.join("headphones.json");
+        let profile = sample_profile("Headphones");
+        profile.save_new(&source).unwrap();
+
+        let output_directory = test_directory();
+        let destination = output_directory.join("exported.json");
+        let stored = export_library_profile_at(&directory, &source, &destination).unwrap();
+        assert_eq!(stored.profile, profile);
+        assert_eq!(Profile::load(&source).unwrap(), profile);
+        assert_eq!(Profile::load(&destination).unwrap(), profile);
+
+        assert!(export_library_profile_at(&directory, &source, &destination).is_err());
+        assert_eq!(Profile::load(&destination).unwrap(), profile);
+
+        fs::remove_dir_all(directory).unwrap();
+        fs::remove_dir_all(output_directory).unwrap();
     }
 
     fn test_directory() -> PathBuf {

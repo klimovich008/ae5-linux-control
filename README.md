@@ -210,6 +210,11 @@ The exact Nobara/upstream driver source, public research references, firmware
 licence boundary, and pinned revisions are recorded in
 [docs/SOURCE_INVENTORY.md](docs/SOURCE_INVENTORY.md).
 
+The named-headphone-tuning gap, why the packaged `ctspeq.bin` must not be
+loaded on the AE-5, and the bounded driver experiment sequence are documented
+in
+[docs/HEADPHONE_TUNING_INVESTIGATION.md](docs/HEADPHONE_TUNING_INVESTIGATION.md).
+
 Objective Windows/Linux level, frequency-response, and noise comparison is
 documented in
 [docs/AUDIO_PARITY_MEASUREMENT.md](docs/AUDIO_PARITY_MEASUREMENT.md). The

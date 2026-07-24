@@ -1,7 +1,8 @@
 use ae5_control::{
-    Ae5Device, Ae5Mixer, Profile, SbCommandImportReport, SbCommandTarget,
-    import_active_sbcommand_profile_with_report, import_sbcommand_profile_with_report,
-    profile_library, snapshot_controls,
+    Ae5Device, Ae5Mixer, PipeWireNode, Profile, SbCommandImportReport, SbCommandTarget, ae5_input,
+    ae5_output, import_active_sbcommand_profile_with_report, import_sbcommand_profile_with_report,
+    native_rates_config, profile_library, set_ae5_default_input, set_ae5_default_output,
+    set_native_rates_enabled, snapshot_controls,
 };
 use std::error::Error;
 use std::io;
@@ -31,6 +32,13 @@ fn run() -> Result<(), Box<dyn Error>> {
         [command] if command == "status" => print_status(),
         [command] if command == "controls" => print_controls(),
         [command] if command == "profile-library" => print_profile_library(),
+        [command] if command == "output-status" => print_output_status(),
+        [command] if command == "set-default-output" => set_default_output(),
+        [command] if command == "input-status" => print_input_status(),
+        [command] if command == "set-default-input" => set_default_input(),
+        [command] if command == "native-rates-status" => print_native_rates_status(),
+        [command] if command == "native-rates-enable" => set_native_rates(true),
+        [command] if command == "native-rates-disable" => set_native_rates(false),
         [command, name] if command == "get" => print_control(name),
         [command, name, choice] if command == "set-choice" => set_choice(name, choice, false),
         [command, name, choice, flag] if command == "set-choice" && flag == "--allow-high-gain" => {
@@ -100,6 +108,16 @@ fn print_status() -> Result<(), Box<dyn Error>> {
         println!("  Codec: {codec_name}");
     }
     println!("  Simple controls: {}", controls.len());
+    match ae5_output(device.card_index) {
+        Ok(Some(output)) => print_pipewire_node("output", &output),
+        Ok(None) => println!("  PipeWire output: unavailable"),
+        Err(error) => println!("  PipeWire output: unavailable ({error})"),
+    }
+    match ae5_input(device.card_index) {
+        Ok(Some(input)) => print_pipewire_node("input", &input),
+        Ok(None) => println!("  PipeWire input: unavailable"),
+        Err(error) => println!("  PipeWire input: unavailable ({error})"),
+    }
     println!();
     println!("Core control state");
 
@@ -110,6 +128,97 @@ fn print_status() -> Result<(), Box<dyn Error>> {
         }
     }
     Ok(())
+}
+
+fn print_output_status() -> Result<(), Box<dyn Error>> {
+    let device = require_device()?;
+    let output = ae5_output(device.card_index)?.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            format!(
+                "PipeWire has no playback output for ALSA card {}",
+                device.card_index
+            ),
+        )
+    })?;
+    print_pipewire_node("output", &output);
+    Ok(())
+}
+
+fn set_default_output() -> Result<(), Box<dyn Error>> {
+    let device = require_device()?;
+    let output = set_ae5_default_output(device.card_index)?;
+    println!(
+        "AE-5 is now the PipeWire default output: {} ({})",
+        output.description, output.node_name
+    );
+    Ok(())
+}
+
+fn print_input_status() -> Result<(), Box<dyn Error>> {
+    let device = require_device()?;
+    let input = ae5_input(device.card_index)?.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            format!(
+                "PipeWire has no recording input for ALSA card {}",
+                device.card_index
+            ),
+        )
+    })?;
+    print_pipewire_node("input", &input);
+    Ok(())
+}
+
+fn set_default_input() -> Result<(), Box<dyn Error>> {
+    let device = require_device()?;
+    let input = set_ae5_default_input(device.card_index)?;
+    println!(
+        "AE-5 is now the PipeWire default input: {} ({})",
+        input.description, input.node_name
+    );
+    Ok(())
+}
+
+fn print_native_rates_status() -> Result<(), Box<dyn Error>> {
+    let config = native_rates_config()?;
+    println!(
+        "PipeWire native-rate switching: {}\n  {}",
+        if config.enabled {
+            "enabled for the next PipeWire start"
+        } else {
+            "disabled"
+        },
+        config.path.display()
+    );
+    Ok(())
+}
+
+fn set_native_rates(enabled: bool) -> Result<(), Box<dyn Error>> {
+    let config = set_native_rates_enabled(enabled)?;
+    println!(
+        "PipeWire native-rate switching {}.\nRestart PipeWire or log in again to apply: {}",
+        if config.enabled {
+            "enabled for 44.1, 48, and 96 kHz"
+        } else {
+            "disabled"
+        },
+        config.path.display()
+    );
+    Ok(())
+}
+
+fn print_pipewire_node(kind: &str, node: &PipeWireNode) {
+    println!(
+        "  PipeWire {kind}: {} ({}){}",
+        node.description,
+        node.node_name,
+        if node.is_default {
+            " [default]"
+        } else {
+            " [not default]"
+        }
+    );
 }
 
 fn print_controls() -> Result<(), Box<dyn Error>> {
@@ -382,6 +491,13 @@ fn print_help() {
          Commands:\n\
          \x20 status    Show the detected AE-5 and important live controls (default)\n\
          \x20 controls  Show every live ALSA simple control\n\
+         \x20 output-status       Show the AE-5 PipeWire playback target\n\
+         \x20 set-default-output  Make the AE-5 the PipeWire default playback target\n\
+         \x20 input-status        Show the AE-5 PipeWire recording target\n\
+         \x20 set-default-input   Make the AE-5 the PipeWire default recording target\n\
+         \x20 native-rates-status   Show the per-user PipeWire rate configuration\n\
+         \x20 native-rates-enable   Allow native 44.1, 48, and 96 kHz after restart\n\
+         \x20 native-rates-disable  Remove the managed native-rate configuration\n\
          \x20 get NAME\n\
          \x20 set-choice NAME CHOICE [--allow-high-gain]\n\
          \x20 set-playback-switch NAME on|off\n\

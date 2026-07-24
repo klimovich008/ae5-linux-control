@@ -1,5 +1,6 @@
 pub mod controls;
 pub mod device;
+pub mod pipewire;
 pub mod profile;
 pub mod profile_library;
 pub mod sbcommand;
@@ -8,6 +9,10 @@ pub use controls::{
     Ae5Mixer, ChannelLevel, ControlError, ControlSnapshot, Level, snapshot_controls,
 };
 pub use device::Ae5Device;
+pub use pipewire::{
+    NativeRatesConfig, PipeWireNode, ae5_input, ae5_output, native_rates_config,
+    set_ae5_default_input, set_ae5_default_output, set_native_rates_enabled,
+};
 pub use profile::{ApplyReport, Profile, ProfileControl, ProfileError};
 pub use profile_library::{
     ProfileLibrary, StoredProfile, profile_library, profile_library_directory,

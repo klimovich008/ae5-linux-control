@@ -16,6 +16,7 @@ BuildRequires:  pkgconfig(alsa)
 BuildRequires:  pkgconfig(gtk4) >= 4.10
 BuildRequires:  rust
 Requires:       hicolor-icon-theme
+Requires:       wireplumber
 
 ExclusiveArch:  %{rust_arches}
 

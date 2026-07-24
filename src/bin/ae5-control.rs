@@ -1,8 +1,9 @@
 use ae5_control::{
-    Ae5Device, Ae5Mixer, ChannelLevel, ControlError, ControlSnapshot, Level, Profile,
-    ProfileControl, SbCommandImport, SbCommandTarget, import_active_sbcommand_profile_with_report,
-    import_sbcommand_profile_with_report, profile_library, profile_library_directory,
-    snapshot_controls,
+    Ae5Device, Ae5Mixer, ChannelLevel, ControlError, ControlSnapshot, Level, NativeRatesConfig,
+    PipeWireNode, Profile, ProfileControl, SbCommandImport, SbCommandTarget, ae5_input, ae5_output,
+    import_active_sbcommand_profile_with_report, import_sbcommand_profile_with_report,
+    native_rates_config, profile_library, profile_library_directory, set_ae5_default_input,
+    set_ae5_default_output, set_native_rates_enabled, snapshot_controls,
 };
 use gtk::prelude::*;
 use gtk::{gdk::Display, gio};
@@ -103,6 +104,11 @@ fn content(
     stack.set_widget_name(MAIN_STACK_NAME);
 
     stack.add_titled(
+        &routing_page(device.card_index, &status),
+        Some("routing"),
+        "System audio",
+    );
+    stack.add_titled(
         &profile_page(window, device.card_index, &status),
         Some("profiles"),
         "Profiles",
@@ -166,6 +172,196 @@ fn hero(device: &Ae5Device, controls: &[ControlSnapshot]) -> gtk::Box {
     status.set_hexpand(true);
     header.append(&status);
     header
+}
+
+fn routing_page(card_index: i32, status: &gtk::Label) -> gtk::ScrolledWindow {
+    let page = gtk::Box::new(gtk::Orientation::Vertical, 18);
+    page.add_css_class("profile-page");
+
+    let heading = gtk::Label::new(Some("System audio routing"));
+    heading.set_xalign(0.0);
+    heading.add_css_class("page-title");
+    page.append(&heading);
+
+    let intro = gtk::Label::new(Some(
+        "Choose whether desktop applications use the AE-5 by default. These \
+         actions change WirePlumber routing only; they do not alter ALSA or DSP settings.",
+    ));
+    intro.set_xalign(0.0);
+    intro.set_wrap(true);
+    intro.add_css_class("dim-label");
+    page.append(&intro);
+
+    page.append(&routing_card(
+        card_index,
+        status,
+        "01",
+        "Playback output",
+        ae5_output(card_index),
+        set_ae5_default_output,
+    ));
+    page.append(&routing_card(
+        card_index,
+        status,
+        "02",
+        "Recording input",
+        ae5_input(card_index),
+        set_ae5_default_input,
+    ));
+    page.append(&native_rates_card(status, native_rates_config()));
+
+    gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .child(&page)
+        .build()
+}
+
+fn native_rates_card(status: &gtk::Label, current: std::io::Result<NativeRatesConfig>) -> gtk::Box {
+    let actions = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    let state = gtk::Label::new(None);
+    state.set_xalign(0.0);
+    state.set_wrap(true);
+    state.set_hexpand(true);
+    let button = gtk::Button::with_label("Enable after restart");
+    button.add_css_class("suggested-action");
+    let enabled = Rc::new(Cell::new(false));
+
+    match current {
+        Ok(config) => {
+            enabled.set(config.enabled);
+            state.set_text(&native_rates_summary(&config));
+            if config.enabled {
+                button.set_label("Disable after restart");
+            }
+        }
+        Err(error) => {
+            state.set_text(&format!("Configuration unavailable: {error}"));
+            button.set_sensitive(false);
+        }
+    }
+    actions.append(&state);
+    actions.append(&button);
+
+    let status = status.clone();
+    let state_on_click = state.clone();
+    let enabled_on_click = enabled.clone();
+    button.connect_clicked(move |button| {
+        let requested = !enabled_on_click.get();
+        match set_native_rates_enabled(requested) {
+            Ok(config) => {
+                enabled_on_click.set(config.enabled);
+                state_on_click.set_text(&native_rates_summary(&config));
+                button.set_label(if config.enabled {
+                    "Disable after restart"
+                } else {
+                    "Enable after restart"
+                });
+                set_status(
+                    &status,
+                    true,
+                    "Native-rate configuration saved. Restart PipeWire or log in again to apply.",
+                );
+            }
+            Err(error) => set_status(
+                &status,
+                false,
+                &format!("Native-rate configuration failed: {error}"),
+            ),
+        }
+    });
+
+    profile_card(
+        "03",
+        "Native sample rates",
+        "Experimental: allow 44.1, 48, and 96 kHz streams to avoid unnecessary \
+         resampling. This changes the global PipeWire graph and may affect other devices.",
+        &actions,
+    )
+}
+
+fn native_rates_summary(config: &NativeRatesConfig) -> String {
+    if config.enabled {
+        "Enabled for the next PipeWire start\n44.1, 48, and 96 kHz".to_owned()
+    } else {
+        "Disabled\nUsing the distribution PipeWire defaults".to_owned()
+    }
+}
+
+fn routing_card(
+    card_index: i32,
+    status: &gtk::Label,
+    index: &str,
+    title: &str,
+    current: std::io::Result<Option<PipeWireNode>>,
+    make_default: fn(i32) -> std::io::Result<PipeWireNode>,
+) -> gtk::Box {
+    let actions = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    let state = gtk::Label::new(None);
+    state.set_xalign(0.0);
+    state.set_wrap(true);
+    state.set_hexpand(true);
+    let button = gtk::Button::with_label("Make default");
+    button.add_css_class("suggested-action");
+
+    match current {
+        Ok(Some(node)) => {
+            state.set_text(&pipewire_node_summary(&node));
+            button.set_sensitive(!node.is_default);
+            if node.is_default {
+                button.set_label("Default");
+            }
+        }
+        Ok(None) => {
+            state.set_text("AE-5 node unavailable in PipeWire.");
+            button.set_sensitive(false);
+        }
+        Err(error) => {
+            state.set_text(&format!("PipeWire status unavailable: {error}"));
+            button.set_sensitive(false);
+        }
+    }
+    actions.append(&state);
+    actions.append(&button);
+
+    let status = status.clone();
+    let state_on_click = state.clone();
+    button.connect_clicked(move |button| match make_default(card_index) {
+        Ok(node) => {
+            state_on_click.set_text(&pipewire_node_summary(&node));
+            button.set_label("Default");
+            button.set_sensitive(false);
+            set_status(
+                &status,
+                true,
+                &format!("AE-5 is now the default for {}.", node.description),
+            );
+        }
+        Err(error) => set_status(
+            &status,
+            false,
+            &format!("Default-device change failed: {error}"),
+        ),
+    });
+
+    profile_card(
+        index,
+        title,
+        "The selected default is stored by WirePlumber for desktop applications.",
+        &actions,
+    )
+}
+
+fn pipewire_node_summary(node: &PipeWireNode) -> String {
+    format!(
+        "{}\n{} — {}",
+        node.description,
+        node.node_name,
+        if node.is_default {
+            "currently default"
+        } else {
+            "not default"
+        }
+    )
 }
 
 fn profile_page(
@@ -1505,6 +1701,39 @@ mod tests {
                 1
             );
         }
+    }
+
+    #[test]
+    fn summarizes_pipewire_default_state() {
+        let node = PipeWireNode {
+            id: 58,
+            node_name: "alsa_output.pci-ae5.analog-stereo".to_owned(),
+            description: "AE-5 Analog Stereo".to_owned(),
+            is_default: true,
+        };
+
+        assert_eq!(
+            pipewire_node_summary(&node),
+            "AE-5 Analog Stereo\nalsa_output.pci-ae5.analog-stereo — currently default"
+        );
+    }
+
+    #[test]
+    fn summarizes_native_rate_configuration() {
+        let mut config = NativeRatesConfig {
+            path: PathBuf::from("/tmp/91-ae5-control-rates.conf"),
+            enabled: false,
+        };
+        assert_eq!(
+            native_rates_summary(&config),
+            "Disabled\nUsing the distribution PipeWire defaults"
+        );
+
+        config.enabled = true;
+        assert_eq!(
+            native_rates_summary(&config),
+            "Enabled for the next PipeWire start\n44.1, 48, and 96 kHz"
+        );
     }
 
     #[test]

@@ -20,6 +20,34 @@ cargo run -- controls
 `status` prints the exact card identity and important control state. `controls`
 prints all simple mixer controls and their current values.
 
+PipeWire may prefer other playback and recording devices even when the AE-5 is
+detected. Inspect the mapped nodes or explicitly make either one the desktop
+default through WirePlumber:
+
+```sh
+cargo run -- output-status
+cargo run -- set-default-output
+cargo run -- input-status
+cargo run -- set-default-input
+```
+
+The routing action invokes `wpctl` directly without a shell and verifies the
+new default. It does not change the card's ALSA mixer controls.
+
+The optional native-rate configuration lets PipeWire switch the global graph
+between 44.1, 48, and 96 kHz after its next restart:
+
+```sh
+cargo run -- native-rates-status
+cargo run -- native-rates-enable
+cargo run -- native-rates-disable
+```
+
+It is never enabled automatically. The commands only manage AE-5 Control's
+per-user PipeWire fragment and refuse to overwrite a different file at the
+same path. Hardware evidence, limitations, and verification steps are in
+[docs/PIPEWIRE_RATE_PARITY.md](docs/PIPEWIRE_RATE_PARITY.md).
+
 Typed write commands validate choices and ranges, write through ALSA, and
 verify the value by reading it back:
 
@@ -100,13 +128,15 @@ band counts, and frequencies are still rejected.
 
 ## Native desktop application
 
-The GTK 4 application groups every live control into profiles, playback,
-effects, equalizer, and recording pages. Stereo ALSA controls receive separate
-accessible channel sliders; selectors, switches, and bounded sliders write
-through the verified ALSA backend. High headphone gain requires an explicit
-opt-in. It listens for native ALSA mixer events, so changes made by another
-mixer application or command-line process are reflected without a polling loop
-while the selected page remains open:
+The GTK 4 application groups every live control into system audio, profiles,
+playback, effects, equalizer, and recording pages. The **System audio** page can
+make the AE-5 the default PipeWire playback or recording device and opt into
+native-rate switching without changing its ALSA mixer controls. Stereo ALSA
+controls receive separate accessible channel sliders; selectors, switches, and
+bounded sliders write through the verified ALSA backend. High headphone gain
+requires an explicit opt-in. It listens for native ALSA mixer events, so changes
+made by another mixer application or command-line process are reflected without
+a polling loop while the selected page remains open:
 
 ```sh
 sudo dnf install gtk4-devel

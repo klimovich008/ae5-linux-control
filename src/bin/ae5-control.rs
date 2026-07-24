@@ -1,6 +1,7 @@
 use ae5_control::{
-    Ae5Device, Ae5Mixer, ChannelLevel, ControlError, ControlSnapshot, Level, Profile,
-    ProfileControl, SbCommandImport, SbCommandTarget, import_sbcommand_profile_with_report,
+    Ae5Device, Ae5Mixer, ChannelLevel, ControlError, ControlSnapshot, Level, PipeWireNode, Profile,
+    ProfileControl, SbCommandImport, SbCommandTarget, ae5_input, ae5_output,
+    import_sbcommand_profile_with_report, set_ae5_default_input, set_ae5_default_output,
     snapshot_controls,
 };
 use gtk::prelude::*;
@@ -102,6 +103,11 @@ fn content(
     stack.set_widget_name(MAIN_STACK_NAME);
 
     stack.add_titled(
+        &routing_page(device.card_index, &status),
+        Some("routing"),
+        "System audio",
+    );
+    stack.add_titled(
         &profile_page(window, device.card_index, &status),
         Some("profiles"),
         "Profiles",
@@ -165,6 +171,124 @@ fn hero(device: &Ae5Device, controls: &[ControlSnapshot]) -> gtk::Box {
     status.set_hexpand(true);
     header.append(&status);
     header
+}
+
+fn routing_page(card_index: i32, status: &gtk::Label) -> gtk::ScrolledWindow {
+    let page = gtk::Box::new(gtk::Orientation::Vertical, 18);
+    page.add_css_class("profile-page");
+
+    let heading = gtk::Label::new(Some("System audio routing"));
+    heading.set_xalign(0.0);
+    heading.add_css_class("page-title");
+    page.append(&heading);
+
+    let intro = gtk::Label::new(Some(
+        "Choose whether desktop applications use the AE-5 by default. These \
+         actions change WirePlumber routing only; they do not alter ALSA or DSP settings.",
+    ));
+    intro.set_xalign(0.0);
+    intro.set_wrap(true);
+    intro.add_css_class("dim-label");
+    page.append(&intro);
+
+    page.append(&routing_card(
+        card_index,
+        status,
+        "01",
+        "Playback output",
+        ae5_output(card_index),
+        set_ae5_default_output,
+    ));
+    page.append(&routing_card(
+        card_index,
+        status,
+        "02",
+        "Recording input",
+        ae5_input(card_index),
+        set_ae5_default_input,
+    ));
+
+    gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .child(&page)
+        .build()
+}
+
+fn routing_card(
+    card_index: i32,
+    status: &gtk::Label,
+    index: &str,
+    title: &str,
+    current: std::io::Result<Option<PipeWireNode>>,
+    make_default: fn(i32) -> std::io::Result<PipeWireNode>,
+) -> gtk::Box {
+    let actions = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    let state = gtk::Label::new(None);
+    state.set_xalign(0.0);
+    state.set_wrap(true);
+    state.set_hexpand(true);
+    let button = gtk::Button::with_label("Make default");
+    button.add_css_class("suggested-action");
+
+    match current {
+        Ok(Some(node)) => {
+            state.set_text(&pipewire_node_summary(&node));
+            button.set_sensitive(!node.is_default);
+            if node.is_default {
+                button.set_label("Default");
+            }
+        }
+        Ok(None) => {
+            state.set_text("AE-5 node unavailable in PipeWire.");
+            button.set_sensitive(false);
+        }
+        Err(error) => {
+            state.set_text(&format!("PipeWire status unavailable: {error}"));
+            button.set_sensitive(false);
+        }
+    }
+    actions.append(&state);
+    actions.append(&button);
+
+    let status = status.clone();
+    let state_on_click = state.clone();
+    button.connect_clicked(move |button| match make_default(card_index) {
+        Ok(node) => {
+            state_on_click.set_text(&pipewire_node_summary(&node));
+            button.set_label("Default");
+            button.set_sensitive(false);
+            set_status(
+                &status,
+                true,
+                &format!("AE-5 is now the default for {}.", node.description),
+            );
+        }
+        Err(error) => set_status(
+            &status,
+            false,
+            &format!("Default-device change failed: {error}"),
+        ),
+    });
+
+    profile_card(
+        index,
+        title,
+        "The selected default is stored by WirePlumber for desktop applications.",
+        &actions,
+    )
+}
+
+fn pipewire_node_summary(node: &PipeWireNode) -> String {
+    format!(
+        "{}\n{} — {}",
+        node.description,
+        node.node_name,
+        if node.is_default {
+            "currently default"
+        } else {
+            "not default"
+        }
+    )
 }
 
 fn profile_page(
@@ -1274,6 +1398,21 @@ mod tests {
                 1
             );
         }
+    }
+
+    #[test]
+    fn summarizes_pipewire_default_state() {
+        let node = PipeWireNode {
+            id: 58,
+            node_name: "alsa_output.pci-ae5.analog-stereo".to_owned(),
+            description: "AE-5 Analog Stereo".to_owned(),
+            is_default: true,
+        };
+
+        assert_eq!(
+            pipewire_node_summary(&node),
+            "AE-5 Analog Stereo\nalsa_output.pci-ae5.analog-stereo — currently default"
+        );
     }
 
     #[test]

@@ -71,3 +71,41 @@ The profile's SHA-256 and the complete `controls` output were identical before
 and after apply. The kernel journal recorded no warning or error. The test
 profile was then moved to recoverable desktop Trash, and a fresh library scan
 again reported no saved profiles.
+
+## What U Hear and Linux digital-path acceptance
+
+The physical `CA0132 What U Hear` PCM was recorded at 48 kHz, 32-bit stereo
+while the same quiet channel-identity fixture was played first through direct
+ALSA and then through the normal PipeWire AE-5 sink. A 997 Hz signal sent only
+to the left channel and a 1503 Hz signal sent only to the right channel were
+each more than 42 dB above the opposite-band leakage in the recorded channel.
+
+The complete mixer snapshot had SHA-256
+`02530d87f6ce78e00f213bfa25f53174e8bfea1778f94b83bc0c9d32278c89f6`
+before and after every probe. The source fixture and captures were not
+normalized or resampled after recording. The generated reference set, raw
+captures, and measurement notebook are retained privately outside the source
+repository for the later Windows comparison.
+
+The full parity-tone fixture produced these results:
+
+- with the saved output-effects profile enabled, direct ALSA and PipeWire
+  differed by `-0.01 dB` at 1 kHz and by at most `0.20 dB` in relative
+  response;
+- disabling only `Enable OutFX` made every measured band from 31 Hz through
+  16 kHz exactly flat relative to 1 kHz;
+- with `Enable OutFX` disabled, direct ALSA and PipeWire matched by `0.00 dB`
+  at 1 kHz and `0.00 dB` maximum relative-response delta;
+- enabling the saved effects profile changed the 1 kHz level by `7.70 dB` and
+  relative response by as much as `9.05 dB`, consistent with its enabled
+  Crystalizer, Smart Volume, and X-Bass controls.
+
+`Master` was temporarily reduced from 76 to 20 during the longer playback
+fixtures and restored by an exit guard. `Enable OutFX` was likewise restored
+to on. The exact complete mixer snapshot was recovered after each test, and
+the kernel journal contained no CA0132, HDA, ALSA, or DSP warning or error.
+
+This proves the target card's What U Hear channel identity, master output
+processing switch, and neutral 48 kHz direct-ALSA/PipeWire digital equivalence.
+It does not compare Windows, measure the analog output, or cover 44.1 and
+96 kHz.

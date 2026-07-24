@@ -106,3 +106,27 @@ Do not normalize, denoise, resample, or encode the captures before comparison.
 If direct ALSA matches Windows but PipeWire does not, investigate PipeWire
 format/rate policy before touching the kernel. If both Linux paths diverge in
 the same way, compare DSP state and CA0132 initialization next.
+
+## Target-card Linux digital baseline
+
+On 2026-07-24, the generated tone fixture was played through both direct ALSA
+and the normal PipeWire AE-5 sink while the physical card's `CA0132 What U
+Hear` PCM recorded 48 kHz, 32-bit stereo.
+
+With the saved effects profile active, PipeWire differed from direct ALSA by
+`-0.01 dB` at 1 kHz and at most `0.20 dB` in relative response. With only
+`Enable OutFX` disabled, every measured band was flat relative to 1 kHz and
+the two Linux paths matched by `0.00 dB` in both reported metrics.
+
+The active effects profile was itself measurable: enabling it changed the
+1 kHz level by `7.70 dB` and relative response by as much as `9.05 dB`.
+Separate 997 Hz-left/1503 Hz-right probes showed more than 42 dB separation
+from the opposite band for both playback APIs. Every temporary control change
+restored the exact complete mixer snapshot, and no audio-driver warning or
+error appeared in the kernel journal.
+
+This baseline isolates PipeWire from the current sound difference at 48 kHz:
+the desktop path is equivalent to direct ALSA when measured through the card's
+digital loopback. It does not establish Windows parity or analog output
+performance. Exact target-system values and limits are recorded in
+[`HARDWARE_BASELINE.md`](HARDWARE_BASELINE.md).

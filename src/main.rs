@@ -1,6 +1,6 @@
 use ae5_control::{
-    Ae5Device, Ae5Mixer, Profile, SbCommandImportReport, SbCommandTarget,
-    import_sbcommand_profile_with_report, snapshot_controls,
+    Ae5Device, Ae5Mixer, PipeWireOutput, Profile, SbCommandImportReport, SbCommandTarget,
+    ae5_output, import_sbcommand_profile_with_report, set_ae5_default_output, snapshot_controls,
 };
 use std::error::Error;
 use std::io;
@@ -29,6 +29,8 @@ fn run() -> Result<(), Box<dyn Error>> {
         [] => print_status(),
         [command] if command == "status" => print_status(),
         [command] if command == "controls" => print_controls(),
+        [command] if command == "output-status" => print_output_status(),
+        [command] if command == "set-default-output" => set_default_output(),
         [command, name] if command == "get" => print_control(name),
         [command, name, choice] if command == "set-choice" => set_choice(name, choice, false),
         [command, name, choice, flag] if command == "set-choice" && flag == "--allow-high-gain" => {
@@ -93,6 +95,11 @@ fn print_status() -> Result<(), Box<dyn Error>> {
         println!("  Codec: {codec_name}");
     }
     println!("  Simple controls: {}", controls.len());
+    match ae5_output(device.card_index) {
+        Ok(Some(output)) => print_pipewire_output(&output),
+        Ok(None) => println!("  PipeWire output: unavailable"),
+        Err(error) => println!("  PipeWire output: unavailable ({error})"),
+    }
     println!();
     println!("Core control state");
 
@@ -103,6 +110,44 @@ fn print_status() -> Result<(), Box<dyn Error>> {
         }
     }
     Ok(())
+}
+
+fn print_output_status() -> Result<(), Box<dyn Error>> {
+    let device = require_device()?;
+    let output = ae5_output(device.card_index)?.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            format!(
+                "PipeWire has no playback output for ALSA card {}",
+                device.card_index
+            ),
+        )
+    })?;
+    print_pipewire_output(&output);
+    Ok(())
+}
+
+fn set_default_output() -> Result<(), Box<dyn Error>> {
+    let device = require_device()?;
+    let output = set_ae5_default_output(device.card_index)?;
+    println!(
+        "AE-5 is now the PipeWire default output: {} ({})",
+        output.description, output.node_name
+    );
+    Ok(())
+}
+
+fn print_pipewire_output(output: &PipeWireOutput) {
+    println!(
+        "  PipeWire output: {} ({}){}",
+        output.description,
+        output.node_name,
+        if output.is_default {
+            " [default]"
+        } else {
+            " [not default]"
+        }
+    );
 }
 
 fn print_controls() -> Result<(), Box<dyn Error>> {
@@ -327,6 +372,8 @@ fn print_help() {
          Commands:\n\
          \x20 status    Show the detected AE-5 and important live controls (default)\n\
          \x20 controls  Show every live ALSA simple control\n\
+         \x20 output-status       Show the AE-5 PipeWire playback target\n\
+         \x20 set-default-output  Make the AE-5 the PipeWire default playback target\n\
          \x20 get NAME\n\
          \x20 set-choice NAME CHOICE [--allow-high-gain]\n\
          \x20 set-playback-switch NAME on|off\n\

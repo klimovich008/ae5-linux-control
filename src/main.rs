@@ -1,6 +1,7 @@
 use ae5_control::{
     Ae5Device, Ae5Mixer, Profile, SbCommandImportReport, SbCommandTarget,
-    import_sbcommand_profile_with_report, snapshot_controls,
+    import_active_sbcommand_profile_with_report, import_sbcommand_profile_with_report,
+    snapshot_controls,
 };
 use std::error::Error;
 use std::io;
@@ -63,6 +64,11 @@ fn run() -> Result<(), Box<dyn Error>> {
         }
         [command, name, profile, eq, target, output] if command == "sbcommand-import" => {
             import_sbcommand(name, profile, eq, target, output)
+        }
+        [command, name, user_config, product_dir, target, output]
+            if command == "sbcommand-import-active" =>
+        {
+            import_active_sbcommand(name, user_config, product_dir, target, output)
         }
         [command] if matches!(command.as_str(), "-h" | "--help" | "help") => {
             print_help();
@@ -277,6 +283,30 @@ fn import_sbcommand(
     Ok(())
 }
 
+fn import_active_sbcommand(
+    name: &str,
+    user_config: &str,
+    product_dir: &str,
+    target: &str,
+    output: &str,
+) -> Result<(), Box<dyn Error>> {
+    let target = target.parse::<SbCommandTarget>()?;
+    let import = import_active_sbcommand_profile_with_report(
+        name,
+        Path::new(user_config),
+        Path::new(product_dir),
+        target,
+    )?;
+    print_import_report(&import.report);
+    import.profile.save_new(Path::new(output))?;
+    println!(
+        "converted active Sound Blaster Command {target} settings to '{}' ({} controls) at {output}",
+        import.profile.name,
+        import.profile.controls.len()
+    );
+    Ok(())
+}
+
 fn print_import_report(report: &SbCommandImportReport) {
     println!("Migration report");
     print_report_section("Exact", &report.exact);
@@ -341,6 +371,7 @@ fn print_help() {
          \x20 profile-check FILE [--allow-high-gain]\n\
          \x20 profile-apply FILE [--allow-high-gain]\n\
          \x20 sbcommand-import NAME PROFILE_JSON EQ_JSON speaker|headphone OUTPUT\n\
+         \x20 sbcommand-import-active NAME USER_CONFIG AE5_PRODUCT_DIR speaker|headphone OUTPUT\n\
          \x20 help      Show this help"
     );
 }

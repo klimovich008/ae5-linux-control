@@ -65,6 +65,24 @@ cargo run -- profile-check windows-headphones.json
 cargo run -- profile-apply windows-headphones.json
 ```
 
+The active selection can also be imported directly from a mounted Windows
+installation. `USER_CONFIG` is Sound Blaster Command's versioned
+`Creative.SBCommand.../<version>/user.config` file under the Windows user's
+`AppData/Local/Creative_Technology_Ltd` directory. `AE5_PRODUCT_DIR` is that
+user's `AppData/Local/Creative/<installation-id>/Product/AE5` directory:
+
+```sh
+cargo run -- sbcommand-import-active "Windows speakers" \
+  "$USER_CONFIG" "$AE5_PRODUCT_DIR" speaker windows-speakers.json
+cargo run -- profile-check windows-speakers.json
+```
+
+This form follows the selected profile and EQ IDs, preserves the output route,
+and maps standard Windows speaker masks from stereo through 5.1. It reads only
+plain XML string settings. Binary-serialized application state is never
+deserialized. Creative headphone tuning selections are reported as unsupported
+until the Linux driver exposes a safe equivalent.
+
 The importer maps SBX switches and levels, crossover frequency, Smart Volume
 mode, and all ten EQ bands. Before saving, it separates exact mappings,
 values rounded to ALSA steps, and unsupported non-null source settings. The

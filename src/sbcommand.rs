@@ -95,6 +95,61 @@ pub fn import_profile_with_report(
     })
 }
 
+pub fn import_active_profile_with_report(
+    name: &str,
+    user_config_path: &Path,
+    product_dir: &Path,
+    target: SbCommandTarget,
+) -> Result<SbCommandImport, SbCommandError> {
+    let config = load_text(user_config_path)?;
+    let (profile_setting, eq_setting) = match target {
+        SbCommandTarget::Speaker => ("SPSelectedProfileId", "SPSelectedPresetId"),
+        SbCommandTarget::Headphone => ("HPSelectedProfileId", "HPSelectedPresetId"),
+    };
+    let profile_id = required_user_setting(&config, profile_setting)?;
+    let eq_id = required_user_setting(&config, eq_setting)?;
+    validate_identifier(profile_setting, &profile_id)?;
+    validate_identifier(eq_setting, &eq_id)?;
+
+    let profile_file = format!("{profile_id}.json");
+    let eq_file = format!("{eq_id}.json");
+    let import = import_profile_with_report(
+        name,
+        &product_dir.join("Profiles").join(&profile_file),
+        &product_dir.join("Presets").join("EQ").join(&eq_file),
+        target,
+    )?;
+    let mut controls = import.profile.controls;
+    let mut report = import.report;
+    report.exact.push(format!(
+        "{profile_setting} → Profiles/{profile_file} (active {target} profile)"
+    ));
+    report.exact.push(format!(
+        "{eq_setting} → Presets/EQ/{eq_file} (active {target} EQ)"
+    ));
+    controls.insert(
+        "Output Select".to_owned(),
+        ProfileControl {
+            choice: Some(target.output_choice().to_owned()),
+            ..ProfileControl::default()
+        },
+    );
+    report.exact.push(format!(
+        "active {target} target → Output Select ({})",
+        target.output_choice()
+    ));
+
+    match target {
+        SbCommandTarget::Speaker => add_speaker_layout(&config, &mut controls, &mut report)?,
+        SbCommandTarget::Headphone => report_headphone_tuning(&config, &mut report)?,
+    }
+
+    Ok(SbCommandImport {
+        profile: Profile::new(name, controls)?,
+        report,
+    })
+}
+
 fn effect_controls(
     settings: &SourceSettings,
     report: &mut SbCommandImportReport,
@@ -428,7 +483,139 @@ fn validate_product(product: &str, path: &Path) -> Result<(), SbCommandError> {
     }
 }
 
+fn add_speaker_layout(
+    config: &str,
+    controls: &mut BTreeMap<String, ProfileControl>,
+    report: &mut SbCommandImportReport,
+) -> Result<(), SbCommandError> {
+    let mask = required_user_setting(config, "SelectedSpeakerChannelMask")?;
+    let mask = mask
+        .parse::<u32>()
+        .map_err(|_| invalid("SelectedSpeakerChannelMask is not an unsigned integer"))?;
+    if let Some(layout) = speaker_layout(mask) {
+        controls.insert(
+            "Surround Channel Config".to_owned(),
+            ProfileControl {
+                choice: Some(layout.to_owned()),
+                ..ProfileControl::default()
+            },
+        );
+        report.exact.push(format!(
+            "SelectedSpeakerChannelMask {mask} → Surround Channel Config ({layout})"
+        ));
+    } else {
+        report.unsupported.push(format!(
+            "SelectedSpeakerChannelMask {mask} (unknown AE-5 speaker layout)"
+        ));
+    }
+    if let Some(speaker_type) = user_setting(config, "SelectedSpeakerType")?
+        && !speaker_type.is_empty()
+    {
+        report.unsupported.push(format!(
+            "SelectedSpeakerType {speaker_type} (no mapped AE-5 ALSA control)"
+        ));
+    }
+    Ok(())
+}
+
+fn report_headphone_tuning(
+    config: &str,
+    report: &mut SbCommandImportReport,
+) -> Result<(), SbCommandError> {
+    if let Some(tuning) = user_setting(config, "SelectedHpEq")? {
+        if tuning.eq_ignore_ascii_case("HPNONE") || tuning.is_empty() {
+            report
+                .exact
+                .push("SelectedHpEq → no Creative headphone tuning".to_owned());
+        } else {
+            report.unsupported.push(format!(
+                "SelectedHpEq {tuning} (Creative headphone tuning has no mapped AE-5 ALSA control)"
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn speaker_layout(mask: u32) -> Option<&'static str> {
+    match mask {
+        3 => Some("2.0"),
+        11 => Some("2.1"),
+        51 => Some("4.0"),
+        59 => Some("4.1"),
+        63 => Some("5.1"),
+        _ => None,
+    }
+}
+
+fn required_user_setting(config: &str, name: &str) -> Result<String, SbCommandError> {
+    user_setting(config, name)?
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| invalid(format!("user.config is missing string setting '{name}'")))
+}
+
+fn user_setting(config: &str, name: &str) -> Result<Option<String>, SbCommandError> {
+    let marker = format!(r#"<setting name="{name}""#);
+    let Some(start) = config.find(&marker) else {
+        return Ok(None);
+    };
+    if config[start + marker.len()..].contains(&marker) {
+        return Err(invalid(format!(
+            "user.config contains duplicate setting '{name}'"
+        )));
+    }
+    let setting = &config[start..];
+    let tag_end = setting
+        .find('>')
+        .ok_or_else(|| invalid(format!("setting '{name}' has no closing start tag")))?;
+    if !setting[..tag_end].contains(r#"serializeAs="String""#) {
+        return Err(invalid(format!("setting '{name}' is not a plain string")));
+    }
+    let body = &setting[tag_end + 1..];
+    let body_end = body
+        .find("</setting>")
+        .ok_or_else(|| invalid(format!("setting '{name}' has no closing tag")))?;
+    let body = &body[..body_end];
+    let value_start = body
+        .find("<value>")
+        .ok_or_else(|| invalid(format!("setting '{name}' has no value")))?;
+    let value = &body[value_start + "<value>".len()..];
+    let value_end = value
+        .find("</value>")
+        .ok_or_else(|| invalid(format!("setting '{name}' has no closing value tag")))?;
+    let value = value[..value_end].trim();
+    if value.contains(['&', '<', '>']) {
+        return Err(invalid(format!(
+            "setting '{name}' contains unsupported XML markup"
+        )));
+    }
+    Ok(Some(value.to_owned()))
+}
+
+fn validate_identifier(name: &str, value: &str) -> Result<(), SbCommandError> {
+    if value.len() > 80
+        || value.is_empty()
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+    {
+        return Err(invalid(format!(
+            "setting '{name}' is not a safe profile identifier"
+        )));
+    }
+    Ok(())
+}
+
+fn load_text(path: &Path) -> Result<String, SbCommandError> {
+    let contents = load_bytes(path)?;
+    String::from_utf8(contents)
+        .map_err(|_| invalid(format!("'{}' is not valid UTF-8", path.display())))
+}
+
 fn load_json<T: DeserializeOwned>(path: &Path) -> Result<T, SbCommandError> {
+    serde_json::from_slice(&load_bytes(path)?).map_err(Into::into)
+}
+
+fn load_bytes(path: &Path) -> Result<Vec<u8>, SbCommandError> {
     let file = fs::File::open(path)?;
     if file.metadata()?.len() > MAX_SOURCE_BYTES {
         return Err(invalid(format!(
@@ -444,7 +631,7 @@ fn load_json<T: DeserializeOwned>(path: &Path) -> Result<T, SbCommandError> {
             path.display()
         )));
     }
-    serde_json::from_slice(&contents).map_err(Into::into)
+    Ok(contents)
 }
 
 fn invalid(message: impl Into<String>) -> SbCommandError {
@@ -462,6 +649,13 @@ impl SbCommandTarget {
     fn eq_type(self) -> &'static str {
         match self {
             Self::Speaker => "Speaker",
+            Self::Headphone => "Headphone",
+        }
+    }
+
+    fn output_choice(self) -> &'static str {
+        match self {
+            Self::Speaker => "Speakers",
             Self::Headphone => "Headphone",
         }
     }
@@ -793,5 +987,47 @@ mod tests {
                 .iter()
                 .any(|item| item.contains("EQ 31 Hz 8.9 dB"))
         );
+    }
+
+    #[test]
+    fn reads_only_plain_unique_user_settings() {
+        let config = r#"
+            <setting name="SelectedHpEq" serializeAs="String">
+                <value>ATHM50</value>
+            </setting>
+            <setting name="LastAEStates" serializeAs="Binary">
+                <value>AAECAw==</value>
+            </setting>
+        "#;
+
+        assert_eq!(
+            user_setting(config, "SelectedHpEq").unwrap().as_deref(),
+            Some("ATHM50")
+        );
+        assert!(user_setting(config, "LastAEStates").is_err());
+        assert_eq!(user_setting(config, "Missing").unwrap(), None);
+    }
+
+    #[test]
+    fn rejects_unsafe_or_ambiguous_active_profile_identifiers() {
+        assert!(validate_identifier("profile", "My_Profile-1").is_ok());
+        assert!(validate_identifier("profile", "../Profiles/other").is_err());
+        assert!(validate_identifier("profile", "profile.json").is_err());
+
+        let duplicate = r#"
+            <setting name="SelectedHpEq" serializeAs="String"><value>A</value></setting>
+            <setting name="SelectedHpEq" serializeAs="String"><value>B</value></setting>
+        "#;
+        assert!(user_setting(duplicate, "SelectedHpEq").is_err());
+    }
+
+    #[test]
+    fn maps_known_windows_speaker_masks_without_guessing_unknown_masks() {
+        assert_eq!(speaker_layout(3), Some("2.0"));
+        assert_eq!(speaker_layout(11), Some("2.1"));
+        assert_eq!(speaker_layout(51), Some("4.0"));
+        assert_eq!(speaker_layout(59), Some("4.1"));
+        assert_eq!(speaker_layout(63), Some("5.1"));
+        assert_eq!(speaker_layout(7), None);
     }
 }

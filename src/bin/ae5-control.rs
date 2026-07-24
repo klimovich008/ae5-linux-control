@@ -7,9 +7,15 @@ use gtk::{gdk::Display, gio};
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
+use std::thread;
 use std::time::Duration;
 
 const APP_ID: &str = "io.github.klimovich008.Ae5Control";
+const MAIN_STACK_NAME: &str = "main-navigation";
 
 fn main() -> gtk::glib::ExitCode {
     let application = gtk::Application::builder().application_id(APP_ID).build();
@@ -27,16 +33,36 @@ fn build_window(application: &gtk::Application) {
         .default_height(680)
         .build();
 
-    refresh_window(&window, None);
+    if let Some(card_index) = refresh_window(&window, None)
+        && let Err(error) = start_mixer_watch(&window, card_index)
+    {
+        set_main_status(
+            &window,
+            false,
+            &format!("Live synchronization failed: {error}"),
+        );
+    }
     window.present();
 }
 
-fn refresh_window(window: &gtk::ApplicationWindow, message: Option<&str>) {
+fn refresh_window(window: &gtk::ApplicationWindow, message: Option<&str>) -> Option<i32> {
+    let visible_page = main_stack(window).and_then(|stack| stack.visible_child_name());
     match load_hardware() {
         Ok((device, controls)) => {
-            window.set_child(Some(&content(window, &device, &controls, message)))
+            let card_index = device.card_index;
+            window.set_child(Some(&content(
+                window,
+                &device,
+                &controls,
+                message,
+                visible_page.as_deref(),
+            )));
+            Some(card_index)
         }
-        Err(error) => window.set_child(Some(&error_view(&error))),
+        Err(error) => {
+            window.set_child(Some(&error_view(&error)));
+            None
+        }
     }
 }
 
@@ -55,6 +81,7 @@ fn content(
     device: &Ae5Device,
     controls: &[ControlSnapshot],
     message: Option<&str>,
+    visible_page: Option<&str>,
 ) -> gtk::Box {
     let root = gtk::Box::new(gtk::Orientation::Vertical, 0);
     root.append(&hero(device, controls));
@@ -71,6 +98,7 @@ fn content(
         .hexpand(true)
         .vexpand(true)
         .build();
+    stack.set_widget_name(MAIN_STACK_NAME);
 
     stack.add_titled(
         &profile_page(window, device.card_index, &status),
@@ -86,6 +114,9 @@ fn content(
                 .filter(|control| category.matches(&control.name)),
         );
         stack.add_titled(&page, Some(category.id()), category.title());
+    }
+    if let Some(page) = visible_page {
+        stack.set_visible_child_name(page);
     }
 
     let sidebar = gtk::StackSidebar::builder()
@@ -205,7 +236,9 @@ fn profile_page(
             let status = status.clone();
             gtk::glib::spawn_future_local(async move {
                 match apply_native_profile(&window, card_index).await {
-                    Ok(Some(message)) => refresh_window(&window, Some(&message)),
+                    Ok(Some(message)) => {
+                        let _ = refresh_window(&window, Some(&message));
+                    }
                     Ok(None) => {}
                     Err(error) => set_status(&status, false, &format!("Apply failed: {error}")),
                 }
@@ -856,6 +889,97 @@ fn set_status(status: &gtk::Label, success: bool, message: &str) {
         "operation-error"
     });
     status.set_text(message);
+}
+
+fn start_mixer_watch(window: &gtk::ApplicationWindow, card_index: i32) -> Result<(), String> {
+    let mixer = Ae5Mixer::open(card_index).map_err(|error| error.to_string())?;
+    let running = Arc::new(AtomicBool::new(true));
+    let refresh_queued = Arc::new(AtomicBool::new(false));
+
+    let running_on_close = running.clone();
+    window.connect_close_request(move |_| {
+        running_on_close.store(false, Ordering::Release);
+        gtk::glib::Propagation::Proceed
+    });
+
+    thread::Builder::new()
+        .name("ae5-mixer-events".to_owned())
+        .spawn(move || {
+            while running.load(Ordering::Acquire) {
+                match mixer.wait_for_event(Duration::from_millis(500)) {
+                    Ok(false) => {}
+                    Ok(true) if !refresh_queued.swap(true, Ordering::AcqRel) => {
+                        let refresh_queued = refresh_queued.clone();
+                        gtk::glib::MainContext::default().invoke(move || {
+                            refresh_queued.store(false, Ordering::Release);
+                            if let Some(window) = active_main_window() {
+                                let _ = refresh_window(
+                                    &window,
+                                    Some("Synchronized after an ALSA mixer event."),
+                                );
+                            }
+                        });
+                    }
+                    Ok(true) => {}
+                    Err(error) => {
+                        let message = format!("Live synchronization stopped: {error}");
+                        gtk::glib::MainContext::default().invoke(move || {
+                            if let Some(window) = active_main_window() {
+                                set_main_status(&window, false, &message);
+                            }
+                        });
+                        break;
+                    }
+                }
+            }
+        })
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}
+
+fn active_main_window() -> Option<gtk::ApplicationWindow> {
+    gio::Application::default()?
+        .downcast::<gtk::Application>()
+        .ok()?
+        .active_window()?
+        .downcast()
+        .ok()
+}
+
+fn main_stack(window: &gtk::ApplicationWindow) -> Option<gtk::Stack> {
+    find_widget(window.child()?, |widget| {
+        widget
+            .downcast_ref::<gtk::Stack>()
+            .is_some_and(|stack| stack.widget_name() == MAIN_STACK_NAME)
+    })?
+    .downcast()
+    .ok()
+}
+
+fn set_main_status(window: &gtk::ApplicationWindow, success: bool, message: &str) {
+    if let Some(status) = find_widget(
+        window.child().unwrap_or_else(|| window.clone().upcast()),
+        |widget| widget.has_css_class("operation-status"),
+    )
+    .and_then(|widget| widget.downcast::<gtk::Label>().ok())
+    {
+        set_status(&status, success, message);
+    }
+}
+
+fn find_widget(root: gtk::Widget, predicate: impl Fn(&gtk::Widget) -> bool) -> Option<gtk::Widget> {
+    let mut pending = vec![root];
+    while let Some(widget) = pending.pop() {
+        if predicate(&widget) {
+            return Some(widget);
+        }
+        let mut child = widget.first_child();
+        while let Some(current) = child {
+            child = current.next_sibling();
+            pending.push(current);
+        }
+    }
+    None
 }
 
 fn error_view(message: &str) -> gtk::Box {

@@ -3,7 +3,7 @@
 Linux control software and upstream driver fixes for the Creative Sound
 BlasterX AE-5, developed from public source and reproducible hardware evidence.
 
-## Current milestone: desktop profile workflows and routing diagnosis
+## Current milestone: desktop profiles, live synchronization, and routing diagnosis
 
 The first Rust slice detects the audited AE-5 revision by its PCI and subsystem
 IDs, opens the matching ALSA mixer through `libasound`, and reads its live
@@ -72,7 +72,9 @@ interface cannot represent that setting safely.
 The GTK 4 application groups every live control into profiles, playback,
 effects, equalizer, and recording pages. Selectors, switches, and bounded
 sliders write through the verified ALSA backend; high headphone gain requires
-an explicit opt-in:
+an explicit opt-in. It listens for native ALSA mixer events, so changes made by
+another mixer application or command-line process are reflected without a
+polling loop while the selected page remains open:
 
 ```sh
 sudo dnf install gtk4-devel

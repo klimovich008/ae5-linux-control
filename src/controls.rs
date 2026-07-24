@@ -1,6 +1,7 @@
 use alsa::mixer::{Mixer, Selem, SelemChannelId};
 use std::error::Error;
 use std::fmt;
+use std::time::Duration;
 
 #[derive(Debug)]
 pub enum ControlError {
@@ -53,6 +54,12 @@ impl Ae5Mixer {
             .collect::<alsa::Result<Vec<_>>>()?;
         controls.sort_unstable_by(|left, right| left.name.cmp(&right.name));
         Ok(controls)
+    }
+
+    pub fn wait_for_event(&self, timeout: Duration) -> alsa::Result<bool> {
+        let timeout_ms = timeout.as_millis().min(u32::MAX.into()) as u32;
+        self.mixer.wait(Some(timeout_ms))?;
+        Ok(self.mixer.handle_events()? > 0)
     }
 
     pub fn snapshot(&self, name: &str) -> Result<ControlSnapshot, ControlError> {

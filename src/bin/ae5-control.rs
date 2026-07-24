@@ -1617,11 +1617,29 @@ fn control_row(
     }
     row.append(&editors);
 
-    gtk::ListBoxRow::builder()
+    let list_row = gtk::ListBoxRow::builder()
         .activatable(false)
         .selectable(false)
         .child(&row)
-        .build()
+        .build();
+    let description = control_row_description(control, playback_switch_block);
+    list_row.update_property(&[
+        gtk::accessible::Property::Label(&control.name),
+        gtk::accessible::Property::Description(&description),
+    ]);
+    list_row
+}
+
+fn control_row_description(
+    control: &ControlSnapshot,
+    playback_switch_block: Option<&str>,
+) -> String {
+    let mut description = format!("Current state: {control}");
+    if let Some(reason) = playback_switch_block {
+        description.push_str(". Unavailable: ");
+        description.push_str(reason);
+    }
+    description
 }
 
 fn choice_editor(
@@ -2321,6 +2339,29 @@ mod tests {
         assert_eq!(
             driver_range_warnings(&controls),
             ["Wedge Angle capture value 10 is outside 20..180"]
+        );
+    }
+
+    #[test]
+    fn control_rows_describe_current_and_blocked_state() {
+        let control = ControlSnapshot {
+            name: "Bass Redirection".to_owned(),
+            selected: None,
+            choices: Vec::new(),
+            playback_switch: Some(false),
+            capture_switch: None,
+            playback_level: None,
+            capture_level: None,
+            playback_channels: Vec::new(),
+            capture_channels: Vec::new(),
+        };
+
+        assert_eq!(
+            control_row_description(
+                &control,
+                Some("Select Speakers output before enabling bass redirection.")
+            ),
+            "Current state: Bass Redirection | playback off. Unavailable: Select Speakers output before enabling bass redirection."
         );
     }
 }

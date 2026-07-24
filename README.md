@@ -147,14 +147,17 @@ PipeWire playback or recording device and opt into native-rate switching
 without changing its ALSA mixer controls.
 
 Stereo ALSA controls receive separate accessible channel sliders; selectors,
-switches, and bounded sliders write through the verified ALSA backend. High
+switches, and bounded sliders write through the verified ALSA backend. Each
+control row also exposes its ALSA name and current state to assistive
+technology, including the reason when a guarded action is unavailable. High
 headphone gain requires an explicit opt-in. The GUI enables bass redirection
 only for Speakers with an LFE channel and disables X-Bass on those speaker
-layouts; each unavailable switch explains which setting must change. The shared
-backend applies the same guard to CLI and profile writes, so those constraints
-cannot be bypassed outside the GUI. It listens for native ALSA mixer events, so
-changes made by another mixer application or command-line process are reflected
-without a polling loop while the selected page remains open:
+layouts; each unavailable switch explains which setting must change. The
+shared backend applies the same guard to CLI and profile writes, so those
+constraints cannot be bypassed outside the GUI. It listens for native ALSA
+mixer events, so changes made by another mixer application or command-line
+process are reflected without a polling loop while the selected page remains
+open:
 
 ```sh
 sudo dnf install gtk4-devel

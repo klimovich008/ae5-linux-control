@@ -1,0 +1,10 @@
+[Unit]
+Description=Delay the post-PipeWire AE-5 routing snapshot
+
+[Timer]
+OnStartupSec=8s
+AccuracySec=1s
+Unit=ae5-routing-after.service
+
+[Install]
+WantedBy=timers.target

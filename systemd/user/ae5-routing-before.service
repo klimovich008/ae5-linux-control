@@ -1,0 +1,10 @@
+[Unit]
+Description=Capture AE-5 routing before PipeWire starts
+Before=pipewire.service wireplumber.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bash %h/.local/libexec/ae5-routing-probe before-pipewire --append
+
+[Install]
+WantedBy=default.target

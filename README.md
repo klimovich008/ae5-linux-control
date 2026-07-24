@@ -3,7 +3,7 @@
 Linux control software and upstream driver fixes for the Creative Sound
 BlasterX AE-5, developed from public source and reproducible hardware evidence.
 
-## Current milestone: Rust hardware backend
+## Current milestone: Windows migration and routing diagnosis
 
 The first Rust slice detects the audited AE-5 revision by its PCI and subsystem
 IDs, opens the matching ALSA mixer through `libasound`, and reads its live
@@ -97,3 +97,8 @@ bash scripts/collect-linux-report.sh --self-test
 ```
 
 The implementation and test plan is in [PORT_PLAN.md](PORT_PLAN.md).
+
+For the reported first-use headphone routing problem, the current kernel
+already contains both relevant upstream CA0132 fixes. The read-only cold-boot
+probe and evidence matrix are documented in
+[docs/DRIVER_ROUTING_INVESTIGATION.md](docs/DRIVER_ROUTING_INVESTIGATION.md).

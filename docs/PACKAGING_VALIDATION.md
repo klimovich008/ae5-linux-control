@@ -151,6 +151,35 @@ ALSA mixer and retained WirePlumber route-state hashes matched their starting
 values afterward. The previous recording-control RPMs were preserved under
 `dist/previous-3df5d27/`; the host package database was not changed.
 
+## Automated RPM lifecycle gate
+
+Collected on 2026-07-25 in a fresh Fedora 44 container. The new
+`scripts/check-rpm-lifecycle.sh` gate is run against the binary RPM produced
+by `scripts/build-rpm.sh` in pull-request CI and on `main`.
+
+The first local end-to-end run of the gate built
+`ae5-control-0.1.0-1.fc44.x86_64.rpm`, SHA-256
+`41a8768321af1a6b0000db639e0567902aea87ac926da7e227c924ef12b4d4ca`.
+The RPM release check passed all 51 Rust tests, the ACP route invariants,
+diagnostics self-test, desktop and strict offline AppStream validation, and
+the private-build-path check.
+
+The lifecycle gate then:
+
+1. required a disposable container and a clean package database;
+2. installed the local RPM with weak dependencies disabled;
+3. passed `rpm -V ae5-control`;
+4. found the GUI, CLI, and diagnostics commands and exercised packaged
+   command help plus the diagnostics self-test;
+5. confirmed hardware status could not succeed without `/dev/snd`;
+6. removed the package and confirmed all 17 package-owned files were gone;
+7. confirmed byte-for-byte preservation of a user-profile sentinel and
+   `/var/lib/alsa/asound.state`.
+
+This turns the clean Fedora build/install/remove result into a repeatable
+release gate. It does not emulate the physical AE-5, the host PipeWire
+session, or a desktop application menu.
+
 ## Remaining release gate
 
 This proves clean Fedora dependency resolution and package ownership/removal,

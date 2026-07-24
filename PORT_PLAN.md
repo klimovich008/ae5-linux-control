@@ -588,6 +588,14 @@ support claim prematurely.
 - Consider Flatpak/AppImage only if their device-access model works without
   broad permissions; native packages come first.
 
+Current package status: pull-request CI builds a fresh Fedora 44 RPM and runs
+its real install, verification, command smoke tests, removal, file-cleanup,
+and profile/ALSA-state preservation checks in a disposable container. An exact
+RPM payload has also passed read-only tests on the physical AE-5. Authenticated
+host installation and desktop-menu launch, one approved write through the
+installed build, clean host removal, and repetition on a maintained LTS kernel
+remain before this phase is complete.
+
 Exit criterion: a clean machine can install, detect, configure, uninstall, and
 return to standard ALSA behavior without manual cleanup.
 

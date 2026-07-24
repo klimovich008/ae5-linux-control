@@ -37,8 +37,20 @@ device rules. WirePlumber reads the packaged profile on its next start; log
 out and back in, or restart the user WirePlumber service when no audio stream
 is active. Uninstall with `sudo dnf remove ae5-control`.
 
-The reproducible build, clean Fedora 44 install/removal transaction, and
-read-only execution of the exact package payload on the target AE-5 are
+Pull-request CI and pushes to `main` build the package in Fedora 44, install
+the resulting binary RPM into that clean container, verify its files and
+commands, remove it, and confirm that package removal preserves both user
+profiles and ALSA state. The lifecycle verifier is intentionally restricted
+to a disposable container because it creates test state and performs a real
+package transaction. Inside that container, run:
+
+```sh
+bash scripts/check-rpm-lifecycle.sh \
+  dist/ae5-control-0.1.0-1.*.x86_64.rpm
+```
+
+The reproducible build, automated clean Fedora 44 install/removal gate, and
+read-only execution of an exact package payload on the target AE-5 are
 recorded in
 [`docs/PACKAGING_VALIDATION.md`](../docs/PACKAGING_VALIDATION.md). An
 authenticated host install and desktop-menu launch remain part of the final

@@ -30,3 +30,22 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --all-targets --all-features -- -D warnings
       - run: cargo test --all-features
+
+  rpm:
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    container: fedora:44
+    timeout-minutes: 30
+    steps:
+      - name: Install build dependencies
+        run: dnf install --assumeyes appstream alsa-lib-devel cargo desktop-file-utils git gtk4-devel rpm-build rust
+      - uses: actions/checkout@v6
+      - name: Build RPM
+        run: bash scripts/build-rpm.sh
+      - name: Verify clean install and removal
+        run: |
+          rpm_path=$(find dist -maxdepth 1 -type f \
+            -name 'ae5-control-*.x86_64.rpm' \
+            ! -name '*-debuginfo-*' -print -quit)
+          test -n "$rpm_path"
+          bash scripts/check-rpm-lifecycle.sh "$rpm_path"

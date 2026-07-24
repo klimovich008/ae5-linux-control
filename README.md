@@ -198,6 +198,9 @@ bash scripts/collect-linux-report.sh --self-test
 ```
 
 The implementation and test plan is in [PORT_PLAN.md](PORT_PLAN.md).
+The evidence-tracked [feature parity matrix](feature-parity.tsv) classifies
+each Command feature as verified, intentionally substituted, deferred, or
+unsupported; deferred rows name the acceptance evidence still required.
 
 For the reported first-use headphone routing problem, the current kernel
 already contains both relevant upstream CA0132 fixes. The read-only cold-boot

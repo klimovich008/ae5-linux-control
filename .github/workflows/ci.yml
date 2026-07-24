@@ -18,6 +18,7 @@ jobs:
         with:
           components: clippy, rustfmt
       - run: bash -n scripts/*.sh
+      - run: bash scripts/check-feature-parity.sh
       - run: bash scripts/audio-parity.sh --self-test
       - run: bash scripts/collect-linux-report.sh --self-test
       - run: desktop-file-validate packaging/io.github.klimovich008.ae5control.desktop

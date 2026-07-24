@@ -66,8 +66,9 @@ An authorized patched-kernel boot must verify:
 - no CA0132, HDA, ALSA, codec, or DSP warning appears.
 
 The integrated physical validation below now covers the What U Hear fixture,
-normal headphone playback, Front-muted negative control, clean shutdown, and
-exact guest/host restoration. Analog input controls, speaker/line-out and
+normal headphone playback, Front-muted negative control, three warm guest
+reboots, 50 speaker/headphone route transitions, clean shutdown, and exact
+guest/host restoration. Analog input controls, physical speaker/line-out and
 digital playback, suspend/resume, and maintained-kernel repetition remain.
 
 ## Wedge Angle default
@@ -335,7 +336,7 @@ gates are stated there.
 ## Integrated physical AE-5 validation
 
 On 2026-07-24 and 2026-07-25, libvirt passed the isolated physical
-`1102:0012/1102:0051` function to the powered-off system guest for four
+`1102:0012/1102:0051` function to the powered-off system guest for five
 managed test cycles. The guest booted `7.2.0-rc2-ae5-integrated+`, bound the
 card at `0000:07:00.0` to `snd_hda_intel`, and reported
 `ca0132 DSP downloaded and running`.
@@ -397,14 +398,27 @@ complete guest mixer returned exactly to
 `c5d3a2673054ea6b71b562e3f12923c51c00af9c79af17137948e4474818de68`,
 no unit failed, and no matching driver warning appeared.
 
+The fifth cycle rebooted the running guest three times while it owned the
+physical card. Every new boot ID retained the integrated kernel, initialized
+the DSP exactly once, exposed 72 controls and 46 simple controls, restored
+Wedge Angle `30` and Flat EQ, kept the What U Hear PCM while omitting only its
+ineffective controls, and reproduced the complete guest mixer hash. No
+relevant warning or failed unit appeared.
+
+After the reboots, 50 alternating speaker/headphone selections all produced
+the expected codec route. Headphone enabled output pin `0x11` and disabled
+`0x0b`, `0x0f`, and `0x10`; Speakers did the inverse. No PCM was open during
+the test. The final Speakers selection reproduced the complete mixer hash,
+with no CA0132, HDA, DSP, firmware, reset-failure, or timeout warning.
+
 Each guest shutdown returned the card automatically to the host
 `snd_hda_intel` driver in about two seconds. Before each handoff the host audio
 services had no open stream and were stopped. After each handoff, the complete
 saved Creative ALSA state matched without a fallback restore, the card-scoped
 WirePlumber headphone port returned, and VFIO preflight passed again. The
 hostdev was removed from the powered-off domain after each cycle. After the
-fourth cycle, the powered-off qcow2 passed `qemu-img check` with SHA-256
-`09cef6f66dd01b449cedbc940cf5255a8ccca14a517b0e65b8d605d34872fa22`.
+fifth cycle, the powered-off qcow2 passed `qemu-img check` with SHA-256
+`d7ee6ed48b3ba5800e5c93576fdbbec76bbe0eb81d2708c59dd600058262a664`.
 
 This evidence does not yet cover Voice Focus recording, analog input,
 speaker/line-out or digital playback, suspend/resume, or repeated cold-start

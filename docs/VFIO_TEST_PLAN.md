@@ -276,7 +276,7 @@ the routing state, and a full Linux report. The profile passed
 `profile-check --allow-high-gain`. PipeWire and WirePlumber were then stopped,
 and `fuser` confirmed that no process had an ALSA device open.
 
-In all four cycles, managed startup rebound host `0000:29:00.0` from
+In all five cycles, managed startup rebound host `0000:29:00.0` from
 `snd_hda_intel` to `vfio-pci`. The guest received the exact
 `1102:0012/1102:0051` function at `0000:07:00.0`, bound it to
 `snd_hda_intel`, loaded the integrated CA0132 module, and reported
@@ -321,6 +321,20 @@ state returned the complete mixer hash to
 no unit failed and no matching CA0132, HDA, DSP, firmware, or timeout warning
 appeared.
 
+The fifth cycle exercised repeated initialization and route changes. Three
+warm guest reboots each produced a new boot ID, retained
+`7.2.0-rc2-ae5-integrated+`, initialized the DSP exactly once, exposed 72
+controls and 46 simple controls, and restored the complete guest mixer hash.
+Wedge Angle remained `30`, EQ remained Flat, the What U Hear PCM remained
+available without its ineffective controls, no systemd unit failed, and no
+matching driver warning appeared.
+
+Fifty alternating `Output Select` changes then matched both the ALSA enum and
+the physical codec-pin state on every transition. Headphone enabled `0x11`
+while disabling `0x0b`, `0x0f`, and `0x10`; Speakers enabled `0x0b`, `0x0f`,
+and `0x10` while disabling `0x11`. No PCM was open. The final Speakers state
+restored the exact guest mixer hash with no relevant warning.
+
 Each clean shutdown returned the card automatically to host `snd_hda_intel`
 and recreated readable ALSA controls in about two seconds. The complete raw
 Creative state matched the saved file after every cycle, so no fallback
@@ -329,13 +343,13 @@ default sink on the card-specific headphone port, the Fifine remained the
 default source, and the full host mixer hash returned to
 `3e595532348efe1e2e9c066039131e97505cb9b71bc6bfd8fa8a59301091e802`.
 VFIO preflight passed again, the hostdev was removed, and no QEMU process
-remained. The fourth cycle also preserved the exact WirePlumber default-node
+remained. The fifth cycle also preserved the exact WirePlumber default-node
 and route files. Ambient captures were deleted after retaining fixture and
 capture hashes plus the derived measurements.
 
-The powered-off system volume passed `qemu-img check` after all four cycles
+The powered-off system volume passed `qemu-img check` after all five cycles
 and had SHA-256
-`09cef6f66dd01b449cedbc940cf5255a8ccca14a517b0e65b8d605d34872fa22`.
+`d7ee6ed48b3ba5800e5c93576fdbbec76bbe0eb81d2708c59dd600058262a664`.
 The untouched standalone recovery image retained SHA-256
 `bfca0fdfa57cc7b9fab13c91a2a58584233c257638f636573b85a29c1d091637`.
 Voice Focus recording, speaker/line-out and digital playback, guest suspend,

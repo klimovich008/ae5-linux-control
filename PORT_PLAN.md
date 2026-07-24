@@ -324,8 +324,10 @@ mixer or toggling any control.
 
 Current evidence: the card-scoped ACP route preserves the shared Front DAC,
 and a guarded external-microphone test measured its physical 997 Hz headphone
-output 18.84 dB above a Front-muted negative control. The remaining gate is
-the ten-cold-boot and twenty-suspend/resume lifecycle matrix.
+output 19.59 dB above a Front-muted negative control. The integrated candidate
+also survived three warm guest reboots and 50 alternating output selections
+with the expected codec-pin state and exact mixer restoration. The remaining
+gate is the ten-host-cold-boot and twenty-suspend/resume lifecycle matrix.
 
 #### Sound does not match Windows
 

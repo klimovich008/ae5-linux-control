@@ -130,8 +130,9 @@ On 2026-07-24, the patch was applied to `sound.git` `for-next` at
 `7.2.0-rc2-ae5-wedge+` kernel booted from Btrfs with EFI, VirtIO networking,
 and SSH intact. Its matching `snd-hda-codec-ca0132` module loaded successfully,
 and no systemd unit failed. A later integrated physical boot, recorded below,
-proved the initial control value is `30`. Setting the boundary values and
-Voice Focus recording behavior remain untested.
+proved the initial control value is `30`; a third physical cycle proved exact
+readback at `20`, `30`, and `180` while Voice Focus was enabled. Voice Focus
+recording behavior remains untested.
 
 ## Factory EQ preset control cache
 
@@ -328,7 +329,7 @@ capture, routing, and suspend remain required.
 ## Integrated physical AE-5 validation
 
 On 2026-07-24, libvirt passed the isolated physical `1102:0012/1102:0051`
-function to the powered-off system guest for two managed test cycles. The
+function to the powered-off system guest for three managed test cycles. The
 guest booted `7.2.0-rc2-ae5-integrated+`, bound the card at `0000:07:00.0` to
 `snd_hda_intel`, and reported `ca0132 DSP downloaded and running`.
 
@@ -367,6 +368,12 @@ complete guest mixer SHA-256
 exactly after both the full matrix and notification check. No matching kernel
 warning appeared.
 
+The third cycle exercised Wedge Angle while Voice Focus was enabled. Its
+initial raw and simple-mixer values were both `30`; writes of `20`, `30`, and
+`180` read back exactly through both ALSA APIs. Returning to `30` restored the
+same complete guest mixer hash. No PCM stream was open, no systemd unit failed,
+and no CA0132, DSP, or timeout warning appeared.
+
 Each guest shutdown returned the card automatically to the host
 `snd_hda_intel` driver in about two seconds. Before each handoff the host audio
 services had no open stream and were stopped. After each handoff, the complete
@@ -374,9 +381,9 @@ saved Creative ALSA state matched without a fallback restore, the card-scoped
 WirePlumber headphone port returned, and VFIO preflight passed again. The
 hostdev was removed from the powered-off domain after each cycle.
 
-This evidence does not yet cover Wedge Angle boundary writes, Voice Focus
-recording, a patched What U Hear capture, analog or digital playback,
-suspend/resume, or repeated cold-start acceptance.
+This evidence does not yet cover Voice Focus recording, a patched What U Hear
+capture, analog or digital playback, suspend/resume, or repeated cold-start
+acceptance.
 
 ## Read-only SpeakerEQ address probe
 

@@ -7,7 +7,7 @@ the host kernel. It cannot replace final cold-boot, suspend, and recovery tests
 on the host.
 
 The virtualization stack, session guest, and system guest were installed on
-2026-07-24. Two guarded managed-passthrough cycles have now completed; the
+2026-07-24. Three guarded managed-passthrough cycles have now completed; the
 hostdev was removed afterward and both guests are powered off.
 
 Run the read-only, fail-closed hardware check at any time:
@@ -75,7 +75,7 @@ and play normally before another cycle is attempted.
    recoverable from the original flattened image.
 3. The Fifine microphone remains available to the host. Its acoustic test path
    and the AE-5's restored host playback path have already been validated.
-4. Two initialization/control cycles passed with `0000:29:00.0` attached
+4. Three initialization/control cycles passed with `0000:29:00.0` attached
    temporarily as a managed PCI host device. Libvirt's
    [`hostdev` documentation](https://www.libvirt.org/formatdomain.html#host-device-assignment)
    describes `managed='yes'`, which detaches the function from the host before
@@ -276,7 +276,7 @@ the routing state, and a full Linux report. The profile passed
 `profile-check --allow-high-gain`. PipeWire and WirePlumber were then stopped,
 and `fuser` confirmed that no process had an ALSA device open.
 
-In both cycles, managed startup rebound host `0000:29:00.0` from
+In all three cycles, managed startup rebound host `0000:29:00.0` from
 `snd_hda_intel` to `vfio-pci`. The guest received the exact
 `1102:0012/1102:0051` function at `0000:07:00.0`, bound it to
 `snd_hda_intel`, loaded the integrated CA0132 module, and reported
@@ -298,9 +298,15 @@ when returning to Flat. Flat restored the complete guest mixer hash
 `c5d3a2673054ea6b71b562e3f12923c51c00af9c79af17137948e4474818de68`
 exactly.
 
+The third cycle exercised Wedge Angle while Voice Focus was enabled. Its
+initial raw and simple-mixer values were both `30`; writes of `20`, `30`, and
+`180` read back exactly through both APIs. Returning to `30` restored the same
+complete guest mixer hash. No PCM stream was open, no guest unit failed, and
+no CA0132, DSP, or timeout warning appeared.
+
 Each clean shutdown returned the card automatically to host `snd_hda_intel`
 and recreated readable ALSA controls in about two seconds. The complete raw
-Creative state matched the saved file after both cycles, so no fallback
+Creative state matched the saved file after every cycle, so no fallback
 restore ran. PipeWire and WirePlumber restarted, the AE-5 returned as the
 default sink on the card-specific headphone port, the Fifine remained the
 default source, and the full host mixer hash returned to
@@ -308,13 +314,13 @@ default source, and the full host mixer hash returned to
 VFIO preflight passed again, the hostdev was removed, and no QEMU process
 remained.
 
-The powered-off system volume passed `qemu-img check` after both cycles and
-had SHA-256
-`5bb1317f85e271578389936b3eb74be90a220e40ed2aab9b42132ff7429ac212`.
+The powered-off system volume passed `qemu-img check` after all three cycles
+and had SHA-256
+`73cd247efcfcbdb116a1f3e434bb3e19cbbc498247990bbd893ce0373b3b9687`.
 The untouched standalone recovery image retained SHA-256
 `bfca0fdfa57cc7b9fab13c91a2a58584233c257638f636573b85a29c1d091637`.
-No playback, capture, Wedge boundary write, Voice Focus test, guest suspend,
-or host cold boot was part of these first two cycles.
+No playback, capture, Voice Focus recording, guest suspend, or host cold boot
+was part of these first three cycles.
 
 ## Per-kernel test matrix
 

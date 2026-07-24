@@ -5,12 +5,22 @@ edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "Linux control software for the Creative Sound BlasterX AE-5"
 repository = "https://github.com/klimovich008/ae5-linux-control"
+default-run = "ae5ctl"
 
 [[bin]]
 name = "ae5ctl"
 path = "src/main.rs"
 
+[features]
+gui = ["dep:gtk"]
+
 [dependencies]
 alsa = "0.12.0"
+gtk = { package = "gtk4", version = "0.11.4", features = ["v4_10"], optional = true }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
+
+[[bin]]
+name = "ae5-control"
+path = "src/bin/ae5-control.rs"
+required-features = ["gui"]

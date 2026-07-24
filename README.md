@@ -50,6 +50,17 @@ cargo run -- profile-check headphones.json
 cargo run -- profile-apply headphones.json
 ```
 
+## Native desktop application
+
+The GTK 4 application currently provides a read-only device dashboard and
+groups every live control into playback, effects, equalizer, and recording
+pages:
+
+```sh
+sudo dnf install gtk4-devel
+cargo run --features gui --bin ae5-control
+```
+
 ## Hardware audit
 
 Before adding Rust or changing the kernel, collect the actual card identity,

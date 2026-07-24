@@ -1,9 +1,9 @@
 use ae5_control::{
     Ae5Device, Ae5Mixer, PipeWireNode, Profile, SbCommandImportReport, SbCommandTarget, ae5_input,
-    ae5_output, export_library_profile, import_active_sbcommand_profile_with_report,
-    import_sbcommand_profile_with_report, native_rates_config, profile_library,
-    profile_library_directory, set_ae5_default_input, set_ae5_default_output,
-    set_native_rates_enabled, snapshot_controls,
+    ae5_output, discover_sbcommand_installation, export_library_profile,
+    import_active_sbcommand_profile_with_report, import_sbcommand_profile_with_report,
+    native_rates_config, profile_library, profile_library_directory, set_ae5_default_input,
+    set_ae5_default_output, set_native_rates_enabled, snapshot_controls,
 };
 use std::error::Error;
 use std::io;
@@ -76,6 +76,9 @@ fn run() -> Result<(), Box<dyn Error>> {
         }
         [command, name, profile, eq, target, output] if command == "sbcommand-import" => {
             import_sbcommand(name, profile, eq, target, output)
+        }
+        [command, name, windows_user, target, output] if command == "sbcommand-import-user" => {
+            import_sbcommand_user(name, windows_user, target, output)
         }
         [command, name, user_config, product_dir, target, output]
             if command == "sbcommand-import-active" =>
@@ -437,13 +440,25 @@ fn import_active_sbcommand(
     target: &str,
     output: &str,
 ) -> Result<(), Box<dyn Error>> {
-    let target = target.parse::<SbCommandTarget>()?;
-    let import = import_active_sbcommand_profile_with_report(
+    import_active_sbcommand_paths(
         name,
         Path::new(user_config),
         Path::new(product_dir),
         target,
-    )?;
+        output,
+    )
+}
+
+fn import_active_sbcommand_paths(
+    name: &str,
+    user_config: &Path,
+    product_dir: &Path,
+    target: &str,
+    output: &str,
+) -> Result<(), Box<dyn Error>> {
+    let target = target.parse::<SbCommandTarget>()?;
+    let import =
+        import_active_sbcommand_profile_with_report(name, user_config, product_dir, target)?;
     print_import_report(&import.report);
     import.profile.save_new(Path::new(output))?;
     println!(
@@ -452,6 +467,22 @@ fn import_active_sbcommand(
         import.profile.controls.len()
     );
     Ok(())
+}
+
+fn import_sbcommand_user(
+    name: &str,
+    windows_user: &str,
+    target: &str,
+    output: &str,
+) -> Result<(), Box<dyn Error>> {
+    let installation = discover_sbcommand_installation(Path::new(windows_user))?;
+    import_active_sbcommand_paths(
+        name,
+        &installation.user_config,
+        &installation.product_dir,
+        target,
+        output,
+    )
 }
 
 fn print_import_report(report: &SbCommandImportReport) {
@@ -527,6 +558,7 @@ fn print_help() {
          \x20 profile-check FILE [--allow-high-gain]\n\
          \x20 profile-apply FILE [--allow-high-gain]\n\
          \x20 sbcommand-import NAME PROFILE_JSON EQ_JSON speaker|headphone OUTPUT\n\
+         \x20 sbcommand-import-user NAME WINDOWS_USER_DIR speaker|headphone OUTPUT\n\
          \x20 sbcommand-import-active NAME USER_CONFIG AE5_PRODUCT_DIR speaker|headphone OUTPUT\n\
          \x20 help      Show this help"
     );

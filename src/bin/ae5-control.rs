@@ -1,11 +1,11 @@
 use ae5_control::{
     Ae5Device, Ae5Mixer, ChannelLevel, ControlError, ControlSnapshot, Level, NativeRatesConfig,
     PipeWireNode, Profile, ProfileControl, SbCommandImport, SbCommandTarget, ae5_input, ae5_output,
-    export_library_profile, import_active_sbcommand_profile_with_report,
-    import_sbcommand_profile_with_report, library_profile, native_rates_config,
-    playback_switch_block_reason, profile_library, profile_library_directory,
-    rename_library_profile, set_ae5_default_input, set_ae5_default_output,
-    set_native_rates_enabled, snapshot_controls,
+    discover_sbcommand_installation, export_library_profile,
+    import_active_sbcommand_profile_with_report, import_sbcommand_profile_with_report,
+    library_profile, native_rates_config, playback_switch_block_reason, profile_library,
+    profile_library_directory, rename_library_profile, set_ae5_default_input,
+    set_ae5_default_output, set_native_rates_enabled, snapshot_controls,
 };
 use gtk::prelude::*;
 use gtk::{gdk::Display, gio};
@@ -715,8 +715,8 @@ fn profile_page(
     page.append(&profile_card(
         "03",
         "Sound Blaster Command",
-        "Import the active setup from a mounted Windows installation, or choose \
-         Creative profile and EQ files manually. Review every mapping before saving.",
+        "Choose a mounted Windows user folder to discover and import its active setup, \
+         or choose Creative profile and EQ files manually. Review every mapping before saving.",
         &import_actions,
     ));
 
@@ -1093,14 +1093,13 @@ async fn import_active_windows_profile(
     window: &gtk::ApplicationWindow,
     card_index: i32,
 ) -> Result<Option<String>, String> {
-    let Some(user_config) = open_config_path(window).await? else {
-        return Ok(None);
-    };
-    let Some(product_dir) =
-        select_folder_path(window, "Choose the Windows AE5 product folder").await?
+    let Some(windows_user) =
+        select_folder_path(window, "Choose the mounted Windows user folder").await?
     else {
         return Ok(None);
     };
+    let installation =
+        discover_sbcommand_installation(&windows_user).map_err(|error| error.to_string())?;
     let Some(target) = choose_import_target(window).await? else {
         return Ok(None);
     };
@@ -1111,9 +1110,13 @@ async fn import_active_windows_profile(
         return Ok(None);
     };
     let name = profile_name_from_path(&output)?;
-    let import =
-        import_active_sbcommand_profile_with_report(&name, &user_config, &product_dir, target)
-            .map_err(|error| error.to_string())?;
+    let import = import_active_sbcommand_profile_with_report(
+        &name,
+        &installation.user_config,
+        &installation.product_dir,
+        target,
+    )
+    .map_err(|error| error.to_string())?;
     validate_confirm_save_import(window, card_index, import, target, output).await
 }
 
@@ -1338,28 +1341,6 @@ async fn open_native_profile_path(
 ) -> Result<Option<PathBuf>, String> {
     let dialog = json_dialog(title);
     set_initial_profile_folder(&dialog)?;
-    match dialog.open_future(Some(window)).await {
-        Ok(file) => file
-            .path()
-            .map(Some)
-            .ok_or_else(|| "only local files are supported".to_owned()),
-        Err(error) if is_cancelled(&error) => Ok(None),
-        Err(error) => Err(error.to_string()),
-    }
-}
-
-async fn open_config_path(window: &gtk::ApplicationWindow) -> Result<Option<PathBuf>, String> {
-    let filter = gtk::FileFilter::new();
-    filter.set_name(Some("Sound Blaster Command user.config"));
-    filter.add_pattern("user.config");
-    let filters = gio::ListStore::new::<gtk::FileFilter>();
-    filters.append(&filter);
-    let dialog = gtk::FileDialog::builder()
-        .title("Choose Sound Blaster Command user.config")
-        .modal(true)
-        .filters(&filters)
-        .default_filter(&filter)
-        .build();
     match dialog.open_future(Some(window)).await {
         Ok(file) => file
             .path()

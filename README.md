@@ -110,22 +110,29 @@ cargo run -- profile-apply windows-headphones.json
 ```
 
 The active selection can also be imported directly from a mounted Windows
-installation. `USER_CONFIG` is Sound Blaster Command's versioned
-`Creative.SBCommand.../<version>/user.config` file under the Windows user's
-`AppData/Local/Creative_Technology_Ltd` directory. `AE5_PRODUCT_DIR` is that
-user's `AppData/Local/Creative/<installation-id>/Product/AE5` directory:
+installation by selecting the Windows user directory:
 
 ```sh
-cargo run -- sbcommand-import-active "Windows speakers" \
-  "$USER_CONFIG" "$AE5_PRODUCT_DIR" speaker windows-speakers.json
+cargo run -- sbcommand-import-user "Windows speakers" \
+  "/run/media/$USER/Windows/Users/<WindowsUser>" speaker windows-speakers.json
 cargo run -- profile-check windows-speakers.json
 ```
 
-This form follows the selected profile and EQ IDs, preserves the output route,
+The importer discovers the newest numeric Sound Blaster Command version and
+requires one unambiguous AE-5 product directory. If an installation has
+multiple candidates, `sbcommand-import-active` remains available with explicit
+`USER_CONFIG` and `AE5_PRODUCT_DIR` paths. The desktop performs the same
+discovery after **Import active Windows setup** asks for the mounted Windows
+user folder.
+
+This flow follows the selected profile and EQ IDs, preserves the output route,
 and maps standard Windows speaker masks from stereo through 5.1. It reads only
 plain XML string settings. Binary-serialized application state is never
-deserialized. Creative headphone tuning selections are reported as unsupported
-until the Linux driver exposes a safe equivalent.
+deserialized. Creative headphone tuning selections are reported as
+unsupported until the Linux driver exposes a safe equivalent. A Windows Bass
+request on an LFE speaker layout is also retained as unsupported because
+CA0132 cannot enable X-Bass there; the converted profile explicitly turns
+X-Bass off before changing to that route.
 
 The importer maps SBX switches and levels, crossover frequency, Smart Volume
 mode, and all ten EQ bands. Before saving, it separates exact mappings,

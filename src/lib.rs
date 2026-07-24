@@ -20,7 +20,8 @@ pub use profile_library::{
     profile_library_directory, rename_library_profile,
 };
 pub use sbcommand::{
-    SbCommandError, SbCommandImport, SbCommandImportReport, SbCommandTarget,
+    SbCommandError, SbCommandImport, SbCommandImportReport, SbCommandInstallation, SbCommandTarget,
+    discover_installation as discover_sbcommand_installation,
     import_active_profile_with_report as import_active_sbcommand_profile_with_report,
     import_profile as import_sbcommand_profile,
     import_profile_with_report as import_sbcommand_profile_with_report,

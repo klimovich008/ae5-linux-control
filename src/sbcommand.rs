@@ -6,10 +6,11 @@ use std::error::Error;
 use std::fmt;
 use std::fs;
 use std::io::{self, Read};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 const MAX_SOURCE_BYTES: u64 = 1024 * 1024;
+const MAX_DISCOVERY_ENTRIES: usize = 512;
 const EQ_FREQUENCIES: [u32; 10] = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
 const SOURCE_METADATA_FIELDS: &[&str] = &[
     "CreatorName",
@@ -51,6 +52,12 @@ pub struct SbCommandImportReport {
 pub struct SbCommandImport {
     pub profile: Profile,
     pub report: SbCommandImportReport,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SbCommandInstallation {
+    pub user_config: PathBuf,
+    pub product_dir: PathBuf,
 }
 
 pub fn import_profile(
@@ -140,7 +147,10 @@ pub fn import_active_profile_with_report(
     ));
 
     match target {
-        SbCommandTarget::Speaker => add_speaker_layout(&config, &mut controls, &mut report)?,
+        SbCommandTarget::Speaker => {
+            add_speaker_layout(&config, &mut controls, &mut report)?;
+            omit_incompatible_lfe_x_bass(&mut controls, &mut report);
+        }
         SbCommandTarget::Headphone => report_headphone_tuning(&config, &mut report)?,
     }
 
@@ -148,6 +158,74 @@ pub fn import_active_profile_with_report(
         profile: Profile::new(name, controls)?,
         report,
     })
+}
+
+pub fn discover_installation(
+    windows_user_dir: &Path,
+) -> Result<SbCommandInstallation, SbCommandError> {
+    let local = windows_user_dir.join("AppData").join("Local");
+    let config_root = local.join("Creative_Technology_Ltd");
+    let mut configs = Vec::new();
+    for application in subdirectories(&config_root)? {
+        if !application
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.starts_with("Creative.SBCommand"))
+        {
+            continue;
+        }
+        for version_dir in subdirectories(&application)? {
+            let Some(version) = command_version(&version_dir) else {
+                continue;
+            };
+            let user_config = version_dir.join("user.config");
+            if is_regular_file(&user_config) {
+                configs.push((version, user_config));
+            }
+        }
+    }
+    configs.sort_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.cmp(&right.1)));
+    let newest_version = configs
+        .last()
+        .map(|candidate| candidate.0.clone())
+        .ok_or_else(|| {
+            invalid(format!(
+                "no Sound Blaster Command user.config was found under '{}'",
+                config_root.display()
+            ))
+        })?;
+    let newest = configs
+        .iter()
+        .filter(|candidate| candidate.0 == newest_version)
+        .collect::<Vec<_>>();
+    if newest.len() != 1 {
+        return Err(invalid(format!(
+            "multiple Sound Blaster Command configs have the newest version under '{}'; choose user.config manually",
+            config_root.display()
+        )));
+    }
+
+    let product_root = local.join("Creative");
+    let mut product_dirs = subdirectories(&product_root)?
+        .into_iter()
+        .map(|directory| directory.join("Product").join("AE5"))
+        .filter(|directory| is_directory(directory))
+        .collect::<Vec<_>>();
+    product_dirs.sort();
+    match product_dirs.as_slice() {
+        [product_dir] => Ok(SbCommandInstallation {
+            user_config: newest[0].1.clone(),
+            product_dir: product_dir.clone(),
+        }),
+        [] => Err(invalid(format!(
+            "no AE5 product directory was found under '{}'",
+            product_root.display()
+        ))),
+        _ => Err(invalid(format!(
+            "multiple AE5 product directories were found under '{}'; choose one manually",
+            product_root.display()
+        ))),
+    }
 }
 
 fn effect_controls(
@@ -536,6 +614,45 @@ fn report_headphone_tuning(
     Ok(())
 }
 
+fn omit_incompatible_lfe_x_bass(
+    controls: &mut BTreeMap<String, ProfileControl>,
+    report: &mut SbCommandImportReport,
+) {
+    let has_lfe = controls
+        .get("Surround Channel Config")
+        .and_then(|control| control.choice.as_deref())
+        .is_some_and(|layout| layout.ends_with(".1"));
+    let x_bass_enabled = controls
+        .get("FX: X-Bass")
+        .and_then(|control| control.playback_switch)
+        == Some(true);
+    if !has_lfe || !x_bass_enabled {
+        return;
+    }
+
+    controls.insert(
+        "FX: X-Bass".to_owned(),
+        ProfileControl {
+            playback_switch: Some(false),
+            ..ProfileControl::default()
+        },
+    );
+    controls.remove("FX: X-Bass Crossover");
+    report.exact.retain(|item| !is_x_bass_mapping(item));
+    report.approximate.retain(|item| !is_x_bass_mapping(item));
+    report.approximate.push(
+        "LFE speaker route safety → FX: X-Bass (playback off before route change)".to_owned(),
+    );
+    report.unsupported.push(
+        "Bass enabled for an LFE speaker layout (Linux CA0132 cannot enable X-Bass with an LFE channel)"
+            .to_owned(),
+    );
+}
+
+fn is_x_bass_mapping(item: &str) -> bool {
+    item.starts_with("Bass → FX: X-Bass") || item.starts_with("Bass.XOver ")
+}
+
 fn speaker_layout(mask: u32) -> Option<&'static str> {
     match mask {
         3 => Some("2.0"),
@@ -632,6 +749,43 @@ fn load_bytes(path: &Path) -> Result<Vec<u8>, SbCommandError> {
         )));
     }
     Ok(contents)
+}
+
+fn subdirectories(path: &Path) -> Result<Vec<PathBuf>, SbCommandError> {
+    let mut directories = Vec::new();
+    for (index, entry) in fs::read_dir(path)?.enumerate() {
+        if index >= MAX_DISCOVERY_ENTRIES {
+            return Err(invalid(format!(
+                "'{}' contains too many entries to scan safely",
+                path.display()
+            )));
+        }
+        let entry = entry?;
+        if entry.file_type()?.is_dir() {
+            directories.push(entry.path());
+        }
+    }
+    directories.sort();
+    Ok(directories)
+}
+
+fn command_version(path: &Path) -> Option<Vec<u64>> {
+    let components = path
+        .file_name()?
+        .to_str()?
+        .split('.')
+        .map(str::parse)
+        .collect::<Result<Vec<u64>, _>>()
+        .ok()?;
+    (components.len() >= 2).then_some(components)
+}
+
+fn is_regular_file(path: &Path) -> bool {
+    fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_file())
+}
+
+fn is_directory(path: &Path) -> bool {
+    fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_dir())
 }
 
 fn invalid(message: impl Into<String>) -> SbCommandError {
@@ -826,6 +980,9 @@ struct SourceBand {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static NEXT_DIRECTORY: AtomicUsize = AtomicUsize::new(0);
 
     #[test]
     fn converts_creative_levels_crossovers_modes_and_eq_bands() {
@@ -1029,5 +1186,116 @@ mod tests {
         assert_eq!(speaker_layout(59), Some("4.1"));
         assert_eq!(speaker_layout(63), Some("5.1"));
         assert_eq!(speaker_layout(7), None);
+    }
+
+    #[test]
+    fn preserves_enabled_lfe_speaker_bass_as_unsupported() {
+        let mut controls = BTreeMap::from([
+            (
+                "Surround Channel Config".to_owned(),
+                ProfileControl {
+                    choice: Some("5.1".to_owned()),
+                    ..ProfileControl::default()
+                },
+            ),
+            (
+                "FX: X-Bass".to_owned(),
+                ProfileControl {
+                    playback_switch: Some(true),
+                    playback_level: Some(53),
+                    ..ProfileControl::default()
+                },
+            ),
+            (
+                "FX: X-Bass Crossover".to_owned(),
+                ProfileControl {
+                    playback_level: Some(8),
+                    ..ProfileControl::default()
+                },
+            ),
+        ]);
+        let mut report = SbCommandImportReport {
+            exact: vec![
+                "Bass → FX: X-Bass (playback on, level 53)".to_owned(),
+                "Bass.XOver 80 Hz → FX: X-Bass Crossover (80 Hz)".to_owned(),
+            ],
+            ..SbCommandImportReport::default()
+        };
+
+        omit_incompatible_lfe_x_bass(&mut controls, &mut report);
+
+        assert_eq!(
+            controls["FX: X-Bass"],
+            ProfileControl {
+                playback_switch: Some(false),
+                ..ProfileControl::default()
+            }
+        );
+        assert!(!controls.contains_key("FX: X-Bass Crossover"));
+        assert!(report.exact.is_empty());
+        assert!(
+            report
+                .approximate
+                .iter()
+                .any(|item| item.contains("playback off before route change"))
+        );
+        assert!(
+            report
+                .unsupported
+                .iter()
+                .any(|item| item.contains("cannot enable X-Bass with an LFE channel"))
+        );
+    }
+
+    #[test]
+    fn discovers_newest_command_config_and_rejects_ambiguous_ae5_products() {
+        let user = std::env::temp_dir().join(format!(
+            "ae5-sbcommand-discovery-test-{}-{}",
+            std::process::id(),
+            NEXT_DIRECTORY.fetch_add(1, Ordering::Relaxed)
+        ));
+        let application = user
+            .join("AppData/Local/Creative_Technology_Ltd")
+            .join("Creative.SBCommand.exe_Url_test");
+        let old_config = application.join("3.9.99.0/user.config");
+        let newest_config = application.join("3.10.0.0/user.config");
+        fs::create_dir_all(old_config.parent().unwrap()).unwrap();
+        fs::create_dir_all(newest_config.parent().unwrap()).unwrap();
+        fs::write(&old_config, "").unwrap();
+        fs::write(&newest_config, "").unwrap();
+
+        let product = user
+            .join("AppData/Local/Creative/installation-one")
+            .join("Product/AE5");
+        fs::create_dir_all(&product).unwrap();
+        assert_eq!(
+            discover_installation(&user).unwrap(),
+            SbCommandInstallation {
+                user_config: newest_config,
+                product_dir: product,
+            }
+        );
+
+        let duplicate_application = user
+            .join("AppData/Local/Creative_Technology_Ltd")
+            .join("Creative.SBCommand.exe_Url_duplicate")
+            .join("3.10.0.0");
+        fs::create_dir_all(&duplicate_application).unwrap();
+        fs::write(duplicate_application.join("user.config"), "").unwrap();
+        assert!(discover_installation(&user).is_err());
+        fs::remove_dir_all(
+            duplicate_application
+                .parent()
+                .expect("duplicate application has a parent"),
+        )
+        .unwrap();
+
+        fs::create_dir_all(
+            user.join("AppData/Local/Creative/installation-two")
+                .join("Product/AE5"),
+        )
+        .unwrap();
+        assert!(discover_installation(&user).is_err());
+        fs::remove_dir_all(user).unwrap();
     }
 }

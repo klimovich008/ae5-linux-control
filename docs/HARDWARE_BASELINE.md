@@ -36,3 +36,23 @@ one-line fix and validation procedure are in
 
 The full generated report is intentionally ignored by Git because diagnostics
 can contain local machine details.
+
+## Reversible channel-balance acceptance
+
+Both typed per-channel ALSA paths were tested on the physical AE-5. For
+playback, the `Front` switch was off:
+
+1. Readback reported `Front Left=90, Front Right=90`.
+2. `set-playback-channel-level Front "Front Right" 89` read back
+   `Front Left=90, Front Right=89`.
+3. Restoring the right channel to 90 produced the exact original complete
+   control snapshot.
+
+An exit trap guaranteed restoration if an intermediate command failed. The
+left channel never changed, the control remained playback-off throughout, and
+the kernel journal recorded no warning or error during the transaction.
+
+The same transaction passed for capture: `What U Hear` changed from
+`Front Left=90, Front Right=90` to `Front Left=90, Front Right=89` and back to
+the exact original snapshot. Its capture switch remained on, and the kernel
+journal again recorded no warning or error.

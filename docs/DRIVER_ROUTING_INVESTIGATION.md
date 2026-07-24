@@ -102,9 +102,9 @@ The package now supplies:
 The live profile was parsed by PipeWire's `spa-acp-tool`, exposed the fixed
 headphone route, and passed Speakers → Headphones switching with
 `Output Select=Headphone` and `Front=on`. It also survived a WirePlumber
-restart with the fixed route, 43% sink volume, and the expected ALSA controls.
-The acoustic microphone check below also passed. Repeated cold-boot/suspend
-testing remains.
+restart and one instrumented cold boot with the intended output selection,
+codec pin, and WirePlumber port. The acoustic microphone check below also
+passed. Repeated cold-boot/suspend testing remains.
 
 ### AE-5 Control route ownership
 
@@ -139,6 +139,24 @@ WirePlumber documents `monitor.alsa.rules` as the supported mechanism for
 updating ALSA-device properties, while ACP is responsible for profiles, ports,
 and mixer settings:
 [ALSA configuration](https://pipewire.pages.freedesktop.org/wireplumber/daemon/configuration/alsa.html).
+
+### First post-fix instrumented cold boot
+
+Boot `0b82f21b-a86a-47c3-973a-c8911ac07915` provided the first state-level
+cold-boot check after installing the card-specific ACP path. Before PipeWire
+started, the probe waited for the ALSA control interface and recorded
+`Output Select=Headphone`, auto-detect off, the headphone jack present,
+and only the AE-5 rear-headphone pin `0x11` enabled for output. Eight seconds
+later, the same ALSA and codec route remained intact and WirePlumber selected
+`sound-blaster-ae5-output-headphones;output-headphones`.
+
+The CA0132 DSP initialized successfully, and the boot journal contained no
+relevant CA0132, HDA, DSP, or timeout warning. No output toggle occurred
+between the two probes. This proves output-selection, codec-pin, and
+WirePlumber-port restoration for one cold boot. That probe version did not
+record the root-cause `Front` switch, so the collector now includes it for
+future boots. This result does not replace the remaining repeated-boot or
+no-toggle acoustic checks.
 
 ### Acoustic headphone validation
 

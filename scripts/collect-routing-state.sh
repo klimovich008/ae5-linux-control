@@ -156,6 +156,7 @@ collect() {
 		if wait_for_alsa_control "$card_index"; then
 			printf 'alsa_control_ready=yes\n'
 			amixer -c "$card_index" sget 'Output Select' 2>&1 || true
+			amixer -c "$card_index" sget 'Front' 2>&1 || true
 			amixer -c "$card_index" sget 'HP/Speaker Auto Detect' 2>&1 || true
 			amixer -c "$card_index" \
 				cget "iface=CARD,name='Headphone Jack'" 2>&1 || true

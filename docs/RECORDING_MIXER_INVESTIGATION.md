@@ -113,8 +113,10 @@ mixer and retained route-state hashes.
   input and verify each physical path.
 - Measure analog `Capture` level, mute, and microphone boost for gain, noise
   floor, and clipping. Do not infer their behavior from the digital loopback.
-- Boot the candidate kernel and verify that only the two ineffective AE-5
-  controls disappear while analog capture, What U Hear PCM, playback, routing,
-  suspend/resume, and profile compatibility remain intact.
+- Repeat the What U Hear fixture under the patched kernel. Its first physical
+  boot already confirmed that the ineffective mixer control disappears while
+  the PCM and every analog capture control remain, with clean DSP
+  initialization; playback, routing, suspend/resume, and profile compatibility
+  still require patched-kernel exercise.
 - Add an explicit software volume/mute substitute only at the recording-stream
   layer; do not relabel it as hardware gain.

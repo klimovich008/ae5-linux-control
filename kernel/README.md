@@ -1,8 +1,10 @@
 # CA0132 kernel patches
 
 These patches are independent, reviewable Linux changes and diagnostic
-experiments. None has been loaded on the target AE-5, and none changes the
-running kernel merely by being present in this repository.
+experiments. The four functional patches were loaded together on the target
+AE-5 in a guarded KVM guest; the diagnostic SpeakerEQ probe has not been
+loaded. None changes the running host kernel merely by being present in this
+repository.
 
 ## AE-5 What U Hear mixer controls
 
@@ -127,9 +129,9 @@ On 2026-07-24, the patch was applied to `sound.git` `for-next` at
 `61471f29f315` and built inside the Fedora 44 KVM guest. The resulting
 `7.2.0-rc2-ae5-wedge+` kernel booted from Btrfs with EFI, VirtIO networking,
 and SSH intact. Its matching `snd-hda-codec-ca0132` module loaded successfully,
-and no systemd unit failed. The guest had no emulated audio device or PCI host
-device, so this proves the candidate builds and boots but does not yet prove
-the physical control value or Voice Focus behavior.
+and no systemd unit failed. A later integrated physical boot, recorded below,
+proved the initial control value is `30`. Setting the boundary values and
+Voice Focus recording behavior remain untested.
 
 ## Factory EQ preset control cache
 
@@ -293,10 +295,11 @@ tools/testing/kunit/kunit.py run \
   ca0132-dsp-image
 ```
 
-QEMU must be installed for a non-UML architecture. This validates parser logic
-and compilation only. A later alternate-kernel and cold-boot session is still
-required to prove successful firmware loading and playback on the physical
-AE-5.
+QEMU must be installed for a non-UML architecture. This validates malformed
+parser inputs and compilation. The later integrated physical boot recorded
+below proved that the distributed AE-5 firmware is accepted and reaches
+`ca0132 DSP downloaded and running`; playback and deliberately malformed
+firmware on the physical card remain out of scope.
 
 ## Integrated no-device kernel validation
 
@@ -318,9 +321,62 @@ kernel then booted from Btrfs under KVM, and both
 The exact powered-off guest state was flattened into a standalone image and
 that image itself passed a second boot/module smoke test and `qemu-img check`.
 It had no emulated audio or passed-through PCI device. This validates the
-combined build, kernel boot, and module dependency path; physical AE-5
-initialization, DSP firmware loading, playback, capture, routing, suspend, and
-reset recovery remain required.
+combined build, kernel boot, and module dependency path. Physical
+initialization and reset recovery were subsequently validated below; playback,
+capture, routing, and suspend remain required.
+
+## Integrated physical AE-5 validation
+
+On 2026-07-24, libvirt passed the isolated physical `1102:0012/1102:0051`
+function to the powered-off system guest for two managed test cycles. The
+guest booted `7.2.0-rc2-ae5-integrated+`, bound the card at `0000:07:00.0` to
+`snd_hda_intel`, and reported `ca0132 DSP downloaded and running`.
+
+The first cycle was read-only:
+
+- the card exposed 72 ALSA controls and 46 simple controls;
+- Wedge Angle reported `30` inside its advertised `20..180` range before any
+  write;
+- the `CA0132 What U Hear` capture PCM remained present as device 2;
+- the ineffective What U Hear volume/mute simple control was absent;
+- Flat and all ten EQ band controls initialized to raw value `24`;
+- no CA0132, HDA, codec, DSP, firmware, or timeout warning appeared, and no
+  systemd unit failed.
+
+The second cycle selected every factory EQ preset and compared all ten
+reported band values with the cache table added by the patch:
+
+| Preset | Band0 through Band9 raw values |
+|---|---|
+| Flat | 24 24 24 24 24 24 24 24 24 24 |
+| Acoustic | 24 25 26 24 24 24 24 26 26 26 |
+| Classical | 24 30 30 27 24 24 24 24 27 27 |
+| Country | 23 24 25 25 25 24 24 26 27 28 |
+| Dance | 23 26 27 28 23 23 24 24 28 28 |
+| Jazz | 24 24 25 28 28 28 24 25 27 27 |
+| New Age | 24 26 26 24 24 24 25 26 26 26 |
+| Pop | 22 24 26 26 24 23 23 24 27 30 |
+| Rock | 23 23 25 26 23 23 24 24 28 28 |
+| Vocal | 22 23 23 24 27 28 27 24 24 25 |
+
+Every vector matched. An ALSA monitor observed value events for Acoustic's
+five changed bands—Band1, Band2, Band7, Band8, and Band9—plus the preset
+control, and the same events when returning to Flat. Flat restored the
+complete guest mixer SHA-256
+`c5d3a2673054ea6b71b562e3f12923c51c00af9c79af17137948e4474818de68`
+exactly after both the full matrix and notification check. No matching kernel
+warning appeared.
+
+Each guest shutdown returned the card automatically to the host
+`snd_hda_intel` driver in about two seconds. Before each handoff the host audio
+services had no open stream and were stopped. After each handoff, the complete
+saved Creative ALSA state matched without a fallback restore, the card-scoped
+WirePlumber headphone port returned, and VFIO preflight passed again. The
+hostdev was removed from the powered-off domain after each cycle.
+
+This evidence does not yet cover Wedge Angle boundary writes, Voice Focus
+recording, a patched What U Hear capture, analog or digital playback,
+suspend/resume, or repeated cold-start acceptance.
 
 ## Read-only SpeakerEQ address probe
 

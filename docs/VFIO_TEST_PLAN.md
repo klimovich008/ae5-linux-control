@@ -6,8 +6,9 @@ two Linux kernels against the same physical AE-5 without repeatedly changing
 the host kernel. It cannot replace final cold-boot, suspend, and recovery tests
 on the host.
 
-The virtualization stack and a guest without passthrough were installed on
-2026-07-24. No AE-5 host-device configuration has been attached or started.
+The virtualization stack, session guest, and system guest were installed on
+2026-07-24. Two guarded managed-passthrough cycles have now completed; the
+hostdev was removed afterward and both guests are powered off.
 
 Run the read-only, fail-closed hardware check at any time:
 
@@ -69,18 +70,20 @@ and play normally before another cycle is attempted.
 
 1. The QEMU/KVM, libvirt, `virt-install`, UEFI firmware, and software TPM
    packages are installed.
-2. The `ae5-kernel-test-f44` Fedora 44 guest is running without passthrough,
-   and its clean `clean-fedora44` snapshot is available.
+2. The `ae5-kernel-test-f44` Fedora 44 session guest and the
+   `ae5-kernel-test-f44-system` system guest are available, powered off, and
+   recoverable from the original flattened image.
 3. The Fifine microphone remains available to the host. Its acoustic test path
    and the AE-5's restored host playback path have already been validated.
-4. The next hardware step is to add `0000:29:00.0` as a managed PCI host
-   device. Libvirt's
+4. Two initialization/control cycles passed with `0000:29:00.0` attached
+   temporarily as a managed PCI host device. Libvirt's
    [`hostdev` documentation](https://www.libvirt.org/formatdomain.html#host-device-assignment)
    describes `managed='yes'`, which detaches the function from the host before
    guest startup and reattaches it after guest shutdown.
-5. Do not make persistent early-boot VFIO binding the first experiment.
-   Managed, on-demand assignment keeps recovery simpler and limits the period
-   in which the host loses the card.
+5. The next hardware step is controlled low-level playback/capture followed by
+   repeated reset and suspend acceptance. Persistent early-boot VFIO binding
+   remains unnecessary; managed, on-demand assignment limits the period in
+   which the host loses the card.
 
 The PCI address is a host address; it must not be copied into an unrelated
 machine's configuration.
@@ -111,10 +114,8 @@ virsh --connect qemu:///session snapshot-list ae5-kernel-test-f44
 
 The session guest proves KVM, image boot, UEFI, storage, networking, and guest
 access. An unprivileged session daemon cannot safely perform managed host
-detachment. The first physical-card test must therefore use
-`qemu:///system`. Its socket units are installed and enabled but were inactive
-at the end of this audit because they were installed after the current host
-boot.
+detachment. The physical-card tests therefore use the separately inspected
+`qemu:///system` guest.
 
 ### Candidate kernel smoke test
 
@@ -138,11 +139,10 @@ The guest also has `pciutils`, `alsa-utils`, SoX, and Fedora
 Creative firmware hashes match [the source inventory](SOURCE_INVENTORY.md).
 The powered-off `vfio-tools-ready` snapshot preserves this state.
 
-No host device is present in the domain XML. During this smoke test the
+No host device was present in the domain XML during this smoke test. The
 physical AE-5 remained in IOMMU group 28 and bound to the host
-`snd_hda_intel` driver. Physical validation of the corrected `30`-degree
-control default remains gated on the reviewed `qemu:///system` passthrough
-transition.
+`snd_hda_intel` driver. The later system-guest cycles validated the corrected
+`30`-degree control default on the physical card.
 
 The same pinned source was then rebuilt as the integrated
 `7.2.0-rc2-ae5-integrated+` candidate with these four functional patches:
@@ -169,8 +169,9 @@ only error-priority kernel messages were the existing no-device VM warnings
 for unsupported TDX, systemd's BPF filesystem restriction, and deprecated
 SELinux `checkreqprot` use.
 
-This is a build, boot, and no-device module test. It does not prove DSP
-firmware loading or the four fixes on the physical AE-5.
+This was the build, boot, and no-device module test. The physical validation
+below subsequently proved firmware initialization and the read-visible
+effects of the four-patch candidate.
 
 ### Prepared system import
 
@@ -250,7 +251,9 @@ The only planned passthrough device is the already-audited AE-5 function:
 </hostdev>
 ```
 
-This fragment has not been attached to any domain. Before it is added:
+This fragment was attached only to the powered-off system-domain configuration
+for each physical cycle and removed immediately after each shutdown. Before
+every later attachment:
 
 1. rerun `scripts/check-vfio-host.sh --require-tools`;
 2. confirm `0000:29:00.0` still resolves to `1102:0012/1102:0051`, is alone
@@ -258,11 +261,60 @@ This fragment has not been attached to any domain. Before it is added:
 3. shut down every process using the AE-5 and confirm the Fifine path is
    available;
 4. save ALSA, PipeWire, and PCI-driver state for recovery;
-5. define the system guest while it is off, inspect its complete inactive XML,
-   and only then schedule the first detach/start.
+5. inspect the complete powered-off system-domain XML before scheduling the
+   detach/start.
 
-No persistent early-boot VFIO binding, ACS override, host-driver unbind, reset,
-or guest start is authorized by this reviewed fragment.
+No persistent early-boot VFIO binding, ACS override, or manual sysfs
+host-driver unbind is needed. Every future start remains subject to the same
+preflight, no-open-stream, recovery, and stop conditions.
+
+### First physical validation cycles
+
+Before the first detach, a private recovery set captured all 46 applicable
+profile controls, the raw Creative ALSA state, WirePlumber defaults and routes,
+the routing state, and a full Linux report. The profile passed
+`profile-check --allow-high-gain`. PipeWire and WirePlumber were then stopped,
+and `fuser` confirmed that no process had an ALSA device open.
+
+In both cycles, managed startup rebound host `0000:29:00.0` from
+`snd_hda_intel` to `vfio-pci`. The guest received the exact
+`1102:0012/1102:0051` function at `0000:07:00.0`, bound it to
+`snd_hda_intel`, loaded the integrated CA0132 module, and reported
+`ca0132 DSP downloaded and running`.
+
+The first, read-only cycle verified:
+
+- Wedge Angle initialized to `30` inside the advertised `20..180` range;
+- the What U Hear capture PCM remained present while its ineffective mixer
+  control was absent;
+- Flat and every EQ band initialized to raw value `24`;
+- 72 ALSA controls, 46 simple controls, and zero failed systemd units;
+- no matching CA0132, HDA, codec, DSP, firmware, or timeout warning.
+
+The second cycle selected all ten factory EQ presets. Every ten-band vector
+matched the patch table, and an ALSA monitor saw value notifications for
+Acoustic's five changed bands plus the preset control, then the same events
+when returning to Flat. Flat restored the complete guest mixer hash
+`c5d3a2673054ea6b71b562e3f12923c51c00af9c79af17137948e4474818de68`
+exactly.
+
+Each clean shutdown returned the card automatically to host `snd_hda_intel`
+and recreated readable ALSA controls in about two seconds. The complete raw
+Creative state matched the saved file after both cycles, so no fallback
+restore ran. PipeWire and WirePlumber restarted, the AE-5 returned as the
+default sink on the card-specific headphone port, the Fifine remained the
+default source, and the full host mixer hash returned to
+`3e595532348efe1e2e9c066039131e97505cb9b71bc6bfd8fa8a59301091e802`.
+VFIO preflight passed again, the hostdev was removed, and no QEMU process
+remained.
+
+The powered-off system volume passed `qemu-img check` after both cycles and
+had SHA-256
+`5bb1317f85e271578389936b3eb74be90a220e40ed2aab9b42132ff7429ac212`.
+The untouched standalone recovery image retained SHA-256
+`bfca0fdfa57cc7b9fab13c91a2a58584233c257638f636573b85a29c1d091637`.
+No playback, capture, Wedge boundary write, Voice Focus test, guest suspend,
+or host cold boot was part of these first two cycles.
 
 ## Per-kernel test matrix
 

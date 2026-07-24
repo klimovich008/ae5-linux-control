@@ -144,27 +144,68 @@ physical AE-5 remained in IOMMU group 28 and bound to the host
 control default remains gated on the reviewed `qemu:///system` passthrough
 transition.
 
+The same pinned source was then rebuilt as the integrated
+`7.2.0-rc2-ae5-integrated+` candidate with these four functional patches:
+
+- `ca0132-wedge-angle-default.patch`;
+- `ca0132-eq-preset-control-cache.patch`;
+- `ca0132-ae5-hide-ineffective-wuh-controls.patch`;
+- `ca0132-dsp-image-bounds.patch`.
+
+The diagnostic `ca0132-speaker-eq-address-probe.patch` was deliberately
+excluded. The combined source passed `git diff --check`; its CA0132 diff has
+106 insertions and 61 deletions across `Kconfig`, `Makefile`, and `ca0132.c`.
+The kernel image, CA0132 module, and ALSA sequencer modules built successfully.
+The x86 instruction decoder exercised 8,073,002 instructions, and the random
+instruction test completed 1,000,000 cases with no error.
+
+The first boot found that Fedora's `snd-pcm` modprobe policy also loads
+`snd-seq`, which the minimal guest configuration had omitted. Enabling
+`CONFIG_SND_SEQUENCER=m` and `CONFIG_SND_SEQ_DEVICE=m`, rebuilding, and
+reinstalling fixed the dependency rather than bypassing the distribution
+policy. The final candidate booted with the Btrfs root and KVM intact,
+`snd-hda-codec-ca0132` and `snd-seq` loaded, and no failed systemd unit. The
+only error-priority kernel messages were the existing no-device VM warnings
+for unsupported TDX, systemd's BPF filesystem restriction, and deprecated
+SELinux `checkreqprot` use.
+
+This is a build, boot, and no-device module test. It does not prove DSP
+firmware loading or the four fixes on the physical AE-5.
+
 ### Prepared system import
 
-The powered-off `vfio-tools-ready` state was flattened into the standalone
-`ae5-kernel-test-f44-system-import.qcow2`. It has no backing file, occupies
-3.81 GiB for a 40 GiB virtual disk, passes `qemu-img check`, and has SHA-256:
+The earlier powered-off `vfio-tools-ready` state remains available as the
+standalone Wedge-only `ae5-kernel-test-f44-system-import.qcow2`. It has no
+backing file, occupies 3.81 GiB for a 40 GiB virtual disk, passes
+`qemu-img check`, and has SHA-256:
 
 ```text
 a7a445b06ecf7b7f6adf4827de95a75a7fad9659ccafe7a09d6242172f6c11b1
 ```
 
-A temporary unprivileged domain booted this exact standalone image, verified
-the candidate kernel, Btrfs root, KVM, networking, and installed test tools,
-then shut down cleanly. The temporary domain and its NVRAM were removed; the
-standalone disk remains powered off and ready to import. It never contained a
-host device.
+A second flattened image,
+`ae5-kernel-test-f44-integrated-system-import.qcow2`, contains the final
+four-patch candidate. After booting that exact file once, it occupies 5.14 GiB
+for a 40 GiB virtual disk, has no backing file, passes `qemu-img check`, and
+has SHA-256:
+
+```text
+bfca0fdfa57cc7b9fab13c91a2a58584233c257638f636573b85a29c1d091637
+```
+
+Temporary unprivileged domains booted each exact standalone image and then
+shut down cleanly. For the integrated image, the check verified
+`7.2.0-rc2-ae5-integrated+`, the Btrfs root, KVM, the matching loadable CA0132
+module, the sequencer dependency, zero Creative PCI devices, and zero failed
+systemd units. The temporary domains and their NVRAM were removed; both disks
+remain powered off. Neither domain contained a host device.
 
 After the coordinated host reboot:
 
 1. confirm `virtqemud.socket` is active and `qemu:///system` connects;
-2. upload the standalone image into a system-owned libvirt storage pool rather
-   than granting the system QEMU account access through the user's home;
+2. upload the integrated standalone image into a system-owned libvirt storage
+   pool rather than granting the system QEMU account access through the
+   user's home;
 3. define an inactive system domain with ordinary UEFI, no emulated audio, and
    no host device;
 4. inspect its complete inactive XML, storage, NVRAM, and network settings

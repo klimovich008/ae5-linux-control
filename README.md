@@ -321,11 +321,12 @@ factory-EQ cache bugs, plus an unbounded DSP fast-load parser. The repository
 carries minimal Wedge Angle and EQ cache fixes, a separately reviewable
 parser-hardening candidate with KUnit coverage, and the build-only read probe.
 Evidence, proposed commit messages, and validation steps are in
-[kernel/README.md](kernel/README.md). The Wedge Angle fix now builds and boots
-in the no-device Fedora KVM guest; none of the patches has been loaded on the
-physical target. Until the Wedge Angle fix is running against the AE-5,
-AE-5 Control displays the invalid value as a driver warning and excludes it
-from newly captured profiles.
+[kernel/README.md](kernel/README.md). The four functional patches now build
+and boot together in the no-device Fedora KVM guest; the diagnostic read probe
+remains separate, and none of the patches has been loaded on the physical
+target. Until the Wedge Angle fix is running against the AE-5, AE-5 Control
+displays the invalid value as a driver warning and excludes it from newly
+captured profiles.
 
 Objective Windows/Linux level, frequency-response, and noise comparison is
 documented in

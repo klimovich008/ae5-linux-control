@@ -298,6 +298,30 @@ and compilation only. A later alternate-kernel and cold-boot session is still
 required to prove successful firmware loading and playback on the physical
 AE-5.
 
+## Integrated no-device kernel validation
+
+On 2026-07-24, the Wedge Angle, factory EQ cache, AE-5 What U Hear, and DSP
+image bounds patches were applied together to `sound.git` `for-next` commit
+`61471f29f315`. The diagnostic SpeakerEQ address probe was not included. The
+combined source passed `git diff --check` and built as
+`7.2.0-rc2-ae5-integrated+`, including the production CA0132 codec module.
+The x86 instruction decoder passed 8,073,002 instructions, and its random
+instruction test passed 1,000,000 cases with no error.
+
+The first no-device boot exposed a guest configuration dependency:
+Fedora's `snd-pcm` modprobe policy loads `snd-seq`, but the configuration
+derived by `localmodconfig` did not include the sequencer. The candidate was
+rebuilt with `CONFIG_SND_SEQUENCER=m` and `CONFIG_SND_SEQ_DEVICE=m`. The final
+kernel then booted from Btrfs under KVM, and both
+`snd-hda-codec-ca0132` and `snd-seq` loaded with zero failed systemd units.
+
+The exact powered-off guest state was flattened into a standalone image and
+that image itself passed a second boot/module smoke test and `qemu-img check`.
+It had no emulated audio or passed-through PCI device. This validates the
+combined build, kernel boot, and module dependency path; physical AE-5
+initialization, DSP firmware loading, playback, capture, routing, suspend, and
+reset recovery remain required.
+
 ## Read-only SpeakerEQ address probe
 
 [`ca0132-speaker-eq-address-probe.patch`](ca0132-speaker-eq-address-probe.patch)

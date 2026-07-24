@@ -156,6 +156,8 @@ Optimization is measured rather than assumed:
 - Initial reference targets: effectively zero idle CPU, control readback shown
   within 100 ms, cold start below one second, and resident memory below 100 MiB
   on the agreed reference system.
+- The reproducible five-run baseline and before/after profile are recorded in
+  [`docs/GUI_PERFORMANCE.md`](docs/GUI_PERFORMANCE.md).
 - A slower metric is profiled before adding caches, threads, or unsafe code.
 
 ### 4.1 Windows settings migration

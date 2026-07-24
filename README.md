@@ -154,6 +154,19 @@ sudo dnf install gtk4-devel
 cargo run --features gui --bin ae5-control
 ```
 
+The release GUI has reproducible startup, hardware-refresh, idle CPU, and
+resident-memory budgets. Run the read-only measurement with:
+
+```sh
+cargo build --locked --release --all-features
+bash scripts/measure-gui-performance.sh
+```
+
+All five reference-system runs meet the sub-second startup, 100 ms refresh,
+1% idle CPU, and 100 MiB RSS targets. The exact method, hardware, before/after
+evidence, and results are recorded in
+[docs/GUI_PERFORMANCE.md](docs/GUI_PERFORMANCE.md).
+
 Nobara/Fedora RPM build and install instructions are in
 [packaging/README.md](packaging/README.md). The package installs the GTK app,
 CLI, desktop entry, AppStream metadata, and icon without a privileged helper.

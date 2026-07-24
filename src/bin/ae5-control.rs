@@ -9,6 +9,7 @@ use gtk::prelude::*;
 use gtk::{gdk::Display, gio};
 use std::cell::{Cell, RefCell};
 use std::ffi::OsString;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::{
@@ -16,18 +17,32 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const APP_ID: &str = "io.github.klimovich008.ae5control";
 const MAIN_STACK_NAME: &str = "main-navigation";
+const PERFORMANCE_PROBE: &str = "AE5_CONTROL_PERFORMANCE_PROBE";
 
 fn main() -> gtk::glib::ExitCode {
-    let application = gtk::Application::builder().application_id(APP_ID).build();
-    application.connect_activate(build_window);
+    if std::env::var_os("GSK_RENDERER").is_none() {
+        // SAFETY: GTK and worker threads have not started, so no other thread can read the
+        // process environment while the static UI selects its lower-memory renderer.
+        unsafe { std::env::set_var("GSK_RENDERER", "cairo") };
+    }
+    let started = Instant::now();
+    let performance_probe = std::env::var_os(PERFORMANCE_PROBE).is_some();
+    let mut builder = gtk::Application::builder().application_id(APP_ID);
+    if performance_probe {
+        builder = builder.flags(gio::ApplicationFlags::NON_UNIQUE);
+    }
+    let application = builder.build();
+    application.connect_activate(move |application| {
+        build_window(application, started, performance_probe);
+    });
     application.run()
 }
 
-fn build_window(application: &gtk::Application) {
+fn build_window(application: &gtk::Application, started: Instant, performance_probe: bool) {
     install_css();
 
     let window = gtk::ApplicationWindow::builder()
@@ -47,6 +62,31 @@ fn build_window(application: &gtk::Application) {
         );
     }
     window.present();
+    if performance_probe {
+        start_performance_probe(&window, started);
+    }
+}
+
+fn start_performance_probe(window: &gtk::ApplicationWindow, started: Instant) {
+    let window = window.clone();
+    gtk::glib::idle_add_local_once(move || {
+        let startup_ms = started.elapsed().as_millis();
+        let refresh_started = Instant::now();
+        if refresh_window(&window, None).is_none() {
+            println!("probe_error=hardware refresh failed");
+            let _ = std::io::stdout().flush();
+            return;
+        }
+        gtk::glib::idle_add_local_once(move || {
+            println!("startup_ms={startup_ms}");
+            println!(
+                "control_refresh_ms={}",
+                refresh_started.elapsed().as_millis()
+            );
+            println!("probe_ready=1");
+            let _ = std::io::stdout().flush();
+        });
+    });
 }
 
 fn refresh_window(window: &gtk::ApplicationWindow, message: Option<&str>) -> Option<i32> {
@@ -104,34 +144,34 @@ fn content(
         .build();
     stack.set_widget_name(MAIN_STACK_NAME);
 
-    stack.add_titled(
-        &device_page(window, device, controls, &status),
-        Some("device"),
-        "Device",
-    );
-    stack.add_titled(
-        &routing_page(device.card_index, &status),
-        Some("routing"),
-        "System audio",
-    );
-    stack.add_titled(
-        &profile_page(window, device.card_index, &status),
-        Some("profiles"),
-        "Profiles",
-    );
-    for category in Category::ALL {
-        let page = control_page(
-            device.card_index,
-            &status,
-            controls,
-            controls
-                .iter()
-                .filter(|control| category.matches(&control.name)),
-        );
-        stack.add_titled(&page, Some(category.id()), category.title());
+    for (name, title) in [
+        ("device", "Device"),
+        ("routing", "System audio"),
+        ("profiles", "Profiles"),
+        ("playback", "Playback"),
+        ("effects", "Sound effects"),
+        ("equalizer", "Equalizer"),
+        ("recording", "Recording"),
+    ] {
+        let holder = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        holder.set_hexpand(true);
+        holder.set_vexpand(true);
+        stack.add_titled(&holder, Some(name), title);
     }
-    if let Some(page) = visible_page {
-        stack.set_visible_child_name(page);
+
+    let initial_page = visible_page.unwrap_or("device");
+    stack.set_visible_child_name(initial_page);
+    populate_page(&stack, window, device, controls, &status, initial_page);
+    {
+        let window = window.clone();
+        let device = device.clone();
+        let controls = controls.to_vec();
+        let status = status.clone();
+        stack.connect_visible_child_name_notify(move |stack| {
+            if let Some(name) = stack.visible_child_name() {
+                populate_page(stack, &window, &device, &controls, &status, &name);
+            }
+        });
     }
 
     let sidebar = gtk::StackSidebar::builder()
@@ -146,6 +186,51 @@ fn content(
     body.append(&stack);
     root.append(&body);
     root
+}
+
+fn populate_page(
+    stack: &gtk::Stack,
+    window: &gtk::ApplicationWindow,
+    device: &Ae5Device,
+    controls: &[ControlSnapshot],
+    status: &gtk::Label,
+    name: &str,
+) {
+    let Some(holder) = stack
+        .child_by_name(name)
+        .and_then(|child| child.downcast::<gtk::Box>().ok())
+    else {
+        return;
+    };
+    if holder.first_child().is_some() {
+        return;
+    }
+
+    let page: gtk::Widget = match name {
+        "device" => device_page(window, device, controls, status).upcast(),
+        "routing" => routing_page(device.card_index, status).upcast(),
+        "profiles" => profile_page(window, device.card_index, status).upcast(),
+        _ => {
+            let Some(category) = Category::ALL
+                .into_iter()
+                .find(|category| category.id() == name)
+            else {
+                return;
+            };
+            control_page(
+                device.card_index,
+                status,
+                controls,
+                controls
+                    .iter()
+                    .filter(|control| category.matches(&control.name)),
+            )
+            .upcast()
+        }
+    };
+    page.set_hexpand(true);
+    page.set_vexpand(true);
+    holder.append(&page);
 }
 
 fn hero(device: &Ae5Device, controls: &[ControlSnapshot]) -> gtk::Box {
@@ -1823,15 +1908,6 @@ impl Category {
             Self::Effects => "effects",
             Self::Equalizer => "equalizer",
             Self::Recording => "recording",
-        }
-    }
-
-    fn title(self) -> &'static str {
-        match self {
-            Self::Playback => "Playback",
-            Self::Effects => "Sound effects",
-            Self::Equalizer => "Equalizer",
-            Self::Recording => "Recording",
         }
     }
 

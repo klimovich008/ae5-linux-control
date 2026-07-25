@@ -37,14 +37,13 @@ diff --git a/sound/hda/codecs/ca0132.c b/sound/hda/codecs/ca0132.c
  /*
   * Allocate a DSP DMA channel via an SCP message
   */
-@@ -8581,6 +8610,9 @@ static void ca0132_download_dsp(struct hda_codec *codec)
- 
- 		if (!ca0132_download_dsp_images(codec))
- 			spec->dsp_state = DSP_DOWNLOAD_FAILED;
- 		else
- 			spec->dsp_state = DSP_DOWNLOADED;
-+
-+		if (spec->dsp_state == DSP_DOWNLOADED)
-+			ca0132_query_speaker_eq_address(codec);
+@@ -9499,6 +9528,9 @@ static int ca0132_init(struct hda_codec *codec)
+ 		break;
  	}
+ 
++	if (spec->dsp_state == DSP_DOWNLOADED)
++		ca0132_query_speaker_eq_address(codec);
++
+ 	for (i = 0; i < spec->num_outputs; i++)
+ 		init_output(codec, spec->out_pins[i], spec->dacs[0]);
  

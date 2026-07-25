@@ -367,12 +367,42 @@ headphone port all returned without a fallback restore. The full evidence and
 reproduction series are in
 [`LTS_KERNEL_VALIDATION.md`](LTS_KERNEL_VALIDATION.md).
 
+The seventh and eighth cycles tested the separate read-only SpeakerEQ address
+probe on the same Linux `6.18.40` stack. Both candidates first passed a
+no-device boot. The seventh queried immediately after firmware download; the
+eighth moved the same one-word `MASTERCONTROL_QUERY_SPEAKER_EQ_ADDRESS` GET
+until after `ae5_setup_defaults()` completed. Each physical boot initialized
+the DSP once and emitted exactly one `SpeakerEQ address query failed: -5`
+after `dspio_scp: send scp msg failed`. Neither returned an address. The late
+result rules out incomplete AE-5 setup as the simple cause, so no undocumented
+request variant or firmware upload was attempted.
+
+The failed query did not disturb the normal card path. Both boots retained the
+known 72/46 control counts, Wedge `30`, Flat EQ vector, What U Hear PCM,
+hidden ineffective controls, zero failed units, and mixer hash
+`c5d3a2673054ea6b71b562e3f12923c51c00af9c79af17137948e4474818de68`.
+On the eighth cycle, a Front-muted direct-ALSA 997 Hz fixture was captured
+through What U Hear at 48 kHz signed 32-bit stereo. The strongest bin was
+`996.09375 Hz`, RMS amplitude was `0.048654`, and the saved guest state
+restored the exact mixer hash.
+
+Both shutdowns again returned the card to host `snd_hda_intel`. Raw ALSA state
+was byte-identical, all 47 application controls matched, WirePlumber defaults
+and routes were byte-identical, stream properties were canonically identical,
+the expected AE-5/Fifine defaults and packaged headphone port returned, and
+the host mixer hash was
+`3e595532348efe1e2e9c066039131e97505cb9b71bc6bfd8fa8a59301091e802`.
+The inactive domain had no `hostdev`, both guests were off, no QEMU process
+remained, and VFIO preflight passed. Because the query failed, its three-boot
+address-stability and 50-switch success gates were not applicable; the
+non-probe kernels retain their separate routing and 50-switch evidence.
+
 The powered-off system volume passed `qemu-img check` after all five cycles
 and had SHA-256
 `d7ee6ed48b3ba5800e5c93576fdbbec76bbe0eb81d2708c59dd600058262a664`.
 The image is root-owned mode `0600`; the check could not be repeated after the
-sixth cycle without interactive host authorization. Libvirt completed the
-sixth shutdown without a storage error.
+sixth through eighth cycles without interactive host authorization. Libvirt
+completed each shutdown without a storage error.
 The untouched standalone recovery image retained SHA-256
 `bfca0fdfa57cc7b9fab13c91a2a58584233c257638f636573b85a29c1d091637`.
 Voice Focus recording, speaker/line-out and digital playback, guest suspend,

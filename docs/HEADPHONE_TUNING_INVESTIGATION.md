@@ -4,7 +4,7 @@ This document separates verified CA0132 behavior from hypotheses about
 Sound Blaster Command's named headphone tuning. It defines the evidence and
 tests required before changing the kernel driver or loading another DSP image.
 
-The investigation was last verified on 2026-07-24.
+The investigation was last verified on 2026-07-25.
 
 ## Result so far
 
@@ -23,10 +23,16 @@ binary format, or that the packaged Chromebook coefficients are safe for an
 AE-5.
 
 The independent fast-load parser hardening from step 3 is now implemented as
-an unsubmitted candidate patch. It validates complete images before DSP reset
-and has build and KUnit coverage, but it has not been loaded into the running
-kernel. Parser safety does not establish the meaning or suitability of any
-headphone coefficient image.
+an unsubmitted candidate patch. It validates complete images before DSP reset,
+has build and KUnit coverage, and has loaded the normal desktop firmware on the
+physical AE-5 without a regression. Parser safety does not establish the
+meaning or suitability of any headphone coefficient image.
+
+The read-only request-`60` probe has also been run on the physical AE-5. The
+desktop DSP firmware returned no reply both immediately after firmware
+download and after the complete AE-5 DSP setup. Both attempts ended in
+`-EIO`; neither returned an address. This is a negative result, not evidence
+that a different guessed request shape or the Chromebook image is safe.
 
 ## Verified public-source behavior
 
@@ -100,14 +106,14 @@ Stop if the Windows/Linux neutral captures match within the measurement
 tolerance. In that case the remaining difference is a preset translation
 problem and belongs in the Rust importer, not the kernel.
 
-### 2. Add read-only kernel instrumentation — candidate implemented
+### 2. Add read-only kernel instrumentation — physically tested, no reply
 
 The repository now carries
 [`ca0132-speaker-eq-address-probe.patch`](../kernel/ca0132-speaker-eq-address-probe.patch).
 It:
 
-- sends one `MASTERCONTROL_QUERY_SPEAKER_EQ_ADDRESS` GET after the DSP reaches
-  `DSP_DOWNLOADED`;
+- sends one `MASTERCONTROL_QUERY_SPEAKER_EQ_ADDRESS` GET after the AE-5 DSP
+  setup completes;
 - accepts exactly one 32-bit response;
 - logs success, error, and address through `codec_dbg()`;
 - exposes no writable ALSA control and performs no DSP upload;
@@ -115,9 +121,24 @@ It:
 
 The unmodified and patched Linux stable `v7.1.4` source both compile as
 external modules against the running Nobara `7.1.4` kernel-devel tree with
-`W=1` and warnings treated as errors. No module was installed or loaded.
-Loading an alternate module changes the live audio driver and therefore still
-requires an explicit test session with a known-good kernel available.
+`W=1` and warnings treated as errors. The current patch also applies cleanly
+to ALSA `for-next` at `61471f29f315` and to the exact Linux `6.18.40` LTS
+backport stack; strict `checkpatch.pl` reports zero findings.
+
+Two separate `6.18.40` probe kernels were then booted with the physical
+`1102:0012/1102:0051` function. The first queried immediately after firmware
+download. The second, which matches the current patch, queried after
+`ae5_setup_defaults()`. Each boot logged one successful DSP initialization
+followed by exactly one:
+
+```text
+dspio_scp: send scp msg failed
+SpeakerEQ address query failed: -5
+```
+
+The second result rules out incomplete AE-5 setup as the simple cause. Public
+source does not establish a different source ID, payload, direction, or
+firmware prerequisite, so no alternate live request was attempted.
 
 Acceptance criteria:
 
@@ -126,6 +147,15 @@ Acceptance criteria:
 - the query result is stable across three cold boots;
 - a control run without the query has an identical neutral frequency response;
 - failures leave normal playback available.
+
+Only the final failure criterion passed. The late-probe boot retained the
+known 72/46 controls, Wedge `30`, Flat ten-band vector, What U Hear PCM, one
+DSP initialization, zero failed units, and exact guest mixer hash. A Front-
+muted direct-ALSA fixture was captured through What U Hear with its strongest
+bin at `996.09375 Hz`, after which the exact guest and host states were
+restored. Because the query itself timed out, repeated query boots, another
+50-switch route run, and unsupported guest suspend would not satisfy the
+success gate and were not performed.
 
 ### 3. Bound the existing fast-load parser — candidate implemented
 
@@ -149,10 +179,10 @@ currently requested CA0132 firmware images, plus the outer structure of
 
 This hardening is useful even if no SpeakerEQ loader is ever added.
 
-The remaining acceptance gate is a controlled alternate-kernel test proving
-that normal CA0132 firmware loading, playback, routing, suspend/resume, and
-recovery remain intact on the physical AE-5. That changes the live driver and
-requires an explicit test session.
+Controlled alternate-kernel tests now prove normal CA0132 firmware loading,
+playback, routing, and recovery on the physical AE-5 with this hardening in the
+stack. The current QEMU machine disables S3/S4, so bare-metal suspend/resume
+and repeated host cold boots remain separate acceptance gates.
 
 ### 4. Identify an AE-5 coefficient source lawfully
 
@@ -204,11 +234,13 @@ Final validation must use the physical AE-5 on both operating systems.
 
 ## Current stop condition
 
-No live driver experiment or SpeakerEQ firmware upload is justified yet. The
-bounded-parser candidate is complete at build/KUnit level, and the read-only
-address-query candidate is complete at build-only level. After the pending
-cold-boot routing capture, the next safe driver action is an explicitly
-authorized alternate-kernel or module session for the address query. The next
-safe application action is objective Windows/Linux response measurement
-followed by an approximate Rust-side preset only if the measurements support
-one.
+No further live SpeakerEQ query variant or firmware upload is justified. The
+bounded-parser candidate has build, KUnit, no-device, normal-firmware, playback,
+and recovery evidence. The read-only address query was physically tested at
+both plausible initialization points and received no reply. Without new public
+protocol documentation, changing undocumented fields would be blind probing.
+
+The next safe action is objective Windows/Linux response measurement, followed
+by an approximate Rust-side preset only if the measurements support one. A
+future kernel experiment requires new source-backed evidence and the same
+alternate-kernel and recovery gates.

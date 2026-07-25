@@ -128,6 +128,28 @@ or reset-failure warning. The root-owned `0600` system qcow2 could not be
 rerun through `qemu-img check` without interactive host authorization; the
 domain was cleanly shut down and libvirt reported no storage error.
 
+## Read-only SpeakerEQ follow-up
+
+The diagnostic probe excluded from the production validation stack was later
+built as two separate kernels on the same source and configuration. The first,
+`6.18.40-ae5-lts-speq+`, queried immediately after firmware download. The
+second, `6.18.40-ae5-lts-speq-late+`, queried after the complete AE-5 DSP setup.
+Both passed a no-device boot before receiving the physical card.
+
+Each physical boot initialized the DSP once but received no reply to
+`MASTERCONTROL_QUERY_SPEAKER_EQ_ADDRESS`; dynamic debug recorded exactly one
+`SpeakerEQ address query failed: -5` after `dspio_scp: send scp msg failed`.
+The later placement rules out incomplete card-specific setup as the simple
+cause. No undocumented request variant and no coefficient upload was attempted.
+
+The late-probe kernel retained the same controls, defaults, What U Hear PCM,
+zero failed units, and guest mixer hash as the production LTS stack. A muted
+direct-ALSA playback/capture check found the 997 Hz fixture at a strongest bin
+of `996.09375 Hz`, then restored the exact guest hash. Both follow-up shutdowns
+again produced byte-identical host ALSA state, identical application controls,
+the expected WirePlumber/default-device state, the known host mixer hash, and a
+clean VFIO preflight.
+
 ## Remaining limits
 
 This maintained-LTS cycle proves buildability, parser safety, bootability,

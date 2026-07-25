@@ -407,6 +407,11 @@ Initial findings:
   upload path. It also notes that `ctspeq.bin` is currently unused and that
   Windows enables `SPEAKER_TUNING_USE_SPEAKER_EQ` after uploading a profile.
   This is a concrete hypothesis for the measured Windows/Linux sound gap.
+- A bounded physical probe sent the documented request `60` both immediately
+  after firmware download and after full AE-5 setup. The distributed desktop
+  firmware returned no reply in either position. This removes the simple
+  timing hypothesis but does not justify guessing undocumented request fields
+  or loading the Chromebook `ctspeq.bin`.
 - The two 2026 upstream headphone-selection commits are direct candidate fixes
   for the first-use toggle symptom and should be tested before new code.
 - OpenRGB merge request !2997 adds an AE-5 command structure and a Creative

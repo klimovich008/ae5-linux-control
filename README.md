@@ -321,13 +321,18 @@ The named-headphone-tuning gap, why the packaged `ctspeq.bin` must not be
 loaded on the AE-5, and the bounded driver experiment sequence are documented
 in
 [docs/HEADPHONE_TUNING_INVESTIGATION.md](docs/HEADPHONE_TUNING_INVESTIGATION.md).
-The next read-only address-query experiment now exists as a build-validated
-patch; it has not been installed or loaded.
+The read-only address-query experiment was also built and run on the physical
+AE-5. Request `60` received no reply both immediately after firmware download
+and after the full AE-5 DSP setup, so neither run returned an address. Normal
+playback, the known mixer state, and exact host recovery remained intact. This
+negative result does not justify guessing other protocol fields or uploading
+the Chromebook SpeakerEQ image.
 
 The hardware audit also found independent upstream CA0132 Wedge Angle and
 factory-EQ cache bugs, plus an unbounded DSP fast-load parser. The repository
 carries minimal Wedge Angle and EQ cache fixes, a separately reviewable
-parser-hardening candidate with KUnit coverage, and the build-only read probe.
+parser-hardening candidate with KUnit coverage, and the physically tested
+read-only probe.
 Evidence, proposed commit messages, and validation steps are in
 [kernel/README.md](kernel/README.md). The four functional patches now build
 and boot together in both session and system Fedora KVM guests. Five managed
@@ -339,9 +344,10 @@ a Front-muted control. The patched What U Hear PCM captured the same fixture,
 three warm guest reboots restored the exact state, and 50 alternating output
 selections produced the expected speaker/headphone codec pins. The guest and
 host recovered their exact mixer hashes after shutdown. The diagnostic read
-probe remains separate and unloaded. Because the host still runs the unpatched
-Nobara kernel, AE-5 Control continues to display its invalid Wedge value as a
-driver warning and excludes it from newly captured profiles.
+probe remains separate from the functional patch stack; its two later guarded
+boots returned no address and also recovered exactly. Because the host still
+runs the unpatched Nobara kernel, AE-5 Control continues to display its invalid
+Wedge value as a driver warning and excludes it from newly captured profiles.
 
 Objective Windows/Linux level, frequency-response, and noise comparison is
 documented in

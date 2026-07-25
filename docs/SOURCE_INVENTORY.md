@@ -147,6 +147,10 @@ that association as a belief. It is not evidence that the Chromebook preset is
 an AE-5 headphone profile. The verified conclusion and safe experiment order
 are recorded in
 [`HEADPHONE_TUNING_INVESTIGATION.md`](HEADPHONE_TUNING_INVESTIGATION.md).
+A later physical read-only probe received no response to the source-defined
+request `60` either immediately after desktop firmware download or after the
+complete AE-5 DSP setup. That negative result adds no lawful coefficient source
+and does not change the firmware licence boundary.
 
 ## Additional public references
 

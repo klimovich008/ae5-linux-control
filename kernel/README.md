@@ -2,8 +2,9 @@
 
 These patches are independent, reviewable Linux changes and diagnostic
 experiments. The four functional patches were loaded together on the target
-AE-5 in a guarded KVM guest; the diagnostic SpeakerEQ probe has not been
-loaded. None changes the running host kernel merely by being present in this
+AE-5 in a guarded KVM guest. The diagnostic SpeakerEQ probe was subsequently
+loaded in two guarded cycles and produced the bounded negative result described
+below. None changes the running host kernel merely by being present in this
 repository.
 
 ## Current upstream validation
@@ -476,7 +477,7 @@ byte-identical raw ALSA state and no relevant warning. Full evidence is in
 implements the next bounded headphone-tuning experiment. It is diagnostic
 instrumentation, not a functional driver fix and not a SpeakerEQ loader.
 
-After a successful DSP firmware download, the patch sends the existing
+After the card-specific DSP setup has completed, the patch sends the existing
 `MASTERCONTROL_QUERY_SPEAKER_EQ_ADDRESS` request as one SCP `GET`. It runs only
 for the AE-5/AE-5 Plus and AE-7 quirks, provides a four-byte reply buffer, and
 accepts only an exact four-byte response. Success, DSP error, and unexpected
@@ -488,7 +489,7 @@ reported address. The result establishes only whether this DSP request is
 implemented and stable on the target card. It cannot identify the meaning,
 size, or safe contents of the returned memory region.
 
-### Build-only validation
+### Static and build validation
 
 The patch was developed against Linux stable `v7.1.4`, whose `ca0132.c`
 SHA-256 is
@@ -499,8 +500,7 @@ the exact running Nobara
 treated as errors. The patch also applies cleanly to Linux `master` at
 `48a5a7ab8d6a` and ALSA `for-next` at `61471f29f315`; their identical CA0132
 source compiled with the patch in the same isolated harness. Strict
-`checkpatch.pl` reports no errors, warnings, or checks. No module was installed
-or loaded.
+`checkpatch.pl` reports no errors, warnings, or checks.
 
 Apply it to a matching source tree with:
 
@@ -511,18 +511,60 @@ git apply \
   /path/to/ae5-linux-control/kernel/ca0132-speaker-eq-address-probe.patch
 ```
 
-The later authorized hardware session must use a known-good boot entry and
-enable the CA0132 dynamic-debug call sites before module initialization, for
-example with the kernel command-line option:
+The hardware session used a separate boot entry and enabled the CA0132
+dynamic-debug call sites before module initialization with:
 
 ```text
 snd_hda_codec_ca0132.dyndbg=+p
 ```
 
-Acceptance requires one exact non-error reply, the same address across three
-cold boots, normal playback, 50 speaker/headphone route changes, a
-suspend/resume cycle, clean module removal or shutdown, and no CA0132, HDA,
-ALSA, codec, or DSP warning. A control run without this patch must have the
-same neutral frequency response. Loading the patched module or kernel remains
-an explicit future test; this build-only milestone does not change the live
-audio stack.
+### Physical AE-5 result: no reply
+
+Two Linux `6.18.40` probe kernels were built from the same full LTS patch stack
+that had already passed KUnit, no-device boot, and physical-card validation:
+
+- `6.18.40-ae5-lts-speq+` sent the query immediately after firmware download;
+- `6.18.40-ae5-lts-speq-late+` used the repository patch's current placement,
+  after `ae5_setup_defaults()` had started the DSP audio streams and initialized
+  the AE-5 output modules.
+
+Each kernel first passed a no-device boot with zero failed units, matching
+module `vermagic`, active dynamic debug, and no kernel warning. With the exact
+`1102:0012/1102:0051` function passed through, each boot initialized the DSP
+once and emitted exactly one probe result:
+
+```text
+dspio_scp: send scp msg failed
+SpeakerEQ address query failed: -5
+```
+
+The late placement therefore ruled out the simple hypothesis that the query
+ran before AE-5 setup was complete. It did not prove whether request `60` is
+absent from `ctefx-desktop.bin` or whether undocumented request fields differ
+from the public-source assumption. No source-backed alternate request shape is
+available, so the experiment stopped without guessing.
+
+The failed GET did not otherwise disturb the card. The late-probe boot retained
+72 ALSA controls, 46 simple controls, Wedge `30`, Flat with all ten bands at raw
+`24`, the What U Hear PCM without ineffective controls, one DSP initialization,
+zero failed units, and mixer SHA-256
+`c5d3a2673054ea6b71b562e3f12923c51c00af9c79af17137948e4474818de68`.
+With Front muted, What U Hear captured a two-second 997 Hz direct-ALSA fixture
+at 48 kHz signed 32-bit stereo; its strongest bin was `996.09375 Hz` and its
+RMS amplitude was `0.048654`. Restoring the saved guest state reproduced the
+same mixer hash.
+
+Both clean shutdowns returned the card to host `snd_hda_intel`. Raw ALSA state
+was byte-identical, all 47 application controls were identical, WirePlumber
+defaults and routes were byte-identical, stream properties were canonically
+identical, the AE-5/Fifine defaults returned, and the host mixer SHA-256 was
+`3e595532348efe1e2e9c066039131e97505cb9b71bc6bfd8fa8a59301091e802`.
+Both guests were off, the inactive domain had no `hostdev`, and VFIO preflight
+passed afterward.
+
+The success acceptance gate was not met: there is no address to compare across
+boots. The test therefore did not proceed to three repeated query boots,
+another 50-switch route run, or unsupported guest suspend. The existing
+non-probe kernels already retain separate 50-switch and routing evidence. The
+next safe step is objective Windows/Linux measurement or new public protocol
+documentation, not another live query variant or a SpeakerEQ upload.

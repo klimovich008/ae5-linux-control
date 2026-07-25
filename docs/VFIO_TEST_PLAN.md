@@ -117,6 +117,41 @@ access. An unprivileged session daemon cannot safely perform managed host
 detachment. The physical-card tests therefore use the separately inspected
 `qemu:///system` guest.
 
+### Prepared Windows comparison guest
+
+On 2026-07-26, a separate `ae5-windows-compare` installation shell was
+defined under `qemu:///session`. It is powered off, persistent, and has
+autostart disabled. Its inactive XML contains:
+
+- six host-passthrough vCPUs and 12 GiB RAM;
+- Q35, Secure Boot OVMF, and a private variable store;
+- an emulated TPM 2.0 CRB device;
+- a new 100 GiB qcow2 disk at
+  `~/.local/share/libvirt/images/ae5-windows-compare.qcow2`, currently only
+  196 KiB allocated;
+- user-mode networking with an emulated E1000E adapter;
+- a SPICE display listening only on `127.0.0.1`;
+- no emulated sound device, PCI host device, USB host device, physical disk,
+  ISO, or autostart.
+
+The existing dual-boot NTFS partition is not present in the domain and will
+not be attached writable. Command settings will be copied into a separate
+read-only transfer image after Windows is installed.
+
+The official Windows 11 x64 multi-edition ISO is the only missing installation
+input. No unofficial image was substituted. The guest must remain powered off
+until a hash-verified ISO is attached as a read-only CD-ROM.
+
+This session definition is only the safe installation environment. As noted
+above, `qemu:///session` cannot detach the host's AE-5. An attempted new system
+domain definition was rejected by the current host authorization policy; its
+unused 196 KiB system-pool volume was immediately deleted and no system domain
+was created. After the Windows disk is installed and shut down, an
+authenticated transaction must define or import the final `qemu:///system`
+guest before managed passthrough can be tested. The final definition must pass
+the same XML review and `scripts/check-vfio-host.sh --require-tools` gate
+before the card is added.
+
 ### Candidate kernel smoke test
 
 The Wedge Angle patch was applied to `sound.git` `for-next` commit

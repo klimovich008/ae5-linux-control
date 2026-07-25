@@ -157,6 +157,35 @@ binary, or report is committed. The resulting candidate and physical
 acceptance boundary are documented in
 [`DIRECT_MODE_INVESTIGATION.md`](DIRECT_MODE_INVESTIGATION.md).
 
+## Windows Super X-Fi capability reference
+
+The user's exact Sound Blaster Command 3.5.10.0 installation was inspected
+offline to correct an overly broad “feature absent from the build” assumption.
+The application is a multi-device bundle and does include generic Super X-Fi
+UI, cloud, profile, and device-feature components. Their presence does not
+mean that the AE-5 supports Super X-Fi.
+
+The narrow managed capability path in
+`Creative.Platform.Devices.dll` creates a Super X-Fi feature only when a live
+device repository exposes `SuperXFiFeatureId`; otherwise the feature enricher
+returns no feature. The exact installed AE-5 product-profile tree and active
+`ctxhda.inf` package contain no Super X-Fi feature or parameter entry, while
+the Linux CA0132 interface exposes none. Static files cannot reveal what the
+Windows device repository returned at runtime, so final confirmation requires
+opening Command with this AE-5 connected and recording whether its device UI
+advertises the page.
+
+The inspected device assembly has SHA-256
+`e76ad407d5a2b7eeeb1049fa92d4b378ef03fdfddb8c7c963d8e07d8537eecdb`;
+the UI framework has SHA-256
+`06e7a61c95392fe76ec59d4a1ef1c5a8c465b07dd8c7d7b5256c2ce7ab109e3e`;
+and the exact active INF has SHA-256
+`36c88f2d7b39f9aa0a59ad2212c2ebe62e4b1443802b8d729e64934d49513b39`.
+No Creative binary, decompiler output, cloud credential, or copied
+implementation is committed. Super X-Fi remains outside Version 1 unless the
+live exact-product result and a legal Linux mechanism both justify
+reclassification.
+
 ## Firmware already distributed for Linux
 
 Fedora package `alsa-firmware-1.2.4-17.fc44` supplies the target system's

@@ -1,3 +1,5 @@
+#[cfg(test)]
+use ae5_control::linux_driver_defaults_for;
 use ae5_control::{
     Ae5Device, Ae5Lighting, Ae5Mixer, ChannelLevel, ControlError, ControlSnapshot,
     DIRECT_MODE_CONTROL, LINUX_DRIVER_DEFAULTS_PRESERVED, Level, NativeRatesConfig,
@@ -6,10 +8,10 @@ use ae5_control::{
     apply_linux_driver_defaults, capture_control_block_reason, direct_mode_block_reason,
     discover_sbcommand_installation, equalizer_band_block_reason, export_library_profile,
     import_discovered_sbcommand_profile_with_report, import_sbcommand_profile_with_report,
-    library_profile, linux_driver_defaults_for, native_rates_config, playback_switch_block_reason,
-    profile_library, profile_library_directory, rename_library_profile, set_ae5_default_input,
+    library_profile, native_rates_config, playback_switch_block_reason, profile_library,
+    profile_library_directory, rename_library_profile, set_ae5_default_input,
     set_ae5_default_output, set_native_rates_enabled, set_saved_led, set_saved_lighting,
-    snapshot_controls,
+    snapshot_controls, validate_linux_driver_defaults,
 };
 use gtk::prelude::*;
 use gtk::{gdk::Display, gio};
@@ -1357,12 +1359,7 @@ async fn reset_linux_driver_defaults(
     card_index: i32,
 ) -> Result<Option<String>, String> {
     let mixer = Ae5Mixer::open(card_index).map_err(|error| error.to_string())?;
-    let defaults =
-        linux_driver_defaults_for(&mixer.snapshots().map_err(|error| error.to_string())?)
-            .map_err(|error| error.to_string())?;
-    defaults
-        .check(&mixer, false)
-        .map_err(|error| error.to_string())?;
+    let defaults = validate_linux_driver_defaults(&mixer).map_err(|error| error.to_string())?;
     let library = profile_library_directory().map_err(|error| error.to_string())?;
 
     if !confirm_linux_driver_defaults(window, &defaults, &library).await? {

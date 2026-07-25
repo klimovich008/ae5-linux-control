@@ -125,7 +125,9 @@ cargo run -- linux-defaults-check
 ```
 
 An apply requires both an explicit confirmation flag and a new backup path.
-The previous valid mixer state is saved before the first write, and the normal
+Before creating that file or writing a control, the reset verifies that every
+targeted current value can be represented by a profile and restored on the
+live driver. The previous valid mixer state is then saved, and the normal
 profile transaction verifies or rolls back the reset:
 
 ```sh

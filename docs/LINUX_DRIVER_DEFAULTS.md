@@ -98,18 +98,53 @@ preview with Cancel selected by default. After confirmation, it saves the
 current valid mixer state in the native profile library before the first
 write.
 
-The backup uses create-new semantics and is never overwritten. If backup
-creation fails, no mixer write occurs. The existing profile transaction then
-validates the projected final state, applies through typed ALSA controls,
+Before a reset can create the backup or write a control, the same preflight
+used by `linux-defaults-check` captures the live mixer and proves that every
+targeted current field can be represented by a profile and restored through
+the live driver's advertised choices and ranges. A factory EQ preset is the
+only intentional exception: selecting that preset restores its complete
+driver curve, so stale individual band values are not captured or required.
+
+This guard matters when a driver exposes an internally initialized value
+outside the range advertised by its ALSA control. Such a value cannot safely
+round-trip through a normal profile. The reset refuses before any write rather
+than producing an incomplete recovery file.
+
+The backup uses create-new semantics and is never overwritten. If preflight or
+backup creation fails, no mixer write occurs. The existing profile transaction
+then validates the projected final state, applies through typed ALSA controls,
 verifies readback, and rolls back all targeted controls if a write fails.
 
 ## Validation status
 
 Automated tests verify every source-derived value, every exclusion, the
-LFE-safe X-Bass adaptation, and that a backup failure produces zero writes.
-On the physical target, `linux-defaults-check` validated all 29 controls
-against the live AE-5 without changing hardware.
+LFE-safe X-Bass adaptation, factory-preset recovery, and that both an
+incomplete backup and a backup-file failure produce zero writes.
 
-The reset itself has not been invoked during development. One
-user-authorized reset, backup restore, and audio check remains before calling
-the physical apply path verified.
+On the physical stock-kernel target, the driver currently reports
+`Wedge Angle=11` while advertising a valid range of `20..180`. Both
+`linux-defaults-check` and a confirmed apply correctly refused with a
+restorable-backup error. The apply created no backup file. Complete ALSA
+control, simple-control, desktop-route, and PCM-state snapshots were
+byte-identical before and after, and no PCM was opened.
+
+The successful physical apply path was then tested through managed VFIO on
+maintained kernel `6.18.40-ae5-lts-rgb+`, where Wedge initialized to the valid
+value `30`. A controlled pre-reset state used Wedge `20`, Surround off, low
+headphone gain, and Master `0`. Applying defaults changed Wedge to `30` and
+enabled Surround while preserving Master `0`. The automatically saved
+47-control profile restored the complete raw and simple mixer snapshots
+byte-for-byte.
+
+With defaults active, a two-second 997 Hz fixture whose peak was 10% of
+digital full scale was played at Master `0` and low gain. The physical output
+therefore remained effectively silent and well below the 20% safety ceiling.
+The card's digital What U Hear PCM captured an exact 997 Hz FFT peak, proving
+that the reset left the hardware audio path operational. All PCMs closed
+afterward. The guest's original mixer state and the host's mixer, desktop
+routes, WirePlumber files, and PCM state also restored byte-for-byte. The DSP
+initialized once, no unit failed, and no relevant driver warning appeared.
+
+This verifies the guarded Linux-default reset and recovery path on the
+physical AE-5. Creative reset semantics remain intentionally unclaimed unless
+reproducible vendor evidence becomes available.

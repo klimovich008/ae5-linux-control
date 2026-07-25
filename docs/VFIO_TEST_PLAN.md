@@ -7,7 +7,7 @@ the host kernel. It cannot replace final cold-boot, suspend, and recovery tests
 on the host.
 
 The virtualization stack, session guest, and system guest were installed on
-2026-07-24. Eleven guarded managed-passthrough cycles have now completed; the
+2026-07-24. Twelve guarded managed-passthrough cycles have now completed; the
 hostdev was removed afterward and both guests are powered off.
 
 Run the read-only, fail-closed hardware check at any time:
@@ -445,6 +445,34 @@ units, and no relevant warning. Shutdown returned all current host profile
 controls and all three WirePlumber files exactly, restored the known
 no-stream mixer hash and AE-5/Fifine defaults, removed the hostdev, and left
 VFIO preflight ready. Raw ambient recordings were deleted after reduction.
+
+The twelfth cycle validated the application's Linux-driver-default reset on
+the same production RGB kernel. The current application first rejected the
+stock host's invalid Wedge `11` before creating a backup or changing hardware.
+In the guest, Wedge initialized to valid value `30`; a controlled state then
+set Wedge `20`, Surround off, low headphone gain, and Master `0`. The
+restorable-backup preflight accepted all 29 reset controls. Applying defaults
+changed Wedge to `30` and enabled Surround while Master remained `0`. The
+47-control automatic backup restored complete raw mixer hash
+`6d188e32efe043e3224f5f8b5a69e23c7c52ecb85f0bd16cabff95968e75bee8`
+and simple mixer hash
+`3f063558459510a7133c8c81bd7031d23726a29d00070dc4ba0d9b6e1510c88b`
+exactly.
+
+The audio gate used a two-second 997 Hz fixture with a `-20.00 dBFS` peak
+(10% digital amplitude), low gain, and Master `0`. The physical output was
+therefore effectively silent and below the explicit 20% ceiling. The
+card's What U Hear PCM captured the stream with an exact `997.000 Hz` FFT
+peak. Every PCM closed afterward. Restoring the guest's original ALSA state
+also reproduced both complete original mixer hashes. The DSP initialized
+once, no unit failed, and no relevant CA0132/HDA warning appeared.
+
+Clean shutdown returned the host's complete raw mixer hash
+`3e595532348efe1e2e9c066039131e97505cb9b71bc6bfd8fa8a59301091e802`,
+simple mixer, output and input route reports, three WirePlumber files, and PCM
+state byte-for-byte. The AE-5 rebound to `snd_hda_intel`, all desktop audio
+services became active, the inactive domain had no hostdev, no QEMU process
+remained, and VFIO preflight was ready.
 
 The powered-off system volume passed `qemu-img check` after all five cycles
 and had SHA-256

@@ -5,9 +5,9 @@ use ae5_control::{
     discover_sbcommand_installation, export_library_profile,
     import_active_sbcommand_profile_with_report, import_discovered_sbcommand_profile_with_report,
     import_sbcommand_profile_with_report, lighting_config_path, linux_driver_defaults,
-    linux_driver_defaults_for, native_rates_config, profile_library, profile_library_directory,
-    restore_saved_lighting, set_ae5_default_input, set_ae5_default_output,
-    set_native_rates_enabled, set_saved_led, set_saved_lighting, snapshot_controls,
+    native_rates_config, profile_library, profile_library_directory, restore_saved_lighting,
+    set_ae5_default_input, set_ae5_default_output, set_native_rates_enabled, set_saved_led,
+    set_saved_lighting, snapshot_controls, validate_linux_driver_defaults,
 };
 use std::error::Error;
 use std::io;
@@ -577,10 +577,10 @@ fn show_linux_driver_defaults() -> Result<(), Box<dyn Error>> {
 
 fn check_linux_driver_defaults() -> Result<(), Box<dyn Error>> {
     let mixer = mixer()?;
-    let profile = linux_driver_defaults_for(&mixer.snapshots()?)?;
-    profile.check(&mixer, false)?;
+    let profile = validate_linux_driver_defaults(&mixer)?;
     println!(
-        "compatible: {} Linux-driver default controls are available; no hardware values were changed",
+        "compatible: {} Linux-driver default controls and their restorable backup are available; \
+         no hardware values were changed",
         profile.controls.len()
     );
     Ok(())

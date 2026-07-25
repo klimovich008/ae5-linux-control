@@ -23,6 +23,7 @@ pub use pipewire::{
 pub use profile::{
     ApplyReport, LINUX_DRIVER_DEFAULTS_PRESERVED, Profile, ProfileControl, ProfileError,
     apply_linux_driver_defaults, linux_driver_defaults, linux_driver_defaults_for,
+    validate_linux_driver_defaults,
 };
 pub use profile_library::{
     ProfileLibrary, StoredProfile, export_library_profile, library_profile, profile_library,

@@ -441,6 +441,16 @@ pub fn apply_linux_driver_defaults(
     )
 }
 
+pub fn validate_linux_driver_defaults(mixer: &Ae5Mixer) -> Result<Profile, ProfileError> {
+    prepare_linux_driver_defaults(mixer).map(|(defaults, _)| defaults)
+}
+
+fn prepare_linux_driver_defaults(mixer: &Ae5Mixer) -> Result<(Profile, Profile), ProfileError> {
+    let defaults = linux_driver_defaults_for(&mixer.snapshots().map_err(ControlError::from)?)?;
+    let backup = prepare_backup(&defaults, mixer, "Before AE-5 Linux driver defaults", false)?;
+    Ok((defaults, backup))
+}
+
 fn apply_with_backup(
     profile: &Profile,
     mixer: &impl ProfileMixer,
@@ -448,9 +458,90 @@ fn apply_with_backup(
     backup_path: &Path,
     allow_high_gain: bool,
 ) -> Result<ApplyReport, ProfileError> {
-    profile.validate_against(mixer, allow_high_gain)?;
-    Profile::capture(backup_name, mixer.snapshots()?)?.save_new(backup_path)?;
+    let backup = prepare_backup(profile, mixer, backup_name, allow_high_gain)?;
+    backup.save_new(backup_path)?;
     profile.apply_to(mixer, allow_high_gain)
+}
+
+fn prepare_backup(
+    profile: &Profile,
+    mixer: &impl ProfileMixer,
+    backup_name: &str,
+    allow_high_gain: bool,
+) -> Result<Profile, ProfileError> {
+    profile.validate_against(mixer, allow_high_gain)?;
+    let backup = Profile::capture(backup_name, mixer.snapshots()?)?;
+    validate_backup_coverage(profile, &backup)?;
+    backup.validate_against(mixer, true)?;
+    Ok(backup)
+}
+
+fn validate_backup_coverage(target: &Profile, backup: &Profile) -> Result<(), ProfileError> {
+    let factory_equalizer = profile_uses_factory_equalizer_preset(&backup.controls);
+    for (name, requested) in &target.controls {
+        if capture_control_block_reason(name).is_some()
+            || factory_equalizer && is_equalizer_band(name)
+        {
+            continue;
+        }
+        let saved = backup.controls.get(name);
+        let missing = [
+            (
+                requested.choice.is_some()
+                    && saved.and_then(|value| value.choice.as_ref()).is_none(),
+                "choice",
+            ),
+            (
+                requested.playback_switch.is_some()
+                    && saved.and_then(|value| value.playback_switch).is_none(),
+                "playback switch",
+            ),
+            (
+                requested.capture_switch.is_some()
+                    && saved.and_then(|value| value.capture_switch).is_none(),
+                "capture switch",
+            ),
+            (
+                requested.playback_level.is_some()
+                    && saved.and_then(|value| value.playback_level).is_none(),
+                "playback level",
+            ),
+            (
+                requested.capture_level.is_some()
+                    && saved.and_then(|value| value.capture_level).is_none(),
+                "capture level",
+            ),
+        ]
+        .into_iter()
+        .find_map(|(missing, field)| missing.then_some(field));
+        if let Some(field) = missing {
+            return Err(ProfileError::Invalid(format!(
+                "cannot reset '{name}': its current {field} cannot be saved in a restorable \
+                 profile; no hardware values were changed"
+            )));
+        }
+        if requested
+            .playback_channels
+            .keys()
+            .any(|channel| saved.is_none_or(|value| !value.playback_channels.contains_key(channel)))
+        {
+            return Err(ProfileError::Invalid(format!(
+                "cannot reset '{name}': its current playback channels cannot be saved in a \
+                 restorable profile; no hardware values were changed"
+            )));
+        }
+        if requested
+            .capture_channels
+            .keys()
+            .any(|channel| saved.is_none_or(|value| !value.capture_channels.contains_key(channel)))
+        {
+            return Err(ProfileError::Invalid(format!(
+                "cannot reset '{name}': its current capture channels cannot be saved in a \
+                 restorable profile; no hardware values were changed"
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn choice(value: &str) -> ProfileControl {
@@ -1190,6 +1281,70 @@ mod tests {
         assert!(mixer.writes.borrow().is_empty());
         assert_eq!(fs::read(&backup).unwrap(), b"do not overwrite");
         fs::remove_file(backup).unwrap();
+    }
+
+    #[test]
+    fn incomplete_backup_prevents_file_creation_and_profile_writes() {
+        let mixer = FakeMixer::new();
+        mixer.front.set(-1);
+        let profile = Profile::new(
+            "Reset target",
+            BTreeMap::from([(
+                "Front".to_owned(),
+                ProfileControl {
+                    playback_level: Some(50),
+                    ..ProfileControl::default()
+                },
+            )]),
+        )
+        .unwrap();
+        let backup = test_path();
+
+        let error =
+            apply_with_backup(&profile, &mixer, "Before reset", &backup, false).unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "cannot reset 'Front': its current playback level cannot be saved in a restorable \
+             profile; no hardware values were changed"
+        );
+        assert!(!backup.exists());
+        assert!(mixer.writes.borrow().is_empty());
+    }
+
+    #[test]
+    fn factory_equalizer_backup_may_omit_stale_band_values() {
+        let mixer = FakeMixer::new();
+        *mixer.eq_preset.borrow_mut() = "Acoustic".to_owned();
+        let profile = Profile::new(
+            "Reset target",
+            BTreeMap::from([
+                (
+                    EQUALIZER_PRESET_CONTROL.to_owned(),
+                    ProfileControl {
+                        choice: Some("Flat".to_owned()),
+                        ..ProfileControl::default()
+                    },
+                ),
+                (
+                    "EQ Band0".to_owned(),
+                    ProfileControl {
+                        playback_level: Some(24),
+                        ..ProfileControl::default()
+                    },
+                ),
+            ]),
+        )
+        .unwrap();
+
+        let backup = prepare_backup(&profile, &mixer, "Before reset", false).unwrap();
+
+        assert_eq!(
+            backup.controls[EQUALIZER_PRESET_CONTROL].choice.as_deref(),
+            Some("Acoustic")
+        );
+        assert!(!backup.controls.contains_key("EQ Band0"));
+        assert!(mixer.writes.borrow().is_empty());
     }
 
     #[test]

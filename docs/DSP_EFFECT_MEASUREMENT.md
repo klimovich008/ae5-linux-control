@@ -79,10 +79,18 @@ Bands 1 through 8 meet the Version 1 requirement of gain within 1 dB. The
 1.90 and 1.80 dB. A separate Band5 value of 12 requested -12 dB and measured
 -11.26 dB, exactly symmetric with its +11.26 dB result.
 
-Do not compensate the two edge bands in the importer yet. A Windows capture
-must establish whether the same CA0132 DSP filters behave identically under
-the Creative driver. If Windows reaches the full requested gain, characterize
-the Linux filter centers and DSP parameters before changing the mapping.
+Do not compensate the two edge bands in the importer. Offline inspection of
+the exact installed Command build and its existing runtime log proves that the
+AE-5 uses Command's SoundCore backend and that every managed layer passes the
+selected band float and index without compensation. Linux also sends the
+requested dB as the corresponding IEEE-754 float. This establishes
+control-value parity, not physical response parity: the proprietary native
+SoundCore layer could still translate a parameter before it reaches the DSP.
+A Windows capture must establish whether the same CA0132 filters behave
+identically under the Creative driver. If Windows reaches the full requested
+gain, characterize the native translation, Linux filter centers, and DSP
+parameters before changing the mapping. The complete static trace and hashes
+are in `docs/SOURCE_INVENTORY.md`.
 
 ## Factory preset readback
 

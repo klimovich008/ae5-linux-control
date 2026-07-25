@@ -224,6 +224,55 @@ No Windows code was executed. No Creative binary, BAML payload, decompiler
 output, private preset value, or copied implementation is committed; only the
 independent interoperability result and content hashes are retained.
 
+## Windows equalizer gain write path
+
+The exact installed Command 3.5.10.0 components and its existing runtime log
+were inspected offline to determine whether Command compensates the outer EQ
+bands before writing them. It does not in any managed layer:
+
+1. `EqBandViewModel` fixes the ten positions at 31, 62, 125, 250, 500, 1000,
+   2000, 4000, 8000, and 16000 Hz. Its action passes the displayed float and
+   band index directly to `GraphicEqBandLevelEffectParameterId`.
+2. `GraphicEQ.Commit` likewise passes each stored band float and index directly
+   to that parameter.
+3. `BasicIndexedEffectParameter` performs only configured-type and range
+   checks, then gives the same value to the selected device repository.
+4. The SoundCore key table maps the parameter to GraphicEQ parameter `2`.
+   Generating indexed keys adds indices 0 through 9, and the embedded
+   SoundCore enum names parameters 2 through 11 as Band0 through Band9 gain.
+5. `SoundCoreRepository.SetValue<float>` marks the value as a SoundCore float,
+   copies it without arithmetic, and calls `ISoundCore.SetParamValue`.
+
+This is the path used by the exact card rather than only a generic
+multi-device fallback. The existing Command log records 185 initializations
+where `Speakers (2- Sound BlasterX AE-5)` bound as a SoundCore endpoint and
+the AE5 product package was then selected.
+
+Linux performs the equivalent value conversion explicitly. The CA0132 tuning
+control maps ALSA level `24 + gain_db` through an IEEE-754 lookup and sends it
+to output DSP module `0x96`; level 24 sends `0x00000000` (0.0), level 36 sends
+`0x41400000` (+12.0), and level 12 sends `0xc1400000` (-12.0). Bands 0 through
+9 use consecutive module requests 11 through 20.
+
+The independent interoperability result is therefore that the Linux importer
+preserves Command's ten band values and ordering without a per-band
+compensation map. It does not prove that the proprietary native SoundCore
+layer translates every parameter to the same DSP request, or that Windows
+produces the same measured response at the 31 Hz and 16 kHz filter edges. The
+prepared Windows capture or VFIO guest must still establish physical response
+parity before the Version 1 acoustic gate is closed.
+
+| Evidence | SHA-256 |
+|---|---|
+| Shared UI framework | `06e7a61c95392fe76ec59d4a1ef1c5a8c465b07dd8c7d7b5256c2ce7ab109e3e` |
+| Device and SoundCore framework | `e76ad407d5a2b7eeeb1049fa92d4b378ef03fdfddb8c7c963d8e07d8537eecdb` |
+| Profile framework | `a190130b146eb46e55a05ddfae0ead722fc45786cdba990ddc9ce1994ec319a1` |
+| Existing Command runtime log | `bafe00375931359354816ff14f2d80f519c815a716b0bd5da250bce34dffb2a6` |
+
+No Windows program was started and no hardware value was changed. The runtime
+log and proprietary assemblies remain outside the repository; the repository
+contains only the independently described interfaces, behavior, and hashes.
+
 ## Windows profile serialization defaults
 
 A second scoped metadata and managed-method inspection distinguished five

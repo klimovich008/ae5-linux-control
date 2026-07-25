@@ -8,6 +8,7 @@ readonly sync_threshold=${AE5_SYNC_THRESHOLD:-1%}
 readonly maximum_fixture_peak_db=-14
 readonly ae5ctl=${AE5CTL:-ae5ctl}
 readonly -a frequencies=(31 62 125 250 500 1000 2000 4000 8000 16000)
+readonly -a playback_volume_controls=(Master Front Surround Center LFE PCM)
 
 case $sample_rate in
 44100 | 48000 | 96000) ;;
@@ -81,20 +82,17 @@ validate_fixture_peak() {
 	}
 }
 
-validate_master_snapshot() {
-	local snapshot=$1 values level minimum maximum percent
+validate_playback_volume_value() {
+	local control=$1 channel=$2 level=$3 minimum=$4 maximum=$5 percent
 
-	values=$(sed -n \
-		's/.*playback level \([-0-9][0-9]*\) \[\([-0-9][0-9]*\)\.\.\([-0-9][0-9]*\)\].*/\1 \2 \3/p' \
-		<<< "$snapshot")
-	[[ $(wc -w <<< "$values") -eq 3 ]] || {
-		printf 'error: unable to parse the AE-5 Master level\n' >&2
+	((maximum > minimum)) || {
+		printf 'error: invalid AE-5 %s range [%s..%s]\n' \
+			"$control" "$minimum" "$maximum" >&2
 		return 1
 	}
-	read -r level minimum maximum <<< "$values"
-	((maximum > minimum)) || {
-		printf 'error: invalid AE-5 Master range [%s..%s]\n' \
-			"$minimum" "$maximum" >&2
+	((level >= minimum && level <= maximum)) || {
+		printf 'error: AE-5 %s%s level %s is outside [%s..%s]\n' \
+			"$control" "$channel" "$level" "$minimum" "$maximum" >&2
 		return 1
 	}
 	percent=$(awk -v level="$level" -v minimum="$minimum" \
@@ -103,10 +101,46 @@ validate_master_snapshot() {
 	awk -v level="$level" -v minimum="$minimum" -v maximum="$maximum" \
 		'BEGIN { exit !((level - minimum) * 100 <= (maximum - minimum) * 20) }' ||
 		{
-			printf 'error: AE-5 Master is %s%%; maximum test level is 20%%\n' \
-				"$percent" >&2
+			printf 'error: AE-5 %s%s is %s%%; maximum test level is 20%%\n' \
+				"$control" "$channel" "$percent" >&2
 			return 1
 		}
+}
+
+validate_playback_volume_snapshot() {
+	local control=$1 snapshot=$2 values level minimum maximum
+	local channel_list entry channel_value
+
+	[[ $snapshot == "$control |"* ]] || {
+		printf 'error: unable to identify the AE-5 %s control\n' "$control" >&2
+		return 1
+	}
+	values=$(sed -n \
+		's/.*playback level \([-0-9][0-9]*\) \[\([-0-9][0-9]*\)\.\.\([-0-9][0-9]*\)\].*/\1 \2 \3/p' \
+		<<< "$snapshot")
+	[[ $(wc -w <<< "$values") -eq 3 ]] || {
+		printf 'error: unable to parse the AE-5 %s level\n' "$control" >&2
+		return 1
+	}
+	read -r level minimum maximum <<< "$values"
+	validate_playback_volume_value "$control" "" \
+		"$level" "$minimum" "$maximum" || return
+
+	channel_list=$(sed -n \
+		's/.* | playback \([^|]*=[-0-9][^|]*\)\( |.*\)\?$/\1/p' \
+		<<< "$snapshot")
+	[[ -z $channel_list ]] && return
+	while IFS= read -r entry; do
+		entry=${entry# }
+		channel_value=${entry##*=}
+		[[ $channel_value =~ ^-?[0-9]+$ ]] || {
+			printf 'error: unable to parse the AE-5 %s channel levels\n' \
+				"$control" >&2
+			return 1
+		}
+		validate_playback_volume_value "$control" \
+			" ${entry%=*}" "$channel_value" "$minimum" "$maximum" || return
+	done < <(tr ',' '\n' <<< "$channel_list")
 }
 
 validate_gain_snapshot() {
@@ -141,15 +175,17 @@ validate_pipewire_volume_snapshot() {
 }
 
 playback_preflight() {
-	local mode=$1 fixture=$2 snapshot failed=0
+	local mode=$1 fixture=$2 control snapshot failed=0
 
 	validate_fixture_peak "$fixture" || failed=1
 	need_tool "$ae5ctl"
-	if snapshot=$("$ae5ctl" get Master); then
-		validate_master_snapshot "$snapshot" || failed=1
-	else
-		failed=1
-	fi
+	for control in "${playback_volume_controls[@]}"; do
+		if snapshot=$("$ae5ctl" get "$control"); then
+			validate_playback_volume_snapshot "$control" "$snapshot" || failed=1
+		else
+			failed=1
+		fi
+	done
 	if snapshot=$("$ae5ctl" get 'AE-5: Headphone Gain'); then
 		validate_gain_snapshot "$snapshot" || failed=1
 	else
@@ -532,11 +568,39 @@ self_test() (
 		return 1
 	fi
 
-	validate_master_snapshot \
+	validate_playback_volume_snapshot Master \
 		'Master | playback on | playback level 20 [0..100]' >/dev/null
-	if validate_master_snapshot \
+	if validate_playback_volume_snapshot Master \
 		'Master | playback on | playback level 20 [0..99]' >/dev/null 2>&1; then
 		printf 'self-test: Master above 20%% unexpectedly passed\n' >&2
+		return 1
+	fi
+	validate_playback_volume_snapshot Front \
+		'Front | playback on | playback level 20 [0..100] | playback Front Left=20, Front Right=20' \
+		>/dev/null
+	if validate_playback_volume_snapshot Front \
+		'Front | playback on | playback level 20 [0..100] | playback Front Left=20, Front Right=21' \
+		>/dev/null 2>&1; then
+		printf 'self-test: unequal Front channel above 20%% unexpectedly passed\n' >&2
+		return 1
+	fi
+	validate_playback_volume_snapshot PCM \
+		'PCM | playback level 51 [0..255] | playback Front Left=51, Front Right=51' \
+		>/dev/null
+	if validate_playback_volume_snapshot PCM \
+		'PCM | playback level 52 [0..255] | playback Front Left=52, Front Right=52' \
+		>/dev/null 2>&1; then
+		printf 'self-test: PCM above 20%% unexpectedly passed\n' >&2
+		return 1
+	fi
+	if validate_playback_volume_snapshot Front \
+		'Master | playback level 10 [0..100]' >/dev/null 2>&1; then
+		printf 'self-test: mismatched hardware volume control unexpectedly passed\n' >&2
+		return 1
+	fi
+	if validate_playback_volume_snapshot Master \
+		'Master | playback level -1 [0..100]' >/dev/null 2>&1; then
+		printf 'self-test: out-of-range hardware volume unexpectedly passed\n' >&2
 		return 1
 	fi
 	validate_gain_snapshot \

@@ -381,9 +381,10 @@ also pass. Three warm boots each retained the safe mixer state and completed
 Direct and normal PCM playback. Direct Mode remains deferred for a host cold
 boot, bare-metal suspend/resume, and connected line-out gates. A post-Direct
 What U Hear capture and exact final VFIO guest/host recovery also pass. Audio
-tests use approximately 5% digital amplitude and are capped at 20%. The
-independent driver comparison, patch, passed evidence, and remaining acceptance
-matrix are in
+tests use approximately 5% digital amplitude. The non-mutating preflight
+rejects a fixture, any physical-output/PCM channel, or PipeWire volume above
+20%, and requires Low headphone gain. The independent driver comparison,
+patch, passed evidence, and remaining acceptance matrix are in
 [docs/DIRECT_MODE_INVESTIGATION.md](docs/DIRECT_MODE_INVESTIGATION.md).
 
 The target host can safely isolate the AE-5 for Linux-guest kernel A/B tests.

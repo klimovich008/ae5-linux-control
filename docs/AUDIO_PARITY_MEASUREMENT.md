@@ -93,12 +93,14 @@ AE5CTL=target/release/ae5ctl \
   /path/to/fixtures-48000/parity-tones.wav
 ```
 
-The direct check requires the fixture and AE-5 Master level to be at or below
-20% and headphone gain to be Low. The PipeWire check additionally requires the
-AE-5 to be the default sink and its stream volume to be at or below 20%. It
-only reads state and never lowers a value automatically; a failure forbids
-playback until the operator deliberately establishes and later restores a safe
-snapshot.
+The direct check requires the fixture and every channel of the AE-5 Master,
+Front, Surround, Center, LFE, and PCM playback stages to be at or below 20% of
+its advertised raw range, and headphone gain to be Low. The PipeWire check
+additionally requires the AE-5 to be the default sink and its sink volume to
+be at or below 20%. It only reads state and never lowers a value
+automatically; a missing or unparseable safety control also fails closed. Any
+failure forbids playback until the operator deliberately establishes and
+later restores a safe snapshot.
 
 Do not change gain between captures. Record at least half a second before
 starting playback and at least half a second after it ends. Preserve the

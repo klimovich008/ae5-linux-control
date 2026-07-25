@@ -21,6 +21,8 @@
     <p>
       The device page reports live hardware and driver capabilities and can
       save a privacy-conscious diagnostics report without root privileges.
+      A compatibility page lists evidence-tracked Linux equivalents, pending
+      acceptance work, and unavailable Sound Blaster Command features.
     </p>
   </description>
   <launchable type="desktop-id">io.github.klimovich008.ae5control.desktop</launchable>

@@ -1,16 +1,17 @@
 use ae5_control::{
-    Ae5Device, Ae5Lighting, Ae5Mixer, DIRECT_MODE_CONTROL, LINUX_DRIVER_DEFAULTS_PRESERVED,
-    ONBOARD_LED_COUNT, PipeWireNode, PipeWireRouteState, Profile, RgbColor, SbCommandImportReport,
-    SbCommandTarget, ae5_input, ae5_output, ae5_route_state, apply_linux_driver_defaults,
-    discover_sbcommand_installation, export_library_profile,
-    import_active_sbcommand_profile_with_report, import_discovered_sbcommand_profile_with_report,
-    import_sbcommand_profile_with_report, lighting_config_path, linux_driver_defaults,
-    native_rates_config, profile_library, profile_library_directory, rename_library_profile,
-    restore_saved_lighting, set_ae5_default_input, set_ae5_default_output,
-    set_native_rates_enabled, set_saved_led, set_saved_lighting, snapshot_controls,
-    validate_linux_driver_defaults,
+    Ae5Device, Ae5Lighting, Ae5Mixer, DIRECT_MODE_CONTROL, FeatureSupport,
+    LINUX_DRIVER_DEFAULTS_PRESERVED, ONBOARD_LED_COUNT, PipeWireNode, PipeWireRouteState, Profile,
+    RgbColor, SbCommandImportReport, SbCommandTarget, ae5_input, ae5_output, ae5_route_state,
+    apply_linux_driver_defaults, discover_sbcommand_installation, export_library_profile,
+    feature_parity, import_active_sbcommand_profile_with_report,
+    import_discovered_sbcommand_profile_with_report, import_sbcommand_profile_with_report,
+    lighting_config_path, linux_driver_defaults, native_rates_config, profile_library,
+    profile_library_directory, rename_library_profile, restore_saved_lighting,
+    set_ae5_default_input, set_ae5_default_output, set_native_rates_enabled, set_saved_led,
+    set_saved_lighting, snapshot_controls, validate_linux_driver_defaults,
 };
 use std::error::Error;
+use std::fmt::Write as _;
 use std::io;
 use std::path::Path;
 
@@ -40,6 +41,8 @@ fn run() -> Result<(), Box<dyn Error>> {
         [] => print_status(),
         [command] if command == "status" => print_status(),
         [command] if command == "controls" => print_controls(),
+        [command] if command == "features" => print_features(None),
+        [command, status] if command == "features" => print_features(Some(status)),
         [command] if command == "profile-library" => print_profile_library(),
         [command] if command == "output-status" => print_output_status(),
         [command] if command == "route-status" => print_route_status(),
@@ -176,6 +179,60 @@ fn print_status() -> Result<(), Box<dyn Error>> {
         }
     }
     Ok(())
+}
+
+fn print_features(filter: Option<&str>) -> Result<(), Box<dyn Error>> {
+    let filter = filter
+        .map(|value| {
+            FeatureSupport::parse(value).ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "feature status must be verified, substituted, deferred, or unsupported",
+                )
+            })
+        })
+        .transpose()?;
+    print!("{}", feature_status_report(filter));
+    Ok(())
+}
+
+fn feature_status_report(filter: Option<FeatureSupport>) -> String {
+    let features = feature_parity().collect::<Vec<_>>();
+    let mut report = format!(
+        "Sound Blaster Command feature compatibility ({} tracked)\n",
+        features.len()
+    );
+    for support in FeatureSupport::ALL {
+        let count = features
+            .iter()
+            .filter(|feature| feature.support == support)
+            .count();
+        let _ = writeln!(report, "  {support}: {count}");
+    }
+
+    for support in FeatureSupport::ALL {
+        if filter.is_some_and(|selected| selected != support) {
+            continue;
+        }
+        let selected = features
+            .iter()
+            .filter(|feature| feature.support == support)
+            .collect::<Vec<_>>();
+        let _ = writeln!(
+            report,
+            "\n{} ({}) — {}",
+            support,
+            selected.len(),
+            support.description()
+        );
+        for feature in selected {
+            let _ = writeln!(report, "  {} · {}", feature.area, feature.feature);
+            let _ = writeln!(report, "    Linux: {}", feature.linux_mechanism);
+            let _ = writeln!(report, "    Evidence: {}", feature.current_evidence);
+            let _ = writeln!(report, "    Remaining: {}", feature.remaining_gate);
+        }
+    }
+    report
 }
 
 fn print_output_status() -> Result<(), Box<dyn Error>> {
@@ -772,6 +829,8 @@ fn print_help() {
          Commands:\n\
          \x20 status    Show the detected AE-5 and important live controls (default)\n\
          \x20 controls  Show every live ALSA simple control\n\
+         \x20 features [verified|substituted|deferred|unsupported]\n\
+         \x20           Show evidence-tracked Sound Blaster Command compatibility\n\
          \x20 output-status       Show the AE-5 PipeWire playback target\n\
          \x20 route-status        Verify ALSA and PipeWire hardware routes agree\n\
          \x20 set-default-output  Make the AE-5 the PipeWire default playback target\n\
@@ -808,4 +867,32 @@ fn print_help() {
          \x20 sbcommand-import-active NAME USER_CONFIG AE5_PRODUCT_DIR speaker|headphone OUTPUT\n\
          \x20 help      Show this help"
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn feature_report_filters_details_but_keeps_summary_counts() {
+        let report = feature_status_report(Some(FeatureSupport::Unsupported));
+        let features = feature_parity().collect::<Vec<_>>();
+        assert!(report.contains(&format!(
+            "Sound Blaster Command feature compatibility ({} tracked)",
+            features.len()
+        )));
+        for support in FeatureSupport::ALL {
+            let count = features
+                .iter()
+                .filter(|feature| feature.support == support)
+                .count();
+            assert!(report.contains(&format!("{support}: {count}")));
+        }
+        for feature in features {
+            assert_eq!(
+                report.contains(&format!("{} · {}", feature.area, feature.feature)),
+                feature.support == FeatureSupport::Unsupported
+            );
+        }
+    }
 }

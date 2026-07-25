@@ -458,6 +458,51 @@ configuration rather than the temporary RPM payload. It is therefore hardware
 evidence for the source milestone, while the disposable-container result is
 the exact RPM packaging evidence.
 
+## Embedded feature-compatibility release
+
+The authoritative 54-row `feature-parity.tsv` is now embedded in the Rust
+library and drives both `ae5ctl features` and a ninth native GUI page. The
+current matrix contains 13 verified features, 13 documented Linux-native
+substitutes, 18 functions pending acceptance, and 10 unavailable functions.
+The parser and both presentation paths update from that single source.
+
+The complete release build passed 73 Rust/GTK tests, strict Clippy and
+formatting, the feature-matrix and ACP validators, AppStream validation, and
+the transactional rootless lifecycle. The real user installation was then
+upgraded without restarting WirePlumber. Its installed GUI and CLI are
+byte-identical to the release inputs:
+
+- GUI SHA-256:
+  `3a82e524b73442a5e7718819cde53d91368684ed752f1670f0c4d196f1344a76`
+- CLI SHA-256:
+  `c3a98075f774e9abab83156b59ad8cd44bb3a5207a082e5a89bf882bb69936c8`
+
+The installed CLI printed all ten unavailable features without requiring an
+ALSA device write. Under the real KDE/Wayland session, AT-SPI selected the
+installed **Compatibility** page, confirmed all nine sidebar pages and all 28
+unavailable/pending feature buttons, expanded Super X-Fi, and read its Linux
+mechanism, evidence, remaining gate, and source before closing the frame
+through `window.close`.
+
+The full mixer SHA-256 was
+`e727bb4a9637af748f485838a09dcad782b14849a144854b586ae33e3d3a31a4`
+before and after both source and installed GUI checks. ALSA remained at
+Headphone, 2.0, Microphone, raw Master/Front 19/99, PCM 51/255, unused
+surround channels zero and muted, and Low gain. PipeWire remained at exactly
+20% with the matching duplex route. Its already-running PCM retained the same
+PipeWire owner and trigger time; the test did not suspend it or create a
+playback stream. No audio command was run.
+
+The fresh Fedora 44 binary RPM SHA-256 is
+`ea1c015936c5d03361a964ede57b1b03436469a65193ee4a661aabba80838736`;
+the source RPM SHA-256 is
+`9dbcf6ab31c7dd2cfeda8c113fa56608050991e17c386f35b664fd7a3f07c1c6`.
+The package build repeated all 73 tests and metadata checks. A disposable
+Fedora 44 container installed that exact binary RPM, verified that the
+hardware-independent unsupported-feature report worked, and removed all 19
+package-owned files while preserving profile and ALSA-state sentinels
+byte-for-byte.
+
 ## Remaining release gate
 
 This proves clean Fedora dependency resolution and package ownership/removal,

@@ -2,16 +2,17 @@
 use ae5_control::linux_driver_defaults_for;
 use ae5_control::{
     Ae5Device, Ae5Lighting, Ae5Mixer, ChannelLevel, ControlError, ControlSnapshot,
-    DIRECT_MODE_CONTROL, LINUX_DRIVER_DEFAULTS_PRESERVED, Level, NativeRatesConfig,
+    DIRECT_MODE_CONTROL, FeatureSupport, LINUX_DRIVER_DEFAULTS_PRESERVED, Level, NativeRatesConfig,
     ONBOARD_LED_COUNT, PipeWireNode, PipeWireRouteState, Profile, ProfileControl, RgbColor,
     SbCommandImport, SbCommandTarget, ae5_input, ae5_output, ae5_route_state,
     apply_linux_driver_defaults, capture_control_block_reason, direct_mode_block_reason,
     discover_sbcommand_installation, equalizer_band_block_reason, export_library_profile,
-    import_discovered_sbcommand_profile_with_report, import_sbcommand_profile_with_report,
-    library_profile, native_rates_config, playback_switch_block_reason, profile_library,
-    profile_library_directory, rename_library_profile, set_ae5_default_input,
-    set_ae5_default_output, set_native_rates_enabled, set_saved_led, set_saved_lighting,
-    snapshot_controls, validate_linux_driver_defaults,
+    feature_parity, import_discovered_sbcommand_profile_with_report,
+    import_sbcommand_profile_with_report, library_profile, native_rates_config,
+    playback_switch_block_reason, profile_library, profile_library_directory,
+    rename_library_profile, set_ae5_default_input, set_ae5_default_output,
+    set_native_rates_enabled, set_saved_led, set_saved_lighting, snapshot_controls,
+    validate_linux_driver_defaults,
 };
 use gtk::prelude::*;
 use gtk::{gdk::Display, gio};
@@ -169,6 +170,7 @@ fn content(
 
     for (name, title) in [
         ("device", "Device"),
+        ("compatibility", "Compatibility"),
         ("routing", "System audio"),
         ("lighting", "Lighting"),
         ("profiles", "Profiles"),
@@ -232,6 +234,7 @@ fn populate_page(
 
     let page: gtk::Widget = match name {
         "device" => device_page(window, device, controls, status).upcast(),
+        "compatibility" => compatibility_page().upcast(),
         "routing" => routing_page(device.card_index, status).upcast(),
         "lighting" => lighting_page(window, status).upcast(),
         "profiles" => profile_page(window, device.card_index, status).upcast(),
@@ -435,6 +438,92 @@ fn device_page(
         .hscrollbar_policy(gtk::PolicyType::Never)
         .child(&page)
         .build()
+}
+
+fn compatibility_page() -> gtk::ScrolledWindow {
+    let page = gtk::Box::new(gtk::Orientation::Vertical, 18);
+    page.add_css_class("profile-page");
+
+    let heading = gtk::Label::new(Some("Sound Blaster Command compatibility"));
+    heading.set_xalign(0.0);
+    heading.add_css_class("page-title");
+    page.append(&heading);
+
+    let summary = gtk::Box::new(gtk::Orientation::Vertical, 4);
+    for line in compatibility_summary().lines() {
+        let label = gtk::Label::new(Some(line));
+        label.set_xalign(0.0);
+        summary.append(&label);
+    }
+    page.append(&profile_card(
+        "01",
+        "Tracked feature status",
+        "This read-only view is built from the same evidence matrix used by the project. A Linux-native equivalent is labeled as a substitution instead of being presented as Creative's implementation.",
+        &summary,
+    ));
+
+    for (index, support, title, description) in [
+        (
+            "02",
+            FeatureSupport::Unsupported,
+            "Unavailable features",
+            "No verified safe Linux mechanism exists for these functions. They are listed explicitly instead of appearing as nonfunctional controls.",
+        ),
+        (
+            "03",
+            FeatureSupport::Deferred,
+            "Pending acceptance",
+            "These functions have a Linux control, candidate, or substitute, but still need the stated physical evidence before the project claims full support.",
+        ),
+    ] {
+        let entries = gtk::Box::new(gtk::Orientation::Vertical, 8);
+        for feature in feature_parity().filter(|feature| feature.support == support) {
+            let expander =
+                gtk::Expander::new(Some(&format!("{} · {}", feature.area, feature.feature)));
+            expander.add_css_class("feature-entry");
+
+            let details = gtk::Box::new(gtk::Orientation::Vertical, 4);
+            for (label, value) in [
+                ("Linux mechanism", feature.linux_mechanism),
+                ("Current evidence", feature.current_evidence),
+                ("Remaining gate", feature.remaining_gate),
+                ("Source", feature.source),
+            ] {
+                let text = gtk::Label::new(Some(&format!("{label}: {value}")));
+                text.set_xalign(0.0);
+                text.set_wrap(true);
+                text.set_selectable(true);
+                text.add_css_class("dim-label");
+                details.append(&text);
+            }
+            expander.set_child(Some(&details));
+            entries.append(&expander);
+        }
+        page.append(&profile_card(index, title, description, &entries));
+    }
+
+    gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .child(&page)
+        .build()
+}
+
+fn compatibility_summary() -> String {
+    let features = feature_parity().collect::<Vec<_>>();
+    let counts = FeatureSupport::ALL.map(|support| {
+        features
+            .iter()
+            .filter(|feature| feature.support == support)
+            .count()
+    });
+    format!(
+        "{} tracked features\nVerified: {}\nLinux-native equivalents: {}\nPending acceptance: {}\nUnavailable: {}",
+        features.len(),
+        counts[0],
+        counts[1],
+        counts[2],
+        counts[3]
+    )
 }
 
 fn routing_page(card_index: i32, status: &gtk::Label) -> gtk::ScrolledWindow {
@@ -2556,6 +2645,10 @@ fn install_css() {
             padding: 10px 0;
             border-bottom: 1px solid alpha(#ffffff, 0.08);
         }
+        .feature-entry {
+            padding: 8px 0;
+            border-bottom: 1px solid alpha(#ffffff, 0.08);
+        }
         .section-index {
             background: #173d35;
             color: #8ee3c5;
@@ -2586,6 +2679,25 @@ fn install_css() {
 mod tests {
     use super::*;
     use ae5_control::SbCommandImportReport;
+
+    #[test]
+    fn compatibility_page_summarizes_the_embedded_matrix() {
+        let summary = compatibility_summary();
+        let features = feature_parity().collect::<Vec<_>>();
+        assert!(summary.contains(&format!("{} tracked features", features.len())));
+        for (label, support) in [
+            ("Verified", FeatureSupport::Verified),
+            ("Linux-native equivalents", FeatureSupport::Substituted),
+            ("Pending acceptance", FeatureSupport::Deferred),
+            ("Unavailable", FeatureSupport::Unsupported),
+        ] {
+            let count = features
+                .iter()
+                .filter(|feature| feature.support == support)
+                .count();
+            assert!(summary.contains(&format!("{label}: {count}")));
+        }
+    }
 
     #[test]
     fn every_control_category_is_exclusive() {

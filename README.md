@@ -26,6 +26,20 @@ cargo run -- controls
 `status` prints the exact card identity and important control state. `controls`
 prints all simple mixer controls and their current values.
 
+The complete Sound Blaster Command compatibility ledger is also embedded in
+the binary. It can be read without a card present and filtered to the features
+that are unavailable or still waiting for physical acceptance:
+
+```sh
+cargo run -- features
+cargo run -- features unsupported
+cargo run -- features deferred
+```
+
+The output names the Linux mechanism, current evidence, and remaining gate for
+every tracked feature. It is generated from `feature-parity.tsv`, so the CLI,
+GUI, and project evidence cannot silently disagree.
+
 PipeWire may prefer other playback and recording devices even when the AE-5 is
 detected. Inspect the mapped nodes or explicitly make either one the desktop
 default through WirePlumber:
@@ -232,9 +246,12 @@ for review.
 
 ## Native desktop application
 
-The GTK 4 application groups device diagnostics, system audio, onboard
-lighting, profiles, playback, effects, equalizer, and recording into dedicated
-pages. The
+The GTK 4 application groups device diagnostics, Command compatibility, system
+audio, onboard lighting, profiles, playback, effects, equalizer, and recording
+into dedicated pages. The **Compatibility** page summarizes verified,
+Linux-native, pending, and unavailable features, then exposes the evidence and
+remaining gate for every pending or unavailable item without touching the
+hardware. The
 **Device** page shows the exact detected hardware, live capability counts, and
 driver values outside their advertised ranges. It can save the same
 privacy-conscious diagnostics report as `ae5-collect-report` without invoking a
@@ -360,7 +377,9 @@ bash scripts/collect-linux-report.sh --self-test
 The implementation and test plan is in [PORT_PLAN.md](PORT_PLAN.md).
 The evidence-tracked [feature parity matrix](feature-parity.tsv) classifies
 each Command feature as verified, intentionally substituted, deferred, or
-unsupported; deferred rows name the acceptance evidence still required.
+unsupported; deferred rows name the acceptance evidence still required. The
+installed `ae5ctl features` command and GUI Compatibility page embed this same
+validated matrix.
 
 The reported first-use headphone failure is now reproduced. PipeWire's generic
 headphone route muted the CA0132 `Front` DAC even though the AE-5 headphones

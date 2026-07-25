@@ -556,10 +556,13 @@ Goal: expose the proven backend without inventing a second control path.
 Pages:
 
 - Device and diagnostics
-- Playback/output
-- Speakers and bass management
+- Sound Blaster Command compatibility and remaining acceptance gates
+- System audio routing and native rates
+- Onboard lighting
+- Native profiles and Windows migration
+- Playback/output and speaker bass management
 - SBX/output effects
-- Equalizer and profiles
+- Equalizer
 - Recording/input effects
 
 Behavior:

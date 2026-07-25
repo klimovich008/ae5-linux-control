@@ -1,5 +1,6 @@
 pub mod controls;
 pub mod device;
+pub mod feature_parity;
 pub mod lighting;
 pub mod pipewire;
 pub mod profile;
@@ -12,6 +13,7 @@ pub use controls::{
     playback_switch_block_reason, snapshot_controls,
 };
 pub use device::Ae5Device;
+pub use feature_parity::{FeatureParity, FeatureSupport, feature_parity};
 pub use lighting::{
     Ae5Lighting, LightingConfig, ONBOARD_LED_COUNT, RgbColor, lighting_config_path,
     restore_saved_lighting, saved_lighting, set_saved_led, set_saved_lighting,

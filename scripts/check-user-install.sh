@@ -56,6 +56,8 @@ desktop-file-validate \
 appstreamcli validate --no-net --strict \
 	"$data_root/metainfo/io.github.klimovich008.ae5control.metainfo.xml"
 PATH="$test_home/.local/bin:$PATH" ae5ctl help >/dev/null
+PATH="$test_home/.local/bin:$PATH" ae5ctl features unsupported |
+	grep -Fq 'Device · Super X-Fi'
 profile_root=$config_root/ae5-control/profiles
 install -d -m0700 "$profile_root"
 printf '%s\n' \

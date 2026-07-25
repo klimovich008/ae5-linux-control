@@ -80,6 +80,26 @@ playback. Record at 48 kHz, 24-bit stereo:
 3. Linux normal PipeWire playback.
 4. Digital silence through the same three paths.
 
+Immediately before a playback command, run the non-mutating preflight for the
+chosen path and exact fixture:
+
+```sh
+AE5CTL=target/release/ae5ctl \
+  bash scripts/audio-parity.sh playback-preflight direct \
+  /path/to/fixtures-48000/parity-tones.wav
+
+AE5CTL=target/release/ae5ctl \
+  bash scripts/audio-parity.sh playback-preflight pipewire \
+  /path/to/fixtures-48000/parity-tones.wav
+```
+
+The direct check requires the fixture and AE-5 Master level to be at or below
+20% and headphone gain to be Low. The PipeWire check additionally requires the
+AE-5 to be the default sink and its stream volume to be at or below 20%. It
+only reads state and never lowers a value automatically; a failure forbids
+playback until the operator deliberately establishes and later restores a safe
+snapshot.
+
 Do not change gain between captures. Record at least half a second before
 starting playback and at least half a second after it ends. Preserve the
 original WAV files and record the operating system, driver/kernel, selected

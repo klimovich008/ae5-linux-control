@@ -6,6 +6,7 @@ readonly bit_depth=24
 readonly channels=2
 readonly sync_threshold=${AE5_SYNC_THRESHOLD:-1%}
 readonly maximum_fixture_peak_db=-14
+readonly ae5ctl=${AE5CTL:-ae5ctl}
 readonly -a frequencies=(31 62 125 250 500 1000 2000 4000 8000 16000)
 
 case $sample_rate in
@@ -24,10 +25,12 @@ usage:
   audio-parity.sh compare-tones WINDOWS.wav LINUX.wav
   audio-parity.sh analyze-noise CAPTURE.wav
   audio-parity.sh compare-noise WINDOWS.wav LINUX.wav
+  audio-parity.sh playback-preflight direct|pipewire FIXTURE.wav
   audio-parity.sh --self-test
 
 Set AE5_SYNC_THRESHOLD to override the default 1% marker threshold.
 Set AE5_SAMPLE_RATE to 44100, 48000, or 96000; the default is 48000.
+Set AE5CTL to the ae5ctl executable when it is not installed in PATH.
 EOF
 }
 
@@ -76,6 +79,100 @@ validate_fixture_peak() {
 			"$peak" "$maximum_fixture_peak_db" "$input" >&2
 		return 1
 	}
+}
+
+validate_master_snapshot() {
+	local snapshot=$1 values level minimum maximum percent
+
+	values=$(sed -n \
+		's/.*playback level \([-0-9][0-9]*\) \[\([-0-9][0-9]*\)\.\.\([-0-9][0-9]*\)\].*/\1 \2 \3/p' \
+		<<< "$snapshot")
+	[[ $(wc -w <<< "$values") -eq 3 ]] || {
+		printf 'error: unable to parse the AE-5 Master level\n' >&2
+		return 1
+	}
+	read -r level minimum maximum <<< "$values"
+	((maximum > minimum)) || {
+		printf 'error: invalid AE-5 Master range [%s..%s]\n' \
+			"$minimum" "$maximum" >&2
+		return 1
+	}
+	percent=$(awk -v level="$level" -v minimum="$minimum" \
+		-v maximum="$maximum" \
+		'BEGIN { printf "%.1f", (level - minimum) * 100 / (maximum - minimum) }')
+	awk -v level="$level" -v minimum="$minimum" -v maximum="$maximum" \
+		'BEGIN { exit !((level - minimum) * 100 <= (maximum - minimum) * 20) }' ||
+		{
+			printf 'error: AE-5 Master is %s%%; maximum test level is 20%%\n' \
+				"$percent" >&2
+			return 1
+		}
+}
+
+validate_gain_snapshot() {
+	[[ $1 == 'AE-5: Headphone Gain: Low ('* ]] || {
+		printf 'error: AE-5 headphone gain must be Low for playback tests\n' >&2
+		return 1
+	}
+}
+
+validate_default_output_snapshot() {
+	grep -Fq ' [default]' <<< "$1" || {
+		printf 'error: the AE-5 must be the default PipeWire output for this preflight\n' >&2
+		return 1
+	}
+}
+
+validate_pipewire_volume_snapshot() {
+	local snapshot=$1 volume
+
+	volume=$(awk '$1 == "Volume:" && $2 ~ /^[0-9]+([.][0-9]+)?$/ {
+		print $2
+	}' <<< "$snapshot")
+	[[ $(wc -w <<< "$volume") -eq 1 ]] || {
+		printf 'error: unable to parse the PipeWire output volume\n' >&2
+		return 1
+	}
+	awk -v volume="$volume" 'BEGIN { exit !(volume <= 0.20) }' || {
+		printf 'error: PipeWire output is %.0f%%; maximum test level is 20%%\n' \
+			"$(awk -v volume="$volume" 'BEGIN { print volume * 100 }')" >&2
+		return 1
+	}
+}
+
+playback_preflight() {
+	local mode=$1 fixture=$2 snapshot failed=0
+
+	validate_fixture_peak "$fixture" || failed=1
+	need_tool "$ae5ctl"
+	if snapshot=$("$ae5ctl" get Master); then
+		validate_master_snapshot "$snapshot" || failed=1
+	else
+		failed=1
+	fi
+	if snapshot=$("$ae5ctl" get 'AE-5: Headphone Gain'); then
+		validate_gain_snapshot "$snapshot" || failed=1
+	else
+		failed=1
+	fi
+
+	if [[ $mode == pipewire ]]; then
+		need_tool wpctl
+		if snapshot=$("$ae5ctl" output-status); then
+			validate_default_output_snapshot "$snapshot" || failed=1
+		else
+			failed=1
+		fi
+		if snapshot=$(wpctl get-volume @DEFAULT_AUDIO_SINK@); then
+			validate_pipewire_volume_snapshot "$snapshot" || failed=1
+		else
+			failed=1
+		fi
+	fi
+
+	((failed == 0)) || return 1
+	printf 'playback preflight passed: %s path, fixture and volumes at or below 20%%, Low gain\n' \
+		"$mode"
 }
 
 make_marker_and_gap() {
@@ -435,6 +532,34 @@ self_test() (
 		return 1
 	fi
 
+	validate_master_snapshot \
+		'Master | playback on | playback level 20 [0..100]' >/dev/null
+	if validate_master_snapshot \
+		'Master | playback on | playback level 20 [0..99]' >/dev/null 2>&1; then
+		printf 'self-test: Master above 20%% unexpectedly passed\n' >&2
+		return 1
+	fi
+	validate_gain_snapshot \
+		'AE-5: Headphone Gain: Low (16-31  Ohms)' >/dev/null
+	if validate_gain_snapshot \
+		'AE-5: Headphone Gain: High (150-600  Ohms)' >/dev/null 2>&1; then
+		printf 'self-test: High headphone gain unexpectedly passed\n' >&2
+		return 1
+	fi
+	validate_default_output_snapshot \
+		'  PipeWire output: AE-5 (node) [default]' >/dev/null
+	if validate_default_output_snapshot \
+		'  PipeWire output: AE-5 (node) [not default]' >/dev/null 2>&1; then
+		printf 'self-test: non-default AE-5 output unexpectedly passed\n' >&2
+		return 1
+	fi
+	validate_pipewire_volume_snapshot 'Volume: 0.20' >/dev/null
+	if validate_pipewire_volume_snapshot \
+		'Volume: 0.21' >/dev/null 2>&1; then
+		printf 'self-test: PipeWire volume above 20%% unexpectedly passed\n' >&2
+		return 1
+	fi
+
 	printf 'audio parity self-test passed\n'
 )
 
@@ -477,6 +602,13 @@ compare-noise)
 		exit 2
 	}
 	compare_noise "$2" "$3"
+	;;
+playback-preflight)
+	[[ $# -eq 3 && ($2 == direct || $2 == pipewire) ]] || {
+		usage
+		exit 2
+	}
+	playback_preflight "$2" "$3"
 	;;
 --self-test)
 	[[ $# -eq 1 ]] || {

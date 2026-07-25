@@ -405,8 +405,11 @@ check progress with `--suspend-summary 20`. The Rust CLI and GTK diagnostics
 also read PipeWire's live Route parameters: deliberately recreated
 Headphone-versus-Line-Out and Microphone-versus-Line-In splits failed
 `route-status`, while the normal setters repaired both and restored the exact
-mixer hash. A later silent real-card matrix synchronized 2.0, 2.1, 4.0, 4.1,
-and 5.1 with `analog-stereo`, `analog-surround-21`,
+mixer hash. Route health also rejects normal-mode Headphone output when the
+shared Front DAC is muted or unreadable, so the original silent state cannot
+be reported as healthy merely because the route names agree. A later silent
+real-card matrix synchronized 2.0, 2.1, 4.0, 4.1, and 5.1 with
+`analog-stereo`, `analog-surround-21`,
 `analog-surround-40`, `analog-surround-41`, and `analog-surround-51`,
 preserving the duplex input profile and every hardware gain. It also exposed
 and fixed two unsafe ACP interactions: hardware volume ownership reloaded

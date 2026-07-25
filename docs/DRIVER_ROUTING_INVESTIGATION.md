@@ -161,6 +161,26 @@ writes in both the GTK **Desktop route health** card and:
 ae5ctl route-status
 ```
 
+The same shared health check also requires the `Front` playback switch to be
+unmuted whenever normal-mode Headphone output is selected. A matching ALSA
+enum and PipeWire port can therefore no longer hide the exact muted-DAC state
+that caused the reproduced silence. The check fails closed if the Front switch
+is unavailable, skips the requirement while Direct Mode bypasses the normal
+DSP path, and remains read-only. Saved diagnostic reports include its result.
+
+On 2026-07-25, the rebuilt release CLI passed the shared PipeWire playback
+preflight with every stage at or below 20%, Low gain, and no open PCM. A
+guarded physical negative test then changed only `Front` from on to off.
+`route-status` failed with the muted-DAC diagnosis even though ALSA Headphone,
+the card-specific PipeWire headphone port, and the duplex profile still
+matched; the general status output showed the same warning. Restoring Front
+returned the complete raw mixer to
+`5f72b79126e713debcc4f975e86cc9ac1bfe1ed39cd4760e4f5f44a5766656bf`
+and the simple-control snapshot to
+`b58ff5fa3cc6ae9271b45720ecd7f66edbdb13b455ba9ea72e1c47e165f49b9b`.
+Every playback PCM remained closed and no audio was played. A generated
+diagnostic report then recorded the restored route as healthy.
+
 On the physical host, a controlled negative test selected PipeWire's
 `analog-output-lineout;output-speaker` route and then changed only raw ALSA
 back to Headphone. `route-status` printed both sides of the split and exited

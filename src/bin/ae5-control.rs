@@ -7,7 +7,7 @@ use ae5_control::{
     SbCommandImport, SbCommandTarget, ae5_input, ae5_output, ae5_route_state,
     apply_linux_driver_defaults, capture_control_block_reason, direct_mode_block_reason,
     discover_sbcommand_installation, equalizer_band_block_reason, export_library_profile,
-    feature_parity, import_discovered_sbcommand_profile_with_report,
+    feature_parity, headphone_playback_issue, import_discovered_sbcommand_profile_with_report,
     import_sbcommand_profile_with_report, library_profile, native_rates_config,
     playback_switch_block_reason, profile_library, profile_library_directory,
     rename_library_profile, set_ae5_default_input, set_ae5_default_output,
@@ -912,10 +912,14 @@ fn route_health_summary(
         .and_then(|control| control.selected.as_deref());
     match (current, output_choice, speaker_layout, input_choice) {
         (Ok(state), Some(output), Some(layout), Some(input)) => {
-            let issues = [state.output_issue(output, layout), state.input_issue(input)]
-                .into_iter()
-                .flatten()
-                .collect::<Vec<_>>();
+            let issues = [
+                state.output_issue(output, layout),
+                headphone_playback_issue(controls).map(str::to_owned),
+                state.input_issue(input),
+            ]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
             (
                 format!(
                     "{}\nALSA output: {output}\nPipeWire output: {}\nALSA input: {input}\nPipeWire input: {}\nProfile: {} ({}){}",
@@ -2750,7 +2754,7 @@ mod tests {
 
     #[test]
     fn reports_matched_and_split_desktop_routes() {
-        let controls = [
+        let mut controls = vec![
             ControlSnapshot {
                 name: "Output Select".to_owned(),
                 selected: Some("Headphone".to_owned()),
@@ -2794,6 +2798,17 @@ mod tests {
                 playback_channels: Vec::new(),
                 capture_channels: Vec::new(),
             },
+            ControlSnapshot {
+                name: "Front".to_owned(),
+                selected: None,
+                choices: Vec::new(),
+                playback_switch: Some(true),
+                capture_switch: None,
+                playback_level: None,
+                capture_level: None,
+                playback_channels: Vec::new(),
+                capture_channels: Vec::new(),
+            },
         ];
         let mut state = PipeWireRouteState {
             profile_set: Some("sound-blaster-ae5.conf".to_owned()),
@@ -2821,6 +2836,22 @@ mod tests {
         let (summary, healthy) = route_health_summary(&controls, Ok(state));
         assert!(!healthy);
         assert!(summary.contains("reapply the input choice"));
+
+        controls[3].playback_switch = Some(false);
+        let (summary, healthy) = route_health_summary(
+            &controls,
+            Ok(PipeWireRouteState {
+                profile_set: Some("sound-blaster-ae5.conf".to_owned()),
+                soft_mixer: Some(true),
+                active_profile: Some("output:analog-stereo+input:analog-stereo".to_owned()),
+                input_route: Some("sound-blaster-ae5-input-microphone".to_owned()),
+                output_route: Some(
+                    "sound-blaster-ae5-output-headphones;output-headphones".to_owned(),
+                ),
+            }),
+        );
+        assert!(!healthy);
+        assert!(summary.contains("Front playback is muted"));
     }
 
     #[test]

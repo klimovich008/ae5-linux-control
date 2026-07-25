@@ -503,6 +503,41 @@ hardware-independent unsupported-feature report worked, and removed all 19
 package-owned files while preserving profile and ALSA-state sentinels
 byte-for-byte.
 
+## Muted-headphone route diagnostics
+
+The shared CLI and GTK route-health path now rejects normal-mode Headphone
+output when the required Front DAC is muted or unreadable. The private
+diagnostics report runs the same read-only check. Direct Mode skips that
+normal-DSP-path requirement.
+
+The release passed all 74 Rust/GTK tests, strict Clippy and formatting,
+feature-matrix validation, diagnostics self-test, the complete transactional
+rootless lifecycle, and ShellCheck with only the standard external
+`/etc/os-release` source excluded.
+
+On the physical AE-5, the 20%-ceiling/Low-gain playback preflight passed before
+a no-stream negative test. Changing only Front from on to off made both
+`route-status` and general status report the muted-DAC failure while the ALSA
+Headphone choice, card-specific PipeWire route, and duplex profile still
+matched. Restoration returned raw mixer SHA-256
+`5f72b79126e713debcc4f975e86cc9ac1bfe1ed39cd4760e4f5f44a5766656bf`
+and simple-control SHA-256
+`b58ff5fa3cc6ae9271b45720ecd7f66edbdb13b455ba9ea72e1c47e165f49b9b`.
+A generated report then recorded the restored route as healthy.
+
+The real rootless installation was upgraded transactionally. Its installed
+payload is byte-identical to the release inputs:
+
+- GUI SHA-256:
+  `fc19dac7ed96461bd3745330e19ce13f7eb4fb02706e5762efb43f3a5a095c6d`
+- CLI SHA-256:
+  `0ceaed2c19ae3aa71fa8eef0373c2954299b902513691178a9c0ae74244c5cb8`
+
+The upgrade preserved the raw mixer hash above, exact route-health output,
+PipeWire volume `0.20`, and routing-file aggregate SHA-256
+`809526b30f188f8f02e501cfbf9b397b471f121ff14369be7905d313bb9e0b9d`.
+Every playback PCM remained closed throughout, and no audio was played.
+
 ## Remaining release gate
 
 This proves clean Fedora dependency resolution and package ownership/removal,

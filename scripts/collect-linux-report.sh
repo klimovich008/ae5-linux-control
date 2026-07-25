@@ -78,6 +78,7 @@ collect() {
 	run 'Playback devices' aplay -l
 	run 'Capture devices' arecord -l
 	collect_pipewire
+	run 'AE-5 Control route health' ae5ctl route-status
 	collect_lighting
 	run 'CA0132 module information' modinfo snd_hda_codec_ca0132
 	run 'Loaded sound modules' sh -c \
@@ -125,6 +126,7 @@ self_test() {
 	grep -q '^## Operating system$' "$report"
 	grep -q '^## Creative PCI devices$' "$report"
 	grep -q '^## Creative PipeWire objects$' "$report"
+	grep -q '^## AE-5 Control route health$' "$report"
 	grep -q '^## AE-5 onboard lighting$' "$report"
 	! grep -Fq "$HOME" "$report"
 	if [[ -r /proc/sys/kernel/hostname ]]; then

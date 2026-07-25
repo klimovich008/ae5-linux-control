@@ -3,7 +3,7 @@ use ae5_control::{
     LINUX_DRIVER_DEFAULTS_PRESERVED, ONBOARD_LED_COUNT, PipeWireNode, PipeWireRouteState, Profile,
     RgbColor, SbCommandImportReport, SbCommandTarget, ae5_input, ae5_output, ae5_route_state,
     apply_linux_driver_defaults, discover_sbcommand_installation, export_library_profile,
-    feature_parity, import_active_sbcommand_profile_with_report,
+    feature_parity, headphone_playback_issue, import_active_sbcommand_profile_with_report,
     import_discovered_sbcommand_profile_with_report, import_sbcommand_profile_with_report,
     lighting_config_path, linux_driver_defaults, native_rates_config, profile_library,
     profile_library_directory, rename_library_profile, restore_saved_lighting,
@@ -155,6 +155,7 @@ fn print_status() -> Result<(), Box<dyn Error>> {
             selected_choice(&controls, "Output Select").unwrap_or("unavailable"),
             selected_choice(&controls, "Surround Channel Config").unwrap_or("unavailable"),
             selected_choice(&controls, "Input Source").unwrap_or("unavailable"),
+            headphone_playback_issue(&controls),
         ),
         Err(error) => println!("  Desktop routes: unavailable ({error})"),
     }
@@ -273,9 +274,17 @@ fn print_route_status() -> Result<(), Box<dyn Error>> {
             )
         })?;
     let state = ae5_route_state(device.card_index)?;
-    print_route_state(&state, output_choice, speaker_layout, input_choice);
+    let playback_issue = headphone_playback_issue(&controls);
+    print_route_state(
+        &state,
+        output_choice,
+        speaker_layout,
+        input_choice,
+        playback_issue,
+    );
     if let Some(issue) = state
         .output_issue(output_choice, speaker_layout)
+        .or_else(|| playback_issue.map(str::to_owned))
         .or_else(|| state.input_issue(input_choice))
     {
         return Err(io::Error::other(issue).into());
@@ -415,6 +424,7 @@ fn print_route_state(
     output_choice: &str,
     speaker_layout: &str,
     input_choice: &str,
+    playback_issue: Option<&str>,
 ) {
     println!(
         "  Desktop output route: {}",
@@ -432,7 +442,10 @@ fn print_route_state(
             .as_deref()
             .unwrap_or("unknown profile set")
     );
-    match state.output_issue(output_choice, speaker_layout) {
+    match state
+        .output_issue(output_choice, speaker_layout)
+        .or_else(|| playback_issue.map(str::to_owned))
+    {
         None => println!("  Output route health: matched ALSA {output_choice}"),
         Some(issue) => println!("  Output route health: warning ({issue})"),
     }

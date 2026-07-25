@@ -28,6 +28,10 @@ const DIRECT_MODE_DSP_BLOCK: &str = "Direct Mode bypasses the CA0132 DSP, so thi
     effect. Disable Direct Mode first.";
 const INEFFECTIVE_WHAT_U_HEAR_CONTROL: &str = "The AE-5 DSP loopback bypasses this advertised \
     HDA gain and mute control. Use the recording application's stream-level volume or mute.";
+const MUTED_HEADPHONE_PLAYBACK: &str = "ALSA selects Headphone, but Front playback is muted; \
+    reapply the Headphone output choice";
+const UNVERIFIED_HEADPHONE_PLAYBACK: &str =
+    "ALSA selects Headphone, but the Front playback switch is unavailable";
 
 #[derive(Debug)]
 pub enum ControlError {
@@ -149,6 +153,27 @@ pub fn direct_mode_block_reason(name: &str, controls: &[ControlSnapshot]) -> Opt
 
 pub fn capture_control_block_reason(name: &str) -> Option<&'static str> {
     (name == "What U Hear").then_some(INEFFECTIVE_WHAT_U_HEAR_CONTROL)
+}
+
+pub fn headphone_playback_issue(controls: &[ControlSnapshot]) -> Option<&'static str> {
+    let headphone_selected = controls.iter().any(|control| {
+        control.name == "Output Select" && control.selected.as_deref() == Some("Headphone")
+    });
+    let direct_mode = controls.iter().any(|control| {
+        control.name == DIRECT_MODE_CONTROL && control.playback_switch == Some(true)
+    });
+    if !headphone_selected || direct_mode {
+        return None;
+    }
+    match controls
+        .iter()
+        .find(|control| control.name == "Front")
+        .and_then(|control| control.playback_switch)
+    {
+        Some(true) => None,
+        Some(false) => Some(MUTED_HEADPHONE_PLAYBACK),
+        None => Some(UNVERIFIED_HEADPHONE_PLAYBACK),
+    }
 }
 
 pub(crate) fn is_equalizer_band(name: &str) -> bool {
@@ -1100,5 +1125,34 @@ mod tests {
             Some(INEFFECTIVE_WHAT_U_HEAR_CONTROL)
         );
         assert_eq!(capture_control_block_reason("Capture"), None);
+    }
+
+    #[test]
+    fn detects_a_muted_or_unverifiable_headphone_dac() {
+        let mut controls = vec![
+            selected_choice("Output Select", "Headphone"),
+            playback_switch("Front", true),
+        ];
+        assert_eq!(headphone_playback_issue(&controls), None);
+
+        controls[1].playback_switch = Some(false);
+        assert_eq!(
+            headphone_playback_issue(&controls),
+            Some(MUTED_HEADPHONE_PLAYBACK)
+        );
+
+        controls.pop();
+        assert_eq!(
+            headphone_playback_issue(&controls),
+            Some(UNVERIFIED_HEADPHONE_PLAYBACK)
+        );
+
+        controls[0].selected = Some("Speakers".to_owned());
+        assert_eq!(headphone_playback_issue(&controls), None);
+
+        controls[0].selected = Some("Headphone".to_owned());
+        controls.push(playback_switch("Front", false));
+        controls.push(playback_switch(DIRECT_MODE_CONTROL, true));
+        assert_eq!(headphone_playback_issue(&controls), None);
     }
 }

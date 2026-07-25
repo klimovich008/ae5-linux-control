@@ -18,6 +18,7 @@ BuildRequires:  rust
 BuildRequires:  systemd-udev
 Requires:       hicolor-icon-theme
 Requires:       pipewire-libs
+Requires:       pipewire-utils
 Requires:       systemd-udev
 Requires:       wireplumber
 

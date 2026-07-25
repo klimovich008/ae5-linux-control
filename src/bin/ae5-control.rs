@@ -1,14 +1,14 @@
 use ae5_control::{
     Ae5Device, Ae5Lighting, Ae5Mixer, ChannelLevel, ControlError, ControlSnapshot,
     LINUX_DRIVER_DEFAULTS_PRESERVED, Level, NativeRatesConfig, ONBOARD_LED_COUNT, PipeWireNode,
-    Profile, ProfileControl, RgbColor, SbCommandImport, SbCommandTarget, ae5_input, ae5_output,
-    apply_linux_driver_defaults, capture_control_block_reason, discover_sbcommand_installation,
-    equalizer_band_block_reason, export_library_profile,
-    import_discovered_sbcommand_profile_with_report, import_sbcommand_profile_with_report,
-    library_profile, linux_driver_defaults_for, native_rates_config, playback_switch_block_reason,
-    profile_library, profile_library_directory, rename_library_profile, set_ae5_default_input,
-    set_ae5_default_output, set_native_rates_enabled, set_saved_led, set_saved_lighting,
-    snapshot_controls,
+    PipeWireRouteState, Profile, ProfileControl, RgbColor, SbCommandImport, SbCommandTarget,
+    ae5_input, ae5_output, ae5_route_state, apply_linux_driver_defaults,
+    capture_control_block_reason, discover_sbcommand_installation, equalizer_band_block_reason,
+    export_library_profile, import_discovered_sbcommand_profile_with_report,
+    import_sbcommand_profile_with_report, library_profile, linux_driver_defaults_for,
+    native_rates_config, playback_switch_block_reason, profile_library, profile_library_directory,
+    rename_library_profile, set_ae5_default_input, set_ae5_default_output,
+    set_native_rates_enabled, set_saved_led, set_saved_lighting, snapshot_controls,
 };
 use gtk::prelude::*;
 use gtk::{gdk::Display, gio};
@@ -362,11 +362,31 @@ fn device_page(
         &capability_summary,
     ));
 
+    let (route_summary, route_healthy) =
+        route_health_summary(controls, ae5_route_state(device.card_index));
+    let route_health = gtk::Label::new(Some(&route_summary));
+    route_health.set_xalign(0.0);
+    route_health.set_wrap(true);
+    route_health.set_selectable(true);
+    route_health.add_css_class(if route_healthy {
+        "operation-ok"
+    } else {
+        "warning-value"
+    });
+    let route_actions = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    route_actions.append(&route_health);
+    page.append(&profile_card(
+        "03",
+        "Desktop route health",
+        "The ALSA output choice and PipeWire route must agree. This check is read-only.",
+        &route_actions,
+    ));
+
     let report_actions = gtk::Box::new(gtk::Orientation::Horizontal, 10);
     let save_report = gtk::Button::with_label("Save diagnostics report");
     report_actions.append(&save_report);
     page.append(&profile_card(
-        "03",
+        "04",
         "Private diagnostics",
         "Create a local report without root. Hostname, user, storage, network data, and unrelated PipeWire devices are omitted by default. Review the file before sharing it.",
         &report_actions,
@@ -765,6 +785,47 @@ fn pipewire_node_summary(node: &PipeWireNode) -> String {
             "not default"
         }
     )
+}
+
+fn route_health_summary(
+    controls: &[ControlSnapshot],
+    current: std::io::Result<PipeWireRouteState>,
+) -> (String, bool) {
+    let output_choice = controls
+        .iter()
+        .find(|control| control.name == "Output Select")
+        .and_then(|control| control.selected.as_deref());
+    match (current, output_choice) {
+        (Ok(state), Some(choice)) => {
+            let issue = state.output_issue(choice);
+            (
+                format!(
+                    "{}\nALSA: {choice}\nPipeWire: {}\nProfile: {} ({}){}",
+                    if issue.is_none() {
+                        "Matched"
+                    } else {
+                        "Needs attention"
+                    },
+                    state.output_route.as_deref().unwrap_or("unavailable"),
+                    state.active_profile.as_deref().unwrap_or("unavailable"),
+                    state
+                        .profile_set
+                        .as_deref()
+                        .unwrap_or("unknown profile set"),
+                    issue
+                        .as_deref()
+                        .map(|issue| format!("\n{issue}"))
+                        .unwrap_or_default()
+                ),
+                issue.is_none(),
+            )
+        }
+        (Ok(_), None) => ("Output Select is unavailable from ALSA.".to_owned(), false),
+        (Err(error), _) => (
+            format!("PipeWire route status is unavailable: {error}"),
+            false,
+        ),
+    }
 }
 
 fn driver_range_warnings(controls: &[ControlSnapshot]) -> Vec<String> {
@@ -2500,6 +2561,38 @@ mod tests {
             pipewire_node_summary(&node),
             "AE-5 Analog Stereo\nalsa_output.pci-ae5.analog-stereo — currently default"
         );
+    }
+
+    #[test]
+    fn reports_matched_and_split_desktop_routes() {
+        let controls = [ControlSnapshot {
+            name: "Output Select".to_owned(),
+            selected: Some("Headphone".to_owned()),
+            choices: vec!["Speakers".to_owned(), "Headphone".to_owned()],
+            playback_switch: None,
+            capture_switch: None,
+            playback_level: None,
+            capture_level: None,
+            playback_channels: Vec::new(),
+            capture_channels: Vec::new(),
+        }];
+        let mut state = PipeWireRouteState {
+            profile_set: Some("sound-blaster-ae5.conf".to_owned()),
+            active_profile: Some("output:analog-stereo+input:analog-stereo".to_owned()),
+            input_route: Some("sound-blaster-ae5-input-microphone".to_owned()),
+            output_route: Some("sound-blaster-ae5-output-headphones;output-headphones".to_owned()),
+        };
+
+        let (summary, healthy) = route_health_summary(&controls, Ok(state.clone()));
+        assert!(healthy);
+        assert!(summary.contains("Matched\nALSA: Headphone"));
+        assert!(summary.contains("sound-blaster-ae5.conf"));
+
+        state.output_route = Some("analog-output-lineout;output-speaker".to_owned());
+        let (summary, healthy) = route_health_summary(&controls, Ok(state));
+        assert!(!healthy);
+        assert!(summary.contains("Needs attention"));
+        assert!(summary.contains("reapply the output choice"));
     }
 
     #[test]

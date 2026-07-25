@@ -311,9 +311,9 @@ HOME and XDG roots:
 
 The same path was then left installed for the real user on 2026-07-25. The GUI
 and CLI SHA-256 values are respectively
-`e43c30a608673f9a273ce4e896ac8691e72cbdab96824e841099e438319635ea`
+`d5bd4d9b21d82d877d1f53d35164f997c894a7c83316e0526e1cd43b12581141`
 and
-`0a79f16c68b12a55adeed96e75ab2ad59336c072de47f96d51ac6bb94a1b6c31`.
+`3ba2a3e246f06e0dd09441a09f01470eaebab50334be873be5dd0fb49a237d5c`.
 The installer retained all existing, byte-identical routing links and did not
 restart the audio session. Its retained
 `ae5-control-user-install --uninstall` command was byte-identical to the
@@ -322,6 +322,15 @@ source installer. Launching the installed desktop entry produced the real
 the exact `1102:0012/1102:0051` identity and all eight pages before closing
 the window normally.
 
+The upgraded payload adds a read-only native PipeWire route-health check.
+`ae5ctl route-status` read the active `pw-dump` Route and matched ALSA
+Headphone to
+`sound-blaster-ae5-output-headphones;output-headphones`, the duplex profile,
+and `sound-blaster-ae5.conf`. The installed desktop entry exposed the same
+**Desktop route health** card through AT-SPI, including the combined
+`Matched`, ALSA, PipeWire, profile, and profile-set text. The real GTK frame
+then closed through its advertised `window.close` action.
+
 Before and after installation and both launches, the complete host mixer
 SHA-256 was
 `3e595532348efe1e2e9c066039131e97505cb9b71bc6bfd8fa8a59301091e802`.
@@ -329,6 +338,23 @@ The AE-5/Fifine defaults, zero-stream state, every routing-file hash, and every
 existing AE-5 profile/lighting hash were identical. This proves a useful
 no-root desktop installation and its isolated removal behavior. It does not
 claim an authenticated RPM transaction or install the RGB kernel/udev pieces.
+
+## Route-health RPM rebuild
+
+The route-health payload was also rebuilt as the Fedora 44 binary RPM with
+SHA-256
+`dc596375f3b479bbab1030284311a50526f515e17781dd24521203a5e12865e9`
+and source RPM with SHA-256
+`4d54516d984a9a8d8dc9a128efd7ad095df3f91089f64a131041db2b3219a715`.
+The RPM release check passed all 57 Rust tests and the existing ACP,
+diagnostics, desktop, AppStream, udev, and private-build-path gates. Its
+metadata explicitly requires `pipewire-utils`, which supplies `pw-dump`.
+
+A fresh rootless Fedora 44 container installed the exact binary RPM and
+resolved `pipewire-utils-1.6.8`. Package verification and the installed
+commands passed; removal deleted all 19 package-owned files while preserving
+the profile and ALSA-state sentinels byte-for-byte. The previous RPM set and
+its hashes remain preserved under `dist/previous-bea6902/`.
 
 ## Remaining release gate
 

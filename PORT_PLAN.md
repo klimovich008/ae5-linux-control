@@ -337,6 +337,10 @@ cycle and produced a physical 997 Hz component 10.88 dB above both its quiet
 baseline and Front-muted negative control, with exact persistent mixer and
 route restoration. The paired boot collector now verifies the root-cause
 Front state and reports trailing progress toward ten consecutive valid boots.
+The CLI and GTK diagnostics now compare ALSA `Output Select` with PipeWire's
+live Route parameter; a physical deliberately split Headphone/Line-Out state
+was detected with a nonzero result and repaired through the shared Rust setter
+with the exact mixer hash restored.
 The remaining gate is the ten-host-cold-boot and twenty-suspend/resume
 lifecycle matrix.
 

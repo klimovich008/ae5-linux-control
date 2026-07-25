@@ -135,6 +135,25 @@ and WirePlumber route state to
 `76dd10cc599da7cc4d310c32c028fe6e008d980eeb7d992ef3c6f23ba09babd6`.
 No audio stream was open.
 
+The application now also reads the active PipeWire device `Route`, profile,
+and `device.profile-set` through `pw-dump` JSON. This is exposed without
+writes in both the GTK **Desktop route health** card and:
+
+```sh
+ae5ctl route-status
+```
+
+On the physical host, a controlled negative test selected PipeWire's
+`analog-output-lineout;output-speaker` route and then changed only raw ALSA
+back to Headphone. `route-status` printed both sides of the split and exited
+1. Reapplying Headphone through the normal Rust setter restored
+`sound-blaster-ae5-output-headphones;output-headphones`; the command then
+passed, no stream opened, defaults were unchanged, and the complete mixer
+returned to SHA-256
+`3e595532348efe1e2e9c066039131e97505cb9b71bc6bfd8fa8a59301091e802`.
+The check is deliberately limited to the validated analog-stereo profiles;
+other profiles report that limitation rather than guessing route semantics.
+
 WirePlumber documents `monitor.alsa.rules` as the supported mechanism for
 updating ALSA-device properties, while ACP is responsible for profiles, ports,
 and mixer settings:

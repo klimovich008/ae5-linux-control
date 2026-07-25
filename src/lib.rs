@@ -16,8 +16,8 @@ pub use lighting::{
     restore_saved_lighting, saved_lighting, set_saved_led, set_saved_lighting,
 };
 pub use pipewire::{
-    NativeRatesConfig, PipeWireNode, ae5_input, ae5_output, native_rates_config,
-    set_ae5_default_input, set_ae5_default_output, set_native_rates_enabled,
+    NativeRatesConfig, PipeWireNode, PipeWireRouteState, ae5_input, ae5_output, ae5_route_state,
+    native_rates_config, set_ae5_default_input, set_ae5_default_output, set_native_rates_enabled,
 };
 pub use profile::{
     ApplyReport, LINUX_DRIVER_DEFAULTS_PRESERVED, Profile, ProfileControl, ProfileError,

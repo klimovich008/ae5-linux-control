@@ -21,6 +21,45 @@ pub struct PipeWireNode {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PipeWireRouteState {
+    pub profile_set: Option<String>,
+    pub active_profile: Option<String>,
+    pub input_route: Option<String>,
+    pub output_route: Option<String>,
+}
+
+impl PipeWireRouteState {
+    pub fn output_issue(&self, output_choice: &str) -> Option<String> {
+        if self.profile_set.as_deref() != Some(AE5_PROFILE_SET) {
+            return Some(format!(
+                "PipeWire is not using {AE5_PROFILE_SET}; install the AE-5 routing profile and restart WirePlumber"
+            ));
+        }
+        if !self
+            .active_profile
+            .as_deref()
+            .is_some_and(|profile| profile.starts_with("output:analog-stereo"))
+        {
+            return Some(format!(
+                "the current PipeWire profile is {}; output-route health is validated only for analog stereo",
+                self.active_profile.as_deref().unwrap_or("unavailable")
+            ));
+        }
+        let expected = match output_choice {
+            "Speakers" => "analog-output-lineout;output-speaker",
+            "Headphone" => "sound-blaster-ae5-output-headphones;output-headphones",
+            other => return Some(format!("unsupported ALSA output choice '{other}'")),
+        };
+        (self.output_route.as_deref() != Some(expected)).then(|| {
+            format!(
+                "ALSA selects {output_choice}, but PipeWire uses {}; reapply the output choice",
+                self.output_route.as_deref().unwrap_or("no output route")
+            )
+        })
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct NativeRatesConfig {
     pub path: PathBuf,
     pub enabled: bool,
@@ -40,6 +79,23 @@ pub fn set_ae5_default_output(card_index: i32) -> io::Result<PipeWireNode> {
 
 pub fn set_ae5_default_input(card_index: i32) -> io::Result<PipeWireNode> {
     set_ae5_default_node(card_index, "sources", "recording input")
+}
+
+pub fn ae5_route_state(card_index: i32) -> io::Result<PipeWireRouteState> {
+    let node = ae5_output(card_index)?.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("PipeWire has no AE-5 playback output for ALSA card {card_index}"),
+        )
+    })?;
+    let details = run_wpctl(&["inspect", &node.id.to_string()])?;
+    let device_id = property(&details, "device.id").ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "the AE-5 PipeWire node has no device.id",
+        )
+    })?;
+    parse_route_state(&run_pw_dump(&device_id)?, card_index)
 }
 
 pub(crate) fn set_ae5_control_route(
@@ -204,6 +260,79 @@ fn ae5_control_route(control: &str, choice: &str) -> Option<(&'static str, u32)>
     }
 }
 
+fn parse_route_state(output: &str, card_index: i32) -> io::Result<PipeWireRouteState> {
+    let objects = serde_json::from_str::<serde_json::Value>(output)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    let devices = objects.as_array().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "pw-dump did not return an object array",
+        )
+    })?;
+    let mut matches = devices.iter().filter(|device| {
+        let card = &device["info"]["props"]["api.alsa.card"];
+        card.as_i64() == Some(i64::from(card_index))
+            || card.as_str().and_then(|value| value.parse().ok()) == Some(card_index)
+    });
+    let device = matches.next().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("pw-dump has no ALSA card {card_index} device"),
+        )
+    })?;
+    if matches.next().is_some() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("pw-dump returned multiple ALSA card {card_index} devices"),
+        ));
+    }
+
+    let profile_set = device["info"]["props"]["device.profile-set"]
+        .as_str()
+        .map(str::to_owned);
+    let active_profile = single_param_name(device, "Profile", None)?;
+    let input_route = single_param_name(device, "Route", Some("Input"))?;
+    let output_route = single_param_name(device, "Route", Some("Output"))?;
+    Ok(PipeWireRouteState {
+        profile_set,
+        active_profile,
+        input_route,
+        output_route,
+    })
+}
+
+fn single_param_name(
+    device: &serde_json::Value,
+    parameter: &str,
+    direction: Option<&str>,
+) -> io::Result<Option<String>> {
+    let Some(values) = device["info"]["params"][parameter].as_array() else {
+        return Ok(None);
+    };
+    let mut names = values.iter().filter(|value| {
+        direction.is_none_or(|expected| value["direction"].as_str() == Some(expected))
+    });
+    let Some(value) = names.next() else {
+        return Ok(None);
+    };
+    if names.next().is_some() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("pw-dump returned multiple active {parameter} entries"),
+        ));
+    }
+    value["name"]
+        .as_str()
+        .map(str::to_owned)
+        .map(Some)
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("pw-dump {parameter} entry has no name"),
+            )
+        })
+}
+
 fn run_wpctl(arguments: &[&str]) -> io::Result<String> {
     let output = Command::new("wpctl")
         .args(arguments)
@@ -222,6 +351,31 @@ fn run_wpctl(arguments: &[&str]) -> io::Result<String> {
         let detail = String::from_utf8_lossy(&output.stderr).trim().to_owned();
         return Err(io::Error::other(if detail.is_empty() {
             format!("wpctl {} failed", arguments.join(" "))
+        } else {
+            detail
+        }));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+fn run_pw_dump(device_id: &str) -> io::Result<String> {
+    let output = Command::new("pw-dump")
+        .arg(device_id)
+        .output()
+        .map_err(|error| {
+            if error.kind() == io::ErrorKind::NotFound {
+                io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "pw-dump is unavailable; install PipeWire utilities",
+                )
+            } else {
+                error
+            }
+        })?;
+    if !output.status.success() {
+        let detail = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+        return Err(io::Error::other(if detail.is_empty() {
+            format!("pw-dump {device_id} failed")
         } else {
             detail
         }));
@@ -320,6 +474,100 @@ id 58, type PipeWire:Interface:Node
         assert_eq!(
             ae5_control_route("AE-5: Sound Filter", "Fast Roll Off"),
             None
+        );
+    }
+
+    #[test]
+    fn parses_and_validates_the_active_ae5_route() {
+        let output = r#"[
+          {
+            "id": 55,
+            "info": {
+              "props": {
+                "api.alsa.card": 0,
+                "device.profile-set": "sound-blaster-ae5.conf"
+              },
+              "params": {
+                "Profile": [
+                  {"name": "output:analog-stereo+input:analog-stereo"}
+                ],
+                "Route": [
+                  {
+                    "direction": "Input",
+                    "name": "sound-blaster-ae5-input-microphone"
+                  },
+                  {
+                    "direction": "Output",
+                    "name": "sound-blaster-ae5-output-headphones;output-headphones"
+                  }
+                ]
+              }
+            }
+          }
+        ]"#;
+        let state = parse_route_state(output, 0).unwrap();
+        assert_eq!(
+            state,
+            PipeWireRouteState {
+                profile_set: Some(AE5_PROFILE_SET.to_owned()),
+                active_profile: Some("output:analog-stereo+input:analog-stereo".to_owned()),
+                input_route: Some("sound-blaster-ae5-input-microphone".to_owned()),
+                output_route: Some(
+                    "sound-blaster-ae5-output-headphones;output-headphones".to_owned()
+                ),
+            }
+        );
+        assert_eq!(state.output_issue("Headphone"), None);
+        assert_eq!(
+            state.output_issue("Speakers").as_deref(),
+            Some(
+                "ALSA selects Speakers, but PipeWire uses sound-blaster-ae5-output-headphones;output-headphones; reapply the output choice"
+            )
+        );
+        assert_eq!(
+            parse_route_state(output, 1).unwrap_err().kind(),
+            io::ErrorKind::NotFound
+        );
+    }
+
+    #[test]
+    fn rejects_ambiguous_route_state_and_wrong_profile() {
+        let duplicate = r#"[
+          {
+            "info": {
+              "props": {"api.alsa.card": "0"},
+              "params": {
+                "Route": [
+                  {"direction": "Output", "name": "first"},
+                  {"direction": "Output", "name": "second"}
+                ]
+              }
+            }
+          }
+        ]"#;
+        assert_eq!(
+            parse_route_state(duplicate, 0).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
+        let mut state = PipeWireRouteState {
+            profile_set: Some("default.conf".to_owned()),
+            active_profile: None,
+            input_route: None,
+            output_route: None,
+        };
+        assert!(
+            state
+                .output_issue("Headphone")
+                .unwrap()
+                .contains(AE5_PROFILE_SET)
+        );
+        state.profile_set = Some(AE5_PROFILE_SET.to_owned());
+        state.active_profile = Some("output:iec958-stereo".to_owned());
+        assert!(
+            state
+                .output_issue("Headphone")
+                .unwrap()
+                .contains("validated only for analog stereo")
         );
     }
 

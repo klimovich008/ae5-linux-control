@@ -1,7 +1,8 @@
 use ae5_control::{
     Ae5Device, Ae5Lighting, Ae5Mixer, LINUX_DRIVER_DEFAULTS_PRESERVED, ONBOARD_LED_COUNT,
-    PipeWireNode, Profile, RgbColor, SbCommandImportReport, SbCommandTarget, ae5_input, ae5_output,
-    apply_linux_driver_defaults, discover_sbcommand_installation, export_library_profile,
+    PipeWireNode, PipeWireRouteState, Profile, RgbColor, SbCommandImportReport, SbCommandTarget,
+    ae5_input, ae5_output, ae5_route_state, apply_linux_driver_defaults,
+    discover_sbcommand_installation, export_library_profile,
     import_active_sbcommand_profile_with_report, import_discovered_sbcommand_profile_with_report,
     import_sbcommand_profile_with_report, lighting_config_path, linux_driver_defaults,
     linux_driver_defaults_for, native_rates_config, profile_library, profile_library_directory,
@@ -14,6 +15,7 @@ use std::path::Path;
 
 const IMPORTANT_CONTROLS: &[&str] = &[
     "Output Select",
+    "Front",
     "HP/Speaker Auto Detect",
     "AE-5: Headphone Gain",
     "AE-5: Sound Filter",
@@ -38,6 +40,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         [command] if command == "controls" => print_controls(),
         [command] if command == "profile-library" => print_profile_library(),
         [command] if command == "output-status" => print_output_status(),
+        [command] if command == "route-status" => print_route_status(),
         [command] if command == "set-default-output" => set_default_output(),
         [command] if command == "input-status" => print_input_status(),
         [command] if command == "set-default-input" => set_default_input(),
@@ -138,6 +141,13 @@ fn print_status() -> Result<(), Box<dyn Error>> {
         Ok(None) => println!("  PipeWire input: unavailable"),
         Err(error) => println!("  PipeWire input: unavailable ({error})"),
     }
+    match ae5_route_state(device.card_index) {
+        Ok(state) => print_route_state(
+            &state,
+            selected_choice(&controls, "Output Select").unwrap_or("unavailable"),
+        ),
+        Err(error) => println!("  Desktop route: unavailable ({error})"),
+    }
     match Ae5Lighting::discover().and_then(|lighting| lighting.colors()) {
         Ok(colors) => println!(
             "  Onboard lighting: {}",
@@ -173,6 +183,23 @@ fn print_output_status() -> Result<(), Box<dyn Error>> {
         )
     })?;
     print_pipewire_node("output", &output);
+    Ok(())
+}
+
+fn print_route_status() -> Result<(), Box<dyn Error>> {
+    let device = require_device()?;
+    let controls = snapshot_controls(device.card_index)?;
+    let output_choice = selected_choice(&controls, "Output Select").ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            "the AE-5 has no readable Output Select choice",
+        )
+    })?;
+    let state = ae5_route_state(device.card_index)?;
+    print_route_state(&state, output_choice);
+    if let Some(issue) = state.output_issue(output_choice) {
+        return Err(io::Error::other(issue).into());
+    }
     Ok(())
 }
 
@@ -301,6 +328,35 @@ fn print_pipewire_node(kind: &str, node: &PipeWireNode) {
             " [not default]"
         }
     );
+}
+
+fn print_route_state(state: &PipeWireRouteState, output_choice: &str) {
+    println!(
+        "  Desktop route: {}",
+        state.output_route.as_deref().unwrap_or("unavailable")
+    );
+    println!(
+        "  PipeWire profile: {} ({})",
+        state.active_profile.as_deref().unwrap_or("unavailable"),
+        state
+            .profile_set
+            .as_deref()
+            .unwrap_or("unknown profile set")
+    );
+    match state.output_issue(output_choice) {
+        None => println!("  Route health: matched ALSA {output_choice}"),
+        Some(issue) => println!("  Route health: warning ({issue})"),
+    }
+}
+
+fn selected_choice<'a>(
+    controls: &'a [ae5_control::ControlSnapshot],
+    name: &str,
+) -> Option<&'a str> {
+    controls
+        .iter()
+        .find(|control| control.name == name)
+        .and_then(|control| control.selected.as_deref())
 }
 
 fn print_controls() -> Result<(), Box<dyn Error>> {
@@ -666,6 +722,7 @@ fn print_help() {
          \x20 status    Show the detected AE-5 and important live controls (default)\n\
          \x20 controls  Show every live ALSA simple control\n\
          \x20 output-status       Show the AE-5 PipeWire playback target\n\
+         \x20 route-status        Verify ALSA and PipeWire output routing agree\n\
          \x20 set-default-output  Make the AE-5 the PipeWire default playback target\n\
          \x20 input-status        Show the AE-5 PipeWire recording target\n\
          \x20 set-default-input   Make the AE-5 the PipeWire default recording target\n\

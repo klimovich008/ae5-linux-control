@@ -379,6 +379,28 @@ No AE-5 PCM opened, all five PipeWire/WirePlumber units stayed active, and no
 matching kernel warning appeared. This validation was read-only and played no
 audio.
 
+## Profile-library CLI host upgrade
+
+The rootless installation was upgraded again after adding the shared
+profile-library rename command. The installed release GUI and CLI SHA-256
+values are respectively
+`5f5610a1f52530e010701e69fc1e7e2afaa1d13daafc52d93b0acc5089772fc6`
+and
+`b2a56da0a1e933237a32ddccf1f0a154c514fa1308dd857544496d1160102874`,
+each byte-identical to its release build input. Installed help exposes
+`profile-rename LIBRARY_FILE NEW_NAME`.
+
+The upgrade retained the complete raw mixer SHA-256
+`3e595532348efe1e2e9c066039131e97505cb9b71bc6bfd8fa8a59301091e802`,
+simple mixer SHA-256
+`65a1da375bd1e6d523a91ee819fa1d8e88f63a34afc10b8e1ef56c736cc38a25`,
+and AE-5 sink-definition SHA-256
+`39c1581717da0b005d9ebc556f807e032e5ad5371dec4888eaa2360c69d81052`.
+The AE-5 and FIFINE remained the default sink and source, and the installed
+route-health command still matched ALSA Headphone/Microphone to both
+card-specific PipeWire routes. PipeWire volume remained at its existing 43%,
+which fails the project's 20% playback gate, so no audio test was attempted.
+
 ## Output route-health RPM rebuild
 
 The route-health payload was also rebuilt as the Fedora 44 binary RPM with

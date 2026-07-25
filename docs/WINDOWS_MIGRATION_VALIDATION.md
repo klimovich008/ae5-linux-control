@@ -89,3 +89,29 @@ from surviving underneath them. An aggregate SHA-256 of every file below the
 mounted Creative and Creative_Technology_Ltd trees was
 `409cbe439f23ca22a378280499cdcad3c1f67999a841235cc7e0899bb8913f9f`
 both before and after the 2026-07-25 conversion rerun.
+
+## Offline native-library round trip
+
+The installed `ae5ctl` later repeated both active imports under disposable
+`HOME` and `XDG_CONFIG_HOME` directories. The speaker conversion produced 21
+controls and reported 24 exact, 2 approximate, and 9 unsupported mappings.
+The headphone conversion produced 20 controls and reported 17 exact, 8
+approximate, and 8 unsupported mappings. Both profiles contained numeric
+values for all ten `EQ Band0` through `EQ Band9` controls and selected
+`FX: Equalizer Preset` Flat before those custom bands.
+
+The isolated profile library then:
+
+1. discovered both imported profiles;
+2. renamed the headphone profile with surrounding whitespace removed;
+3. exported both library entries to new standalone files; and
+4. compared each export byte-for-byte with its corresponding library file.
+
+Every step passed. No profile was applied or checked against ALSA, and no
+audio stream was opened. The temporary profiles and reports were deleted
+after their derived counts were recorded. A before/after aggregate over the
+exact active input scope was identical, and the broader Creative and
+Creative_Technology_Ltd aggregate remains
+`409cbe439f23ca22a378280499cdcad3c1f67999a841235cc7e0899bb8913f9f`.
+This completes the real custom-EQ native-library round-trip gate without
+publishing the user's profile names, identifiers, or tuning values.

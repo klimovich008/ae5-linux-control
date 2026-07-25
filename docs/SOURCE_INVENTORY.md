@@ -212,7 +212,8 @@ control.
 
 | Evidence | SHA-256 |
 |---|---|
-| AE-5 product UI assembly | `aacce22cbad477dd631bcdaa59f4798fbdf66c33bd559f45ab1ecbfcc82500c3` |
+| AE-5 root product assembly | `878881db6db73c1450931fe87557a45377e7a63ffb5298512c4203be1192657a` |
+| Inherited product UI assembly (`Lang/Creative.SBConnect2.AE9.dll`) | `aacce22cbad477dd631bcdaa59f4798fbdf66c33bd559f45ab1ecbfcc82500c3` |
 | AE-5 EQ resource entry | `6c7ac5f7fe78aa9e51bf578a3b4ab7c1ced50a040122435050f5f01b299c2d2e` |
 | Shared UI framework | `06e7a61c95392fe76ec59d4a1ef1c5a8c465b07dd8c7d7b5256c2ce7ab109e3e` |
 | English framework resources | `149ce5265cc80f3d64adf680bb81c72edcddeb7b218fb1fc487538fd1e80b4aa` |
@@ -222,6 +223,34 @@ control.
 No Windows code was executed. No Creative binary, BAML payload, decompiler
 output, private preset value, or copied implementation is committed; only the
 independent interoperability result and content hashes are retained.
+
+## Windows profile serialization defaults
+
+A second scoped metadata and managed-method inspection distinguished five
+serialized defaults from settings that can affect an AE-5. The root
+`AE5ViewModel` inherits the implementation in the product's
+`Lang/Creative.SBConnect2.AE9.dll` and sets its product name to `AE-5`.
+Creative's profile library uses `SpeakerMethod` to choose between two Windows
+speaker-routing APIs; it is not an acoustic profile parameter. Value zero is
+the default path used by the inspected AE-5 files.
+
+The same library reads or writes `Surround.Mode`, `DialogPlus.Mode`, and
+`SVM.PlusMode` only when the device name is exactly `Katana`. The normal
+`SVM.Mode` remains a separate cross-product setting and is mapped by the Linux
+importer. Independently, all 34 shipped AE-5 profiles omit the three
+Katana-only fields, all 34 profiles omit `SpeakerMethod`, and all 44 shipped
+AE-5 EQ presets omit `SpeakerMethod`. The zero values serialized into the
+active user copies therefore require no AE-5 control. The importer recognizes
+only zero as a no-op and continues to report nonzero values for review.
+
+| Evidence | SHA-256 |
+|---|---|
+| AE-5 root product assembly | `878881db6db73c1450931fe87557a45377e7a63ffb5298512c4203be1192657a` |
+| Inherited product UI assembly | `aacce22cbad477dd631bcdaa59f4798fbdf66c33bd559f45ab1ecbfcc82500c3` |
+| Creative profile library | `a190130b146eb46e55a05ddfae0ead722fc45786cdba990ddc9ce1994ec319a1` |
+
+No Windows code was executed. No Creative binary, managed instruction dump,
+profile content, or copied implementation is committed.
 
 ## Firmware already distributed for Linux
 

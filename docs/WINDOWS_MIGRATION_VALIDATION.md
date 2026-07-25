@@ -148,3 +148,35 @@ profile
 (`bbf23d3348e25f61e98be3d5ffe43a10fea4daf73c3d649433f5e489c8b0588f`),
 and EQ
 (`fd63464944e3f55816d65ce1759858b628ffc127475478681a69e7e54d43bfeb`).
+
+## AE-5-irrelevant serialized defaults
+
+Scoped offline inspection of the exact product and profile assemblies then
+established that `SpeakerMethod` selects a Windows routing API rather than an
+acoustic setting. It also established that Command reads or writes
+`Surround.Mode`, `DialogPlus.Mode`, and `SVM.PlusMode` only for a device named
+`Katana`, not for the AE-5. The regular `SVM.Mode` is independent and remains
+mapped to the Linux Smart Volume setting.
+
+All 34 shipped AE-5 profiles omit the three product-specific modes and
+`SpeakerMethod`; all 44 shipped EQ presets also omit `SpeakerMethod`. The
+active user copies serialize zero for these five fields. The converter now
+records those zero values as exact no-ops while retaining any nonzero value as
+unsupported for conservative review. Focused tests cover both paths. Binary
+hashes and the inspection boundary are recorded in
+[`SOURCE_INVENTORY.md`](SOURCE_INVENTORY.md).
+
+A fresh mounted-user conversion produced the same 21 speaker and 20 headphone
+controls. The speaker report improved from 26 exact, 2 approximate, and 7
+unsupported items to 31 exact, 2 approximate, and 2 unsupported items. The
+headphone report improved from 19 exact, 8 approximate, and 6 unsupported
+items to 24 exact, 8 approximate, and 1 unsupported item. The remaining
+warnings are active behavior: the selected speaker tuning plus the LFE/X-Bass
+conflict for speakers, and the selected Creative headphone tuning for
+headphones.
+
+The rerun used disposable `HOME`, configuration, report, and output paths. It
+did not apply either profile or open an audio stream. An aggregate hash over
+the active configuration, speaker/headphone profiles, and speaker/headphone EQ
+files was identical before and after:
+`a2c9f7d4a3491c045d07b42df87ea1c9ed6a2bc2484937717ce51925100595c0`.

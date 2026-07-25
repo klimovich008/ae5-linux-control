@@ -83,11 +83,23 @@ pub fn import_profile_with_report(
     let settings = select_settings(&source.settings, target)?;
     let mut report = SbCommandImportReport::default();
     report_unknown_fields(&mut report, "Profile", &source.extra, true);
+    report_ae5_default(
+        &mut report,
+        "Profile.SpeakerMethod",
+        source.speaker_method,
+        "AE-5 profile routing metadata",
+    );
     let mut controls = effect_controls(settings, &mut report)?;
 
     let eq: SourceEq = load_json(eq_path)?;
     validate_product(&eq.product, eq_path)?;
     report_unknown_fields(&mut report, "Equalizer", &eq.extra, true);
+    report_ae5_default(
+        &mut report,
+        "Equalizer.SpeakerMethod",
+        eq.speaker_method,
+        "AE-5 equalizer routing metadata",
+    );
     add_eq_controls(&mut controls, &eq, target, &mut report)?;
     controls.insert(
         "FX: Equalizer".to_owned(),
@@ -402,6 +414,7 @@ fn effect_controls(
             "SVM.Mode {} → FX: Smart Volume Setting ({mode})",
             svm.mode
         ));
+        report_ae5_default(report, "SVM.PlusMode", svm.plus_mode, "Katana-only mode");
         report_unknown_fields(report, "SVM", &svm.extra, false);
     }
     add_effect(
@@ -442,6 +455,18 @@ fn add_effect(
                 on_off(enabled)
             ),
         );
+        if matches!(source_name, "Surround" | "DialogPlus") {
+            report_ae5_default(
+                report,
+                &format!("{source_name}.Mode"),
+                effect.mode,
+                "Katana-only mode",
+            );
+        } else if let Some(mode) = effect.mode {
+            report.unsupported.push(format!(
+                "{source_name}.Mode {mode} (no mapped AE-5 ALSA control)"
+            ));
+        }
         report_unknown_fields(report, source_name, &effect.extra, false);
     }
     Ok(())
@@ -537,6 +562,23 @@ fn report_mapping(report: &mut SbCommandImportReport, exact: bool, message: Stri
         report
             .approximate
             .push(format!("{message}; rounded to ALSA step"));
+    }
+}
+
+fn report_ae5_default(
+    report: &mut SbCommandImportReport,
+    field: &str,
+    value: Option<u8>,
+    meaning: &str,
+) {
+    match value {
+        Some(0) => report
+            .exact
+            .push(format!("{field} 0 → {meaning}; no Linux control required")),
+        Some(value) => report.unsupported.push(format!(
+            "{field} {value} (unexpected non-default value; no mapped AE-5 ALSA control)"
+        )),
+        None => {}
     }
 }
 
@@ -1090,6 +1132,7 @@ impl From<ProfileError> for SbCommandError {
 struct SourceProfile {
     product: String,
     settings: Vec<SourceSettings>,
+    speaker_method: Option<u8>,
     #[serde(flatten)]
     extra: BTreeMap<String, serde_json::Value>,
 }
@@ -1117,6 +1160,7 @@ struct SourceSettings {
 struct SourceEffect {
     enable: bool,
     level: f64,
+    mode: Option<u8>,
     #[serde(flatten)]
     extra: BTreeMap<String, serde_json::Value>,
 }
@@ -1156,6 +1200,7 @@ struct SourceSvm {
     enable: bool,
     level: f64,
     mode: u8,
+    plus_mode: Option<u8>,
     #[serde(flatten)]
     extra: BTreeMap<String, serde_json::Value>,
 }
@@ -1180,6 +1225,7 @@ struct SourceMaster {
 struct SourceEq {
     product: String,
     settings: Vec<SourceEqSettings>,
+    speaker_method: Option<u8>,
     #[serde(flatten)]
     extra: BTreeMap<String, serde_json::Value>,
 }
@@ -1272,7 +1318,7 @@ mod tests {
     }
 
     #[test]
-    fn separates_rounded_and_unsupported_windows_settings() {
+    fn separates_rounded_and_inactive_windows_settings() {
         let profile: SourceProfile = serde_json::from_str(
             r#"{
                 "Product":"AE5",
@@ -1295,6 +1341,8 @@ mod tests {
                         "XOver":0.0,
                         "SubWooferGain":false
                     },
+                    "SVM":{"Enable":true,"Level":0.5,"Mode":0,"PlusMode":0},
+                    "DialogPlus":{"Enable":true,"Level":0.5,"Mode":0},
                     "SBXMaster":{"Enable":true,"SurroundEnable":false}
                 }]
             }"#,
@@ -1303,6 +1351,12 @@ mod tests {
         let settings = select_settings(&profile.settings, SbCommandTarget::Headphone).unwrap();
         let mut report = SbCommandImportReport::default();
         report_unknown_fields(&mut report, "Profile", &profile.extra, true);
+        report_ae5_default(
+            &mut report,
+            "Profile.SpeakerMethod",
+            profile.speaker_method,
+            "AE-5 profile routing metadata",
+        );
         effect_controls(settings, &mut report).unwrap();
 
         assert!(
@@ -1313,15 +1367,27 @@ mod tests {
         );
         assert!(
             report
-                .unsupported
+                .exact
                 .iter()
                 .any(|item| item.contains("Profile.SpeakerMethod"))
         );
         assert!(
             report
-                .unsupported
+                .exact
                 .iter()
                 .any(|item| item.contains("Surround.Mode"))
+        );
+        assert!(
+            report
+                .exact
+                .iter()
+                .any(|item| item.contains("DialogPlus.Mode"))
+        );
+        assert!(
+            report
+                .exact
+                .iter()
+                .any(|item| item.contains("SVM.PlusMode"))
         );
         assert!(
             report
@@ -1341,6 +1407,57 @@ mod tests {
                 .iter()
                 .any(|item| item.contains("Bass.SubWooferGain off"))
         );
+    }
+
+    #[test]
+    fn retains_nondefault_metadata_and_product_specific_modes_as_unsupported() {
+        let profile: SourceProfile = serde_json::from_str(
+            r#"{
+                "Product":"AE5",
+                "SpeakerMethod":1,
+                "Settings":[{
+                    "Type":1,
+                    "Surround":{"Enable":true,"Level":0.5,"Mode":1},
+                    "Crystalizer":{"Enable":true,"Level":0.5,"Mode":1},
+                    "SVM":{"Enable":true,"Level":0.5,"Mode":0,"PlusMode":1},
+                    "DialogPlus":{"Enable":true,"Level":0.5,"Mode":1},
+                    "SBXMaster":{"Enable":true}
+                }]
+            }"#,
+        )
+        .unwrap();
+        let settings = select_settings(&profile.settings, SbCommandTarget::Headphone).unwrap();
+        let eq: SourceEq =
+            serde_json::from_str(r#"{"Product":"AE5","SpeakerMethod":1,"Settings":[]}"#).unwrap();
+        let mut report = SbCommandImportReport::default();
+        report_ae5_default(
+            &mut report,
+            "Profile.SpeakerMethod",
+            profile.speaker_method,
+            "AE-5 profile routing metadata",
+        );
+        report_ae5_default(
+            &mut report,
+            "Equalizer.SpeakerMethod",
+            eq.speaker_method,
+            "AE-5 equalizer routing metadata",
+        );
+
+        effect_controls(settings, &mut report).unwrap();
+
+        for field in [
+            "Profile.SpeakerMethod 1",
+            "Equalizer.SpeakerMethod 1",
+            "Surround.Mode 1",
+            "Crystalizer.Mode 1",
+            "SVM.PlusMode 1",
+            "DialogPlus.Mode 1",
+        ] {
+            assert!(
+                report.unsupported.iter().any(|item| item.contains(field)),
+                "missing unsupported report for {field}"
+            );
+        }
     }
 
     #[test]

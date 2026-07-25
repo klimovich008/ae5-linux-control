@@ -217,7 +217,11 @@ as a non-zero EQ preamp are skipped while the representable controls are
 retained; invalid products, files, ranges, units, band counts, and frequencies
 are still rejected. Explicitly disabled Scout settings and a false subwoofer
 gain flag are reported as exact no-ops; configured or enabled values remain
-unsupported.
+unsupported. Zero-valued `SpeakerMethod`, `Surround.Mode`,
+`DialogPlus.Mode`, and `SVM.PlusMode` defaults are also exact no-ops: the
+first selects a Windows routing API, while Creative's own profile path applies
+the latter three only to Katana. Unexpected nonzero values remain unsupported
+for review.
 
 ## Native desktop application
 

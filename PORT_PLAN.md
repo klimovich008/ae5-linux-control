@@ -618,10 +618,12 @@ the physical card. The native GTK dialog path passed separately in a real
 desktop session with an isolated LED-class fixture; visible color confirmation
 on the card remains open.
 The AE-5 Direct Mode candidate reconstructs the known normal route, excludes
-open-PCM transitions, and passes strict kernel style/object builds plus all 59
-Rust/GTK tests. It has not been loaded; audible bypass, format, stress,
-suspend/resume, and reboot gates are tracked in
-`docs/DIRECT_MODE_INVESTIGATION.md`.
+open-PCM transitions, and passes strict kernel style/object builds, all 61
+Rust/GTK tests, guarded physical bypass/format/routing/stress checks, and three
+warm guest boots. A host-configured side-by-side kernel RPM also passed
+non-installing verification and a no-audio QEMU smoke boot. Bare-metal cold
+boot, suspend/resume, and connected line-out gates are tracked in
+`docs/DIRECT_MODE_INVESTIGATION.md` and `docs/HOST_KERNEL_BUILD.md`.
 
 Exit criterion for each feature: the new interface has readback, validation,
 power-management coverage, clean kernel logs, and repeatable hardware results.

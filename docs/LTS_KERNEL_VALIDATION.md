@@ -280,6 +280,32 @@ the AE-5/Fifine defaults returned, the inactive domain contained no hostdev,
 and VFIO preflight was ready. Raw microphone recordings were deleted after
 deriving the documented values.
 
+## Host-installable Direct Mode candidate
+
+The production, onboard-RGB, and Direct Mode stack was rebuilt from the same
+Linux `6.18.40` base using the target Nobara host's distribution
+configuration. The resulting release is
+`6.18.40-ae5-lts-rgb-direct-host+`.
+
+The main RPM has SHA-256
+`0df56e32e69d7bdb8d65390fe3a9322b6832644270202379c9c6cd5287f0fe62`.
+It was unpacked without installation and contained 6,326 signed,
+zstd-compressed modules. `depmod` indexed the tree successfully. The packaged
+CA0132 module had matching vermagic, a build-time PKCS#7 signature, and
+markers for Direct Mode, the five onboard LEDs, the factory-EQ control, and
+DSP-image rejection.
+
+The exact `bzImage` entered x86-64 under a QEMU configuration with audio and
+networking disabled and reported the expected release. It stopped only at the
+intentional no-root-filesystem boundary. The live host retained only its two
+stock Nobara kernels; `/boot`, `/lib/modules`, the boot loader, PCI binding,
+and all audio state were unchanged.
+
+The build commands, hashes, read-only RPM verifier, installation effects,
+rollback path, and hard 20% first-boot gate are in
+[`HOST_KERNEL_BUILD.md`](HOST_KERNEL_BUILD.md). Bare-metal installation and
+boot remain a separate authorization checkpoint.
+
 ## Remaining limits
 
 This maintained-LTS cycle proves buildability, parser safety, bootability,

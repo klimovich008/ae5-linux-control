@@ -12,6 +12,12 @@ The diagnostic SpeakerEQ probe was loaded separately in two earlier cycles and
 produced the bounded negative result described below. None changes the running
 host kernel merely by being present in this repository.
 
+The complete production, onboard-RGB, and Direct Mode stack has also been
+packaged as a side-by-side host kernel and passed non-installing verification
+plus a no-audio QEMU smoke boot. It has not been installed. The exact build,
+artifact hashes, rollback path, and hard 20% first-boot gate are in
+[`HOST_KERNEL_BUILD.md`](../docs/HOST_KERNEL_BUILD.md).
+
 ## Current upstream validation
 
 On 2026-07-25, a direct `git ls-remote` check confirmed that the ALSA

@@ -33,6 +33,17 @@ git apply /path/to/ae5-linux-control/kernel/backports/6.18/ca0132-ae5-onboard-le
 git diff --check
 ```
 
+For the separately reviewable Direct Mode extension, apply this last:
+
+```sh
+git apply /path/to/ae5-linux-control/kernel/ca0132-ae5-direct-mode.patch
+git diff --check
+```
+
+The complete host-package workflow for the production, RGB, and Direct Mode
+stack is in
+[`docs/HOST_KERNEL_BUILD.md`](../../../docs/HOST_KERNEL_BUILD.md).
+
 The first two commits are already upstream but were not present in 6.18.40:
 
 - `778031e1658d`: set the auto-detect default from headphone-pin capability;
@@ -60,6 +71,12 @@ The LED-extended `6.18.40-ae5-lts-rgb+` stack additionally passed a full
 kernel/module build, a card-less boot, and a managed physical cycle with five
 multicolor LED devices, bounded color/brightness writes, unchanged mixer
 state, and exact host recovery.
+
+The Direct Mode-extended source was also rebuilt as the side-by-side
+`6.18.40-ae5-lts-rgb-direct-host+` RPM using the target Nobara host
+configuration. Its package and module tree passed non-installing static
+verification and an exact-image no-audio QEMU smoke boot. It has not been
+installed or booted on bare metal.
 
 The full build, hardware, package, and recovery evidence is in
 [`docs/LTS_KERNEL_VALIDATION.md`](../../../docs/LTS_KERNEL_VALIDATION.md).

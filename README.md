@@ -3,6 +3,12 @@
 Linux control software and upstream driver fixes for the Creative Sound
 BlasterX AE-5, developed from public source and reproducible hardware evidence.
 
+The physically tested Linux 6.18 CA0132 patch stack now also has a
+host-configured, side-by-side kernel RPM. It passed non-installing package
+verification and a no-audio QEMU smoke boot; bare-metal installation remains
+an explicit checkpoint. See
+[docs/HOST_KERNEL_BUILD.md](docs/HOST_KERNEL_BUILD.md).
+
 ## Current milestone: desktop profiles, synchronized routing, and onboard lighting
 
 The first Rust slice detects the audited AE-5 revision by its PCI and subsystem
@@ -376,7 +382,7 @@ headphone gain, and DAC-filter access. A managed physical-card cycle passed
 S16/S32 playback, exact rate/channel rejection, DSP bypass, normal-route
 restoration, ten repeated cycles, and coherent Speakers/Headphone selection
 with at least 35.5 dB acoustic separation. Strict kernel style checking, a
-complete warnings-as-errors module build, all 59 Rust/GTK tests, and Clippy
+complete warnings-as-errors module build, all 61 Rust/GTK tests, and Clippy
 also pass. Three warm boots each retained the safe mixer state and completed
 Direct and normal PCM playback. Direct Mode remains deferred for a host cold
 boot, bare-metal suspend/resume, and connected line-out gates. A post-Direct

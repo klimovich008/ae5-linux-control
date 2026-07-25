@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Install native headers
-        run: sudo apt-get update && sudo apt-get install --yes appstream desktop-file-utils libasound2-dev libgtk-4-dev sox
+        run: sudo apt-get update && sudo apt-get install --yes appstream desktop-file-utils libasound2-dev libgtk-4-dev sox udev
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
@@ -24,7 +24,8 @@ jobs:
       - run: bash scripts/collect-linux-report.sh --self-test
       - run: bash scripts/collect-routing-state.sh --self-test
       - run: bash scripts/check-vfio-host.sh --self-test
-      - run: desktop-file-validate packaging/io.github.klimovich008.ae5control.desktop
+      - run: desktop-file-validate packaging/*.desktop
+      - run: udevadm verify --resolve-names=never packaging/udev/*.rules
       - run: appstreamcli validate --no-net --strict packaging/io.github.klimovich008.ae5control.metainfo.xml
       - run: systemd-analyze --user verify systemd/user/*
       - run: cargo fmt --check
@@ -38,7 +39,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Install build dependencies
-        run: dnf install --assumeyes appstream alsa-lib-devel cargo desktop-file-utils git gtk4-devel rpm-build rust
+        run: dnf install --assumeyes appstream alsa-lib-devel cargo desktop-file-utils git gtk4-devel rpm-build rust systemd-udev
       - uses: actions/checkout@v6
       - name: Trust checked-out worktree
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"

@@ -81,9 +81,12 @@ A managed physical passthrough boot then:
 - produced no CA0132, HDA, timeout, lockup, or kernel warning.
 
 Visible color confirmation is still required before calling the protocol
-fully accepted. The sysfs attributes are root-owned and mode `0644`; app
-integration must add a narrowly scoped permission mechanism rather than
-running the GUI as root. The external WS2812 strip remains unsupported because
+fully accepted. A second physical cycle installed the application RPM's exact
+udev rule, which made only the five `brightness` and five `multi_intensity`
+attributes writable. A non-`audio` user then applied, persisted, restored, and
+failure-tested unified and independent colors through the Rust backend without
+`sudo`; RPM removal returned all ten values to mode `0644`. The complete mixer
+hash remained unchanged. The external WS2812 strip remains unsupported because
 the verified public implementation reaches it only through a private Windows
 driver command.
 

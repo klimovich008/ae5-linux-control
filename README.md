@@ -3,7 +3,7 @@
 Linux control software and upstream driver fixes for the Creative Sound
 BlasterX AE-5, developed from public source and reproducible hardware evidence.
 
-## Current milestone: desktop profiles, live synchronization, and routing diagnosis
+## Current milestone: desktop profiles, synchronized routing, and onboard lighting
 
 The first Rust slice detects the audited AE-5 revision by its PCI and subsystem
 IDs, opens the matching ALSA mixer through `libasound`, and reads its live
@@ -50,6 +50,25 @@ same path. Hardware evidence, limitations, and verification steps are in
 On the target AE-5, guarded 44.1 and 96 kHz physical What U Hear captures
 matched direct ALSA and PipeWire by 0.00 dB in level and response when the PCM
 mixer was at 0 dB; alternative-rate switching remains an explicit opt-in.
+
+With the onboard-LED kernel candidate and the packaged device rule installed,
+the same unprivileged desktop user can inspect, set, and persist the five
+onboard RGB colors:
+
+```sh
+ae5ctl lighting-status
+ae5ctl lighting-set 255 0 0
+ae5ctl lighting-set-led 3 0 0 255
+ae5ctl lighting-restore
+```
+
+Colors are range-checked, read back through Linux's multicolor LED class, and
+saved in `~/.config/ae5-control/lighting.json`. A hidden desktop autostart
+entry restores that file after login. The package grants writes only to
+`brightness` and `multi_intensity` on the exact five
+`1102:0012/1102:0051` AE-5 LED devices; it installs no daemon or privileged
+helper. The commands report that kernel support is unavailable on an
+unpatched kernel.
 
 Typed write commands validate choices and ranges and verify the value by
 reading it back. `Output Select` and `Input Source` use the matching
@@ -180,14 +199,19 @@ are still rejected.
 
 ## Native desktop application
 
-The GTK 4 application groups device diagnostics, system audio, profiles,
-playback, effects, equalizer, and recording into dedicated pages. The
+The GTK 4 application groups device diagnostics, system audio, onboard
+lighting, profiles, playback, effects, equalizer, and recording into dedicated
+pages. The
 **Device** page shows the exact detected hardware, live capability counts, and
 driver values outside their advertised ranges. It can save the same
 privacy-conscious diagnostics report as `ae5-collect-report` without invoking a
 shell or requiring root. The **System audio** page can make the AE-5 the default
 PipeWire playback or recording device and opt into native-rate switching
 without changing its ALSA mixer controls.
+
+The **Lighting** page uses native GTK color dialogs for a unified color or five
+individual LED colors. It shares the CLI's verified, transactional backend and
+reverts the displayed color when a hardware or persistence write fails.
 
 Stereo ALSA controls receive separate accessible channel sliders; selectors,
 switches, and bounded sliders write through the verified ALSA backend. Each
@@ -223,7 +247,8 @@ evidence, and results are recorded in
 
 Nobara/Fedora RPM build and install instructions are in
 [packaging/README.md](packaging/README.md). The package installs the GTK app,
-CLI, desktop entry, AppStream metadata, and icon without a privileged helper.
+CLI, desktop entry, AppStream metadata, icon, scoped onboard-LED device rule,
+and login-time color restore without a privileged helper.
 A clean Fedora 44 build/install/verify/remove transaction is now enforced in
 pull-request CI, and a read-only run of an exact RPM payload on the physical
 AE-5 passed. The evidence and remaining authenticated-host install gate are in
@@ -252,8 +277,9 @@ a dedicated confirmation.
 
 ## Hardware audit
 
-Collect the actual card identity, driver state, ALSA controls, codec data, and
-relevant kernel log with the installed package:
+Collect the actual card identity, driver state, ALSA controls, onboard
+LED-class state, codec data, and relevant kernel log with the installed
+package:
 
 ```sh
 ae5-collect-report
@@ -321,10 +347,13 @@ An additional upstream-based candidate now exposes the AE-5's five onboard
 RGB LEDs through Linux's standard multicolor LED class without `/dev/mem` or
 userspace MMIO. It passed strict source/build checks, a card-less boot, and a
 managed physical cycle covering solid RGB frames, independent per-LED values,
-brightness off/on, unchanged audio controls, and exact host recovery. Visual
-color confirmation and a least-privilege GUI path remain before the feature is
-complete; the external strip is not yet supported. The patch and evidence are
-in [kernel/README.md](kernel/README.md) and
+brightness off/on, unchanged audio controls, and exact host recovery. A second
+physical cycle installed the exact RPM, changed and persisted colors as an
+unprivileged user, exercised hardware and file-write rollback, restored saved
+colors, and returned the scoped sysfs permissions to their original mode on
+uninstall. Visual color confirmation remains before the feature is complete;
+the external strip is not yet supported. The patch and evidence are in
+[kernel/README.md](kernel/README.md) and
 [docs/LTS_KERNEL_VALIDATION.md](docs/LTS_KERNEL_VALIDATION.md).
 
 The named-headphone-tuning gap, why the packaged `ctspeq.bin` must not be

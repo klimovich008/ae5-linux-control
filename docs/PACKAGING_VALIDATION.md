@@ -200,15 +200,66 @@ one DSP initialization, and zero failed guest units. Host shutdown/recovery
 then passed exactly as recorded in
 [`LTS_KERNEL_VALIDATION.md`](LTS_KERNEL_VALIDATION.md).
 
+## Normal-user onboard-lighting package cycle
+
+Collected on 2026-07-25 with the physical AE-5 attached to the Fedora 44
+system guest running `6.18.40-ae5-lts-rgb+`. The final binary RPM had
+SHA-256
+`96410b79323cc5396f0e84164c1434ca3aca5c2490eafc0fef7aa69e3ca2293e`;
+the source RPM had
+`4ac00e183c41923336adce8b0c4c96461e9bb02f3eec4241aebd5a5ac91537ee`.
+Its release check passed all 53 Rust tests, ACP/report/desktop/AppStream
+validation, and strict udev-rule verification. A disposable Fedora 44
+lifecycle test installed and removed all 19 package-owned files while
+preserving profile and ALSA sentinels.
+
+Before installation, all five exact onboard devices had root-owned mode
+`0644` `brightness` and `multi_intensity` attributes. The package post-install
+trigger matched the exact PCI and subsystem IDs, LED names, and
+`red green blue` channel order, changing only those ten attributes to `0666`.
+The SSH user was not in the guest's `audio` group and had no desktop-login
+device ACL, yet the installed CLI ran without `sudo` and:
+
+- changed all five LEDs from white to red;
+- saved a user-owned mode `0644`
+  `~/.config/ae5-control/lighting.json`;
+- applied and read back the independent pattern red, green, blue, amber, and
+  violet;
+- rejected index `0` and channel value `256` without changing hardware or
+  configuration;
+- rolled hardware back exactly when its configuration directory was made
+  unwritable;
+- restored the saved pattern after direct temporary white values.
+
+A forced permission loss on the third LED found an overly pessimistic
+rollback error. The backend was corrected to skip LEDs already at their saved
+value and continue attempting every required recovery. The rebuilt exact RPM
+then returned the underlying permission error while preserving both the
+hardware frame and configuration hashes. `udevadm test` showed the expected
+single `chmod` command for the exact LED path.
+
+Every stage retained the complete guest mixer SHA-256
+`c5d3a2673054ea6b71b562e3f12923c51c00af9c79af17137948e4474818de68`.
+No PCM was open, the DSP initialized once, no guest unit failed, and no
+relevant kernel warning appeared. Before removal the hardware was returned to
+its original white frame. Final removal deleted the rule and autostart entry,
+returned all ten attributes to root-owned mode `0644`, and preserved the
+lighting file byte-for-byte.
+
+The headless guest did not provide a GTK desktop session, so this cycle proves
+the package, normal-user shared backend, persistence, and failure handling,
+but not a physical click through the GTK color dialog. Visible color
+confirmation is also still pending.
+
 ## Remaining release gate
 
 This proves clean Fedora dependency resolution and package ownership/removal,
-physical-card operation of the exact payload, and a headless maintained-LTS
-package cycle. It does not claim a system-installed application on this host:
-`sudo` required an interactive password, so the host RPM database and `/usr`
-were deliberately not changed.
+physical-card operation of exact payloads, and a normal-user maintained-LTS
+lighting package cycle. It does not claim a system-installed application on
+the development host.
 
-Before calling Phase 5 complete, install the RPM through an authenticated host
-package transaction, launch it from the desktop application menu, exercise a
-user-approved control as the desktop user, uninstall it, and confirm the user
-profile library and ALSA state remain intact.
+Before calling Phase 5 complete, install the RPM through an authenticated
+development-host package transaction, launch it from the desktop application
+menu, exercise a user-approved control and color-dialog action as the desktop
+user, uninstall it, and confirm the profile library, lighting configuration,
+and ALSA state remain intact.

@@ -1,11 +1,12 @@
 use ae5_control::{
-    Ae5Device, Ae5Mixer, LINUX_DRIVER_DEFAULTS_PRESERVED, PipeWireNode, Profile,
-    SbCommandImportReport, SbCommandTarget, ae5_input, ae5_output, apply_linux_driver_defaults,
-    discover_sbcommand_installation, export_library_profile,
+    Ae5Device, Ae5Lighting, Ae5Mixer, LINUX_DRIVER_DEFAULTS_PRESERVED, ONBOARD_LED_COUNT,
+    PipeWireNode, Profile, RgbColor, SbCommandImportReport, SbCommandTarget, ae5_input, ae5_output,
+    apply_linux_driver_defaults, discover_sbcommand_installation, export_library_profile,
     import_active_sbcommand_profile_with_report, import_discovered_sbcommand_profile_with_report,
-    import_sbcommand_profile_with_report, linux_driver_defaults, linux_driver_defaults_for,
-    native_rates_config, profile_library, profile_library_directory, set_ae5_default_input,
-    set_ae5_default_output, set_native_rates_enabled, snapshot_controls,
+    import_sbcommand_profile_with_report, lighting_config_path, linux_driver_defaults,
+    linux_driver_defaults_for, native_rates_config, profile_library, profile_library_directory,
+    restore_saved_lighting, set_ae5_default_input, set_ae5_default_output,
+    set_native_rates_enabled, set_saved_led, set_saved_lighting, snapshot_controls,
 };
 use std::error::Error;
 use std::io;
@@ -43,6 +44,12 @@ fn run() -> Result<(), Box<dyn Error>> {
         [command] if command == "native-rates-status" => print_native_rates_status(),
         [command] if command == "native-rates-enable" => set_native_rates(true),
         [command] if command == "native-rates-disable" => set_native_rates(false),
+        [command] if command == "lighting-status" => print_lighting_status(),
+        [command] if command == "lighting-restore" => restore_lighting(),
+        [command, red, green, blue] if command == "lighting-set" => set_lighting(red, green, blue),
+        [command, index, red, green, blue] if command == "lighting-set-led" => {
+            set_lighting_led(index, red, green, blue)
+        }
         [command, name] if command == "get" => print_control(name),
         [command, name, choice] if command == "set-choice" => set_choice(name, choice, false),
         [command, name, choice, flag] if command == "set-choice" && flag == "--allow-high-gain" => {
@@ -131,6 +138,17 @@ fn print_status() -> Result<(), Box<dyn Error>> {
         Ok(None) => println!("  PipeWire input: unavailable"),
         Err(error) => println!("  PipeWire input: unavailable ({error})"),
     }
+    match Ae5Lighting::discover().and_then(|lighting| lighting.colors()) {
+        Ok(colors) => println!(
+            "  Onboard lighting: {}",
+            colors
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        Err(error) => println!("  Onboard lighting: unavailable ({error})"),
+    }
     println!();
     println!("Core control state");
 
@@ -218,6 +236,57 @@ fn set_native_rates(enabled: bool) -> Result<(), Box<dyn Error>> {
         },
         config.path.display()
     );
+    Ok(())
+}
+
+fn print_lighting_status() -> Result<(), Box<dyn Error>> {
+    let colors = Ae5Lighting::discover()?.colors()?;
+    println!("AE-5 onboard lighting");
+    for (index, color) in colors.iter().enumerate() {
+        println!("  LED {}: {color}", index + 1);
+    }
+    println!(
+        "  Saved configuration: {}",
+        lighting_config_path()?.display()
+    );
+    Ok(())
+}
+
+fn set_lighting(red: &str, green: &str, blue: &str) -> Result<(), Box<dyn Error>> {
+    let color = parse_color(red, green, blue)?;
+    let config = set_saved_lighting([color; ONBOARD_LED_COUNT])?;
+    println!(
+        "set and saved all {ONBOARD_LED_COUNT} onboard LEDs to {}",
+        config.leds[0]
+    );
+    Ok(())
+}
+
+fn set_lighting_led(index: &str, red: &str, green: &str, blue: &str) -> Result<(), Box<dyn Error>> {
+    let index = index.parse::<usize>().map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("LED index must be 1 through {ONBOARD_LED_COUNT}"),
+        )
+    })?;
+    let color = parse_color(red, green, blue)?;
+    set_saved_led(index, color)?;
+    println!("set and saved onboard LED {index} to {color}");
+    Ok(())
+}
+
+fn restore_lighting() -> Result<(), Box<dyn Error>> {
+    match restore_saved_lighting()? {
+        Some(config) => println!(
+            "restored {} saved onboard LED colors from {}",
+            config.leds.len(),
+            lighting_config_path()?.display()
+        ),
+        None => println!(
+            "no saved onboard lighting configuration at {}",
+            lighting_config_path()?.display()
+        ),
+    }
     Ok(())
 }
 
@@ -559,6 +628,22 @@ fn parse_switch(value: &str) -> Result<bool, io::Error> {
     }
 }
 
+fn parse_color(red: &str, green: &str, blue: &str) -> Result<RgbColor, io::Error> {
+    let parse = |name: &str, value: &str| {
+        value.parse::<u8>().map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("{name} must be an integer from 0 through 255"),
+            )
+        })
+    };
+    Ok(RgbColor::new(
+        parse("red", red)?,
+        parse("green", green)?,
+        parse("blue", blue)?,
+    ))
+}
+
 fn missing_level(name: &str) -> io::Error {
     io::Error::other(format!("'{name}' has no playback level"))
 }
@@ -587,6 +672,10 @@ fn print_help() {
          \x20 native-rates-status   Show the per-user PipeWire rate configuration\n\
          \x20 native-rates-enable   Allow native 44.1, 48, and 96 kHz after restart\n\
          \x20 native-rates-disable  Remove the managed native-rate configuration\n\
+         \x20 lighting-status       Show all five onboard LED colors\n\
+         \x20 lighting-set RED GREEN BLUE\n\
+         \x20 lighting-set-led INDEX RED GREEN BLUE\n\
+         \x20 lighting-restore      Restore the saved onboard LED colors\n\
          \x20 get NAME\n\
          \x20 set-choice NAME CHOICE [--allow-high-gain]\n\
          \x20 set-playback-switch NAME on|off\n\

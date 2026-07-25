@@ -7,7 +7,7 @@ the host kernel. It cannot replace final cold-boot, suspend, and recovery tests
 on the host.
 
 The virtualization stack, session guest, and system guest were installed on
-2026-07-24. Nine guarded managed-passthrough cycles have now completed; the
+2026-07-24. Ten guarded managed-passthrough cycles have now completed; the
 hostdev was removed afterward and both guests are powered off.
 
 Run the read-only, fail-closed hardware check at any time:
@@ -413,11 +413,25 @@ complete mixer hash, all three WirePlumber files, AE-5/Fifine defaults,
 The kernel artifacts and detailed LED-class evidence are recorded in
 [`LTS_KERNEL_VALIDATION.md`](LTS_KERNEL_VALIDATION.md).
 
+The tenth cycle installed the normal-user RGB application RPM on that same
+kernel. Its exact udev match exposed only the five validated
+`brightness`/`multi_intensity` pairs; the headless non-`audio` user then
+applied, persisted, restored, and failure-tested unified and independent
+colors without `sudo`. The complete guest mixer hash never changed, and RPM
+removal returned all ten sysfs attributes to root-owned mode `0644` while
+preserving the user configuration.
+
+After shutdown, all 47 writable host controls, WirePlumber defaults, the
+AE-5/Fifine default devices, and driver binding recovered. The sole raw-mixer
+difference was the expected read-only PCM channel map changing from the active
+pre-test stereo stream to no stream. The hostdev was removed, the guest was
+off, and VFIO preflight passed.
+
 The powered-off system volume passed `qemu-img check` after all five cycles
 and had SHA-256
 `d7ee6ed48b3ba5800e5c93576fdbbec76bbe0eb81d2708c59dd600058262a664`.
 The image is root-owned mode `0600`; the check could not be repeated after the
-sixth through ninth cycles without interactive host authorization. Libvirt
+sixth through tenth cycles without interactive host authorization. Libvirt
 completed each shutdown without a storage error.
 The untouched standalone recovery image retained SHA-256
 `bfca0fdfa57cc7b9fab13c91a2a58584233c257638f636573b85a29c1d091637`.

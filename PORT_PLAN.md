@@ -27,7 +27,7 @@ This is more promising than starting a driver from scratch:
   line-out, surround, and digital output when it was submitted upstream.
 - RGB, true Direct Mode, some speaker calibration functions, Scout Mode, and
   licensed Dolby/DTS encoding are not equivalent to ordinary ALSA mixer
-  controls and must be treated as separate features.
+  controls and require separate, capability-specific interfaces.
 
 Therefore the project has two tracks:
 
@@ -65,6 +65,8 @@ tested against a Windows reference and on real Linux hardware.
 - Match the Windows audio path as closely as the hardware, firmware, and
   measurable settings permit; unexplained differences are driver bugs, not GUI
   presets.
+- Control and persist the five onboard RGB LEDs through a constrained kernel
+  LED-class interface, without userspace MMIO.
 - Produce a diagnostics bundle that excludes personal data by default.
 - Run without root privileges during normal use.
 
@@ -73,7 +75,7 @@ tested against a Windows reference and on real Linux hardware.
 - A genuine DSP-bypass Direct Mode and its supported sample formats.
 - Per-channel speaker level and delay calibration.
 - Reliable desktop echo cancellation.
-- AE-5 card and external-strip RGB control.
+- External-strip RGB control.
 - PipeWire-based substitutes where the hardware DSP has no usable interface.
 
 ### Not part of the first release
@@ -110,7 +112,8 @@ what the installed kernel actually exposes on the user's card.
 | What U Hear | Exposed as capture PCM/mixer controls | Test and expose if present |
 | True Direct Mode | No clear public ALSA control | Driver research gate |
 | Speaker distance calibration | Hardware requests are known internally but not offered as a stable public control | Driver or PipeWire research gate |
-| RGB/Aurora | No current `ca0132` interface | Separate kernel/OpenRGB workstream |
+| Onboard RGB/Aurora | Five-device multicolor LED-class candidate is physically validated | Use the shared Rust backend and exact package permission rule |
+| External-strip RGB | No current `ca0132` interface | Continue as a separate kernel/OpenRGB workstream |
 | Scout Mode | No current upstream interface | Exclude initially |
 | Dolby/DTS live encoding | No current upstream interface | Exclude |
 | Windows profile migration | Command documents JSON profile export/import, and the AE-5 software release added EQ import/export | Parse verified exports and convert supported fields |
@@ -122,10 +125,10 @@ what the installed kernel actually exposes on the user's card.
 Sound Blaster Command JSON ── migration importer ─┐
                                                  │
 Rust/GTK application ─┐                           │
-                     ├─ shared Rust backend ──────┴─ libasound ── ALSA controls
-CLI / test commands ─┘          │
-                                ├─ wpctl (routing/default-device actions only)
-                                └─ native JSON profiles in the user's XDG config
+                     ├─ shared Rust backend ──────┬─ libasound ── ALSA controls
+CLI / test commands ─┘                           ├─ validated multicolor LED class
+                                                 ├─ wpctl (routing/default-device actions only)
+                                                 └─ JSON profiles and lighting in XDG config
 
 PipeWire/WirePlumber ── ALSA PCM devices ── snd_hda_intel + ca0132 ── AE-5
 ```
@@ -143,6 +146,8 @@ Implementation defaults:
 - Exact ALSA control names and runtime capability discovery, not hard-coded
   `numid` values or card indexes.
 - No daemon, database, web service, Electron runtime, or root helper.
+- One package-owned udev rule grants writes only to `brightness` and
+  `multi_intensity` on the exact five validated onboard LED devices.
 - No custom kernel module unless a missing function first proves that an
   upstreamable `ca0132` change is required.
 
@@ -393,7 +398,8 @@ Use sources in this order:
 4. The merged OpenRGB AE-5/AE-5 Plus implementation. Its GPL source documents
    PCI IDs, five internal LEDs, the command packet layout, and the Windows
    driver IOCTL used for lighting. The merged implementation is Windows-only,
-   so Linux RGB still needs a narrow kernel interface.
+   and supplied the public evidence for the narrow onboard Linux kernel
+   interface now carried here.
 5. Creative's public manuals, profile exports, firmware already distributable
    through `linux-firmware`, and hardware measurements.
 6. Targeted static or dynamic analysis of a legally obtained Windows package
@@ -415,7 +421,8 @@ Initial findings:
 - The two 2026 upstream headphone-selection commits are direct candidate fixes
   for the first-use toggle symptom and should be tested before new code.
 - OpenRGB merge request !2997 adds an AE-5 command structure and a Creative
-  driver IOCTL for lighting, but not a Linux hardware backend.
+  driver IOCTL for lighting, but not a Linux hardware backend. The repository's
+  five-LED kernel candidate now supplies that backend for onboard LEDs only.
 
 Licensing and clean-room gate:
 
@@ -556,18 +563,19 @@ Candidate order:
 2. True Direct Mode and supported high-resolution formats.
 3. Speaker level/delay calibration.
 4. Desktop echo cancellation, only if it can be made reliable.
-5. RGB through an appropriate kernel LED interface, then reuse it from
-   OpenRGB or AE-5 Control.
+5. External-strip RGB, extending the now-validated onboard kernel LED
+   interface and reusing it from OpenRGB or AE-5 Control.
 
-RGB work must build on the existing OpenRGB investigation, which has Windows
-support but still identifies Linux as needing a kernel-driver interface. It
-must not use `/dev/mem` or unrestricted userspace MMIO.
+RGB work builds on the existing OpenRGB investigation and must not use
+`/dev/mem` or unrestricted userspace MMIO. The onboard five-LED candidate now
+has a physically validated kernel interface and normal-user Rust backend; the
+external strip remains a separate protocol and acceptance gate.
 
 Temporary test kernels remain boot-menu alternatives to the known-good stock
 kernel. Proprietary Creative binaries or firmware are not copied into the
 repository.
 
-Current driver status: four independent functional fixes apply cleanly to the
+Current driver status: four independent audio/DSP fixes apply cleanly to the
 ALSA maintainer tree's verified 2026-07-25 `for-next` head. Together they
 compile with `W=1` and warnings as errors, pass all four DSP-image KUnit cases,
 and have completed guarded physical initialization, playback, loopback
@@ -576,6 +584,9 @@ The complete stack also passed strict builds, KUnit, two no-device boots, and
 one physical/recovery cycle on Linux 6.18.40 LTS. Analog-input behavior,
 suspend/resume, and the contributor's personal DCO sign-off remain before this
 project treats the relevant series as fully accepted and submitted.
+The separately reviewable onboard-RGB candidate passed the same strict build,
+a no-device boot, root LED-class exercise, and a normal-user package cycle on
+the physical card; visible color confirmation remains open.
 
 Exit criterion for each feature: the new interface has readback, validation,
 power-management coverage, clean kernel logs, and repeatable hardware results.
@@ -776,7 +787,8 @@ heard once.”
 If the stock controls behave as the upstream source indicates, a useful audio
 control MVP should be much smaller than a full driver project. Full
 Sound Blaster Command parity remains an open-ended reverse-engineering project,
-mainly because of Direct Mode, RGB, Scout features, and licensed encoding.
+mainly because of Direct Mode, external-strip RGB, Scout features, and licensed
+encoding.
 
 ## 10. Primary references
 

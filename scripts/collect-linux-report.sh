@@ -33,6 +33,29 @@ collect_pipewire() {
 	fi
 }
 
+collect_lighting() {
+	local led name channels brightness intensity mode
+	local -a leds=()
+
+	section 'AE-5 onboard lighting'
+	shopt -s nullglob
+	leds=("${AE5_LED_ROOT:-/sys/class/leds}"/hdaudioC*D*:rgb:ae5-[1-5])
+	if (( ${#leds[@]} == 0 )); then
+		printf '[no AE-5 onboard LED-class devices found]\n'
+		return
+	fi
+	for led in "${leds[@]}"; do
+		name=${led##*/}
+		channels=$(<"$led/multi_index") || channels=unreadable
+		brightness=$(<"$led/brightness") || brightness=unreadable
+		intensity=$(<"$led/multi_intensity") || intensity=unreadable
+		mode=$(stat -c '%a' "$led/brightness" "$led/multi_intensity" 2>/dev/null |
+			paste -sd, -) || mode=unreadable
+		printf '%s channels=%s intensity=%s brightness=%s modes=%s\n' \
+			"$name" "$channels" "$intensity" "$brightness" "$mode"
+	done
+}
+
 collect() {
 	local card card_index vendor codec found=0
 
@@ -55,6 +78,7 @@ collect() {
 	run 'Playback devices' aplay -l
 	run 'Capture devices' arecord -l
 	collect_pipewire
+	collect_lighting
 	run 'CA0132 module information' modinfo snd_hda_codec_ca0132
 	run 'Loaded sound modules' sh -c \
 		'lsmod | grep -E "^(snd|soundcore)" || true'
@@ -101,6 +125,7 @@ self_test() {
 	grep -q '^## Operating system$' "$report"
 	grep -q '^## Creative PCI devices$' "$report"
 	grep -q '^## Creative PipeWire objects$' "$report"
+	grep -q '^## AE-5 onboard lighting$' "$report"
 	! grep -Fq "$HOME" "$report"
 	if [[ -r /proc/sys/kernel/hostname ]]; then
 		read -r hostname_value < /proc/sys/kernel/hostname

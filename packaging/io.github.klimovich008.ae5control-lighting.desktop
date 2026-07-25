@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Restore AE-5 onboard lighting
+Comment=Restore the saved AE-5 onboard LED colors
+Exec=ae5ctl lighting-restore
+TryExec=ae5ctl
+Terminal=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true

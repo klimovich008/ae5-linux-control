@@ -198,12 +198,56 @@ controls were byte-identical, the mixer hash returned to
 all three WirePlumber state files were byte-identical, the AE-5 and Fifine
 defaults returned, the hostdev was absent, and VFIO preflight passed.
 
+### Normal-user application cycle
+
+A second managed physical cycle booted the same RGB kernel and installed the
+final binary RPM with SHA-256
+`96410b79323cc5396f0e84164c1434ca3aca5c2490eafc0fef7aa69e3ca2293e`.
+Before installation, the five `brightness` and five `multi_intensity`
+attributes were root-owned mode `0644`. The package's exact udev match changed
+only those attributes to `0666`; immutable identity attributes such as
+`multi_index` and `max_brightness` remained root-owned mode `0444`.
+
+The unprivileged SSH user was not in `audio` and had no desktop-session ACL.
+It nevertheless used the installed lighting-only CLI path to apply and verify
+one solid frame and the independent pattern `#FF0000`, `#00FF00`, `#0000FF`,
+`#FFA000`, and `#B400FF`. The versioned, card-targeted configuration was
+created as a user-owned file and `lighting-restore` reproduced it after direct
+temporary white values.
+
+Invalid LED and color arguments left the configuration and hardware hashes
+unchanged. Making the configuration directory unwritable caused the hardware
+transaction to roll back exactly. A forced loss of write permission on the
+third LED exposed and then verified a userspace rollback-reporting fix: the
+final backend skips LEDs already at their saved value, attempts every required
+recovery, and reports only the underlying permission failure when recovery is
+complete.
+
+Throughout the package install, normal-user writes, injected failures,
+restore, and removal, the complete guest mixer hash remained
+`c5d3a2673054ea6b71b562e3f12923c51c00af9c79af17137948e4474818de68`.
+No PCM was open, the DSP initialized once, no unit failed, and no relevant
+driver warning appeared. Removal deleted the udev/autostart files, returned
+all ten writable attributes to root-owned mode `0644`, and preserved the
+user's lighting file byte-for-byte.
+
+On host recovery, all 47 writable application controls matched the pre-cycle
+profile exactly after desktop session policy restarted. The raw mixer diff
+was limited to the read-only volatile `Playback Channel Map`: it was `FL,FR`
+during the active pre-test Brave stream and zero with no post-test stream.
+WirePlumber default-node and route files stayed byte-identical; the
+stream-properties objects were semantically identical and their saved byte
+ordering was restored. The AE-5/Fifine defaults, `snd_hda_intel` binding,
+inactive domain without a hostdev, and ready VFIO preflight all returned.
+
 ## Remaining limits
 
 This maintained-LTS cycle proves buildability, parser safety, bootability,
 physical initialization, control defaults, manual-route behavior, one safe
 app write, onboard-LED class registration/writes, package install/removal, and
-host recovery. It does not replace visible LED confirmation, a least-privilege
-GUI path, the external-strip protocol, or the remaining bare-metal cold-boot,
+host recovery. It now also proves the scoped normal-user lighting backend,
+persistence, rollback, and permission cleanup. It does not replace visible
+LED confirmation, a GTK color-dialog action in a real desktop session, the
+external-strip protocol, or the remaining bare-metal cold-boot,
 suspend/resume, speaker/line-out/digital, analog-input, long-duration
 stability, and Windows analog-parity gates.

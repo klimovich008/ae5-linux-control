@@ -7,6 +7,6 @@ Exec=ae5-control
 Icon=io.github.klimovich008.ae5control
 Terminal=false
 Categories=AudioVideo;Audio;
-Keywords=Creative;Sound Blaster;AE-5;Audio;ALSA;Equalizer;
+Keywords=Creative;Sound Blaster;AE-5;Audio;ALSA;Equalizer;RGB;Lighting;
 StartupNotify=true
 StartupWMClass=io.github.klimovich008.ae5control

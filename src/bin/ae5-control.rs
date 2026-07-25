@@ -1,13 +1,14 @@
 use ae5_control::{
-    Ae5Device, Ae5Mixer, ChannelLevel, ControlError, ControlSnapshot,
-    LINUX_DRIVER_DEFAULTS_PRESERVED, Level, NativeRatesConfig, PipeWireNode, Profile,
-    ProfileControl, SbCommandImport, SbCommandTarget, ae5_input, ae5_output,
+    Ae5Device, Ae5Lighting, Ae5Mixer, ChannelLevel, ControlError, ControlSnapshot,
+    LINUX_DRIVER_DEFAULTS_PRESERVED, Level, NativeRatesConfig, ONBOARD_LED_COUNT, PipeWireNode,
+    Profile, ProfileControl, RgbColor, SbCommandImport, SbCommandTarget, ae5_input, ae5_output,
     apply_linux_driver_defaults, capture_control_block_reason, discover_sbcommand_installation,
     equalizer_band_block_reason, export_library_profile,
     import_discovered_sbcommand_profile_with_report, import_sbcommand_profile_with_report,
     library_profile, linux_driver_defaults_for, native_rates_config, playback_switch_block_reason,
     profile_library, profile_library_directory, rename_library_profile, set_ae5_default_input,
-    set_ae5_default_output, set_native_rates_enabled, snapshot_controls,
+    set_ae5_default_output, set_native_rates_enabled, set_saved_led, set_saved_lighting,
+    snapshot_controls,
 };
 use gtk::prelude::*;
 use gtk::{gdk::Display, gio};
@@ -151,6 +152,7 @@ fn content(
     for (name, title) in [
         ("device", "Device"),
         ("routing", "System audio"),
+        ("lighting", "Lighting"),
         ("profiles", "Profiles"),
         ("playback", "Playback"),
         ("effects", "Sound effects"),
@@ -213,6 +215,7 @@ fn populate_page(
     let page: gtk::Widget = match name {
         "device" => device_page(window, device, controls, status).upcast(),
         "routing" => routing_page(device.card_index, status).upcast(),
+        "lighting" => lighting_page(window, status).upcast(),
         "profiles" => profile_page(window, device.card_index, status).upcast(),
         _ => {
             let Some(category) = Category::ALL
@@ -436,6 +439,184 @@ fn routing_page(card_index: i32, status: &gtk::Label) -> gtk::ScrolledWindow {
         .hscrollbar_policy(gtk::PolicyType::Never)
         .child(&page)
         .build()
+}
+
+fn lighting_page(window: &gtk::ApplicationWindow, status: &gtk::Label) -> gtk::ScrolledWindow {
+    let page = gtk::Box::new(gtk::Orientation::Vertical, 18);
+    page.add_css_class("profile-page");
+
+    let heading = gtk::Label::new(Some("Onboard lighting"));
+    heading.set_xalign(0.0);
+    heading.add_css_class("page-title");
+    page.append(&heading);
+
+    let intro = gtk::Label::new(Some(
+        "Set the five LEDs built into the AE-5. Colors are verified through the \
+         Linux multicolor LED class and saved for the next desktop login.",
+    ));
+    intro.set_xalign(0.0);
+    intro.set_wrap(true);
+    intro.add_css_class("dim-label");
+    page.append(&intro);
+
+    match Ae5Lighting::discover().and_then(|lighting| lighting.colors()) {
+        Ok(colors) => {
+            let all = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+            let summary =
+                gtk::Label::new(Some(&if colors.iter().all(|color| *color == colors[0]) {
+                    format!("All five LEDs are {}", colors[0])
+                } else {
+                    "The five LEDs currently use different colors".to_owned()
+                }));
+            summary.set_xalign(0.0);
+            summary.set_hexpand(true);
+            let button = color_button("Choose one color for all onboard LEDs", colors[0]);
+            {
+                let window = window.clone();
+                let status = status.clone();
+                let updating = Rc::new(Cell::new(false));
+                let updating_on_change = updating.clone();
+                button.connect_rgba_notify(move |button| {
+                    if updating_on_change.get() {
+                        return;
+                    }
+                    let requested = rgb_from_rgba(&button.rgba());
+                    match set_saved_lighting([requested; ONBOARD_LED_COUNT]) {
+                        Ok(_) => {
+                            let _ = refresh_window(
+                                &window,
+                                Some(&format!(
+                                    "Applied, verified, and saved {requested} for all onboard LEDs."
+                                )),
+                            );
+                        }
+                        Err(error) => {
+                            updating_on_change.set(true);
+                            button.set_rgba(&rgba_from_rgb(colors[0]));
+                            updating_on_change.set(false);
+                            set_status(&status, false, &format!("Lighting change failed: {error}"));
+                        }
+                    }
+                });
+            }
+            all.append(&summary);
+            all.append(&button);
+            page.append(&profile_card(
+                "01",
+                "Unified color",
+                "Choose one color for the complete five-LED chain.",
+                &all,
+            ));
+
+            let individual = gtk::Box::new(gtk::Orientation::Vertical, 10);
+            for (index, color) in colors.into_iter().enumerate() {
+                let row = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+                row.add_css_class("profile-library-row");
+                let label = gtk::Label::new(Some(&format!("LED {} · {color}", index + 1)));
+                label.set_xalign(0.0);
+                label.set_hexpand(true);
+                let button = color_button(
+                    &format!("Choose a color for onboard LED {}", index + 1),
+                    color,
+                );
+                {
+                    let window = window.clone();
+                    let status = status.clone();
+                    let updating = Rc::new(Cell::new(false));
+                    let updating_on_change = updating.clone();
+                    button.connect_rgba_notify(move |button| {
+                        if updating_on_change.get() {
+                            return;
+                        }
+                        let requested = rgb_from_rgba(&button.rgba());
+                        match set_saved_led(index + 1, requested) {
+                            Ok(_) => {
+                                let _ = refresh_window(
+                                    &window,
+                                    Some(&format!(
+                                        "Applied, verified, and saved {requested} for onboard LED {}.",
+                                        index + 1
+                                    )),
+                                );
+                            }
+                            Err(error) => {
+                                updating_on_change.set(true);
+                                button.set_rgba(&rgba_from_rgb(color));
+                                updating_on_change.set(false);
+                                set_status(
+                                    &status,
+                                    false,
+                                    &format!("Lighting change failed: {error}"),
+                                );
+                            }
+                        }
+                    });
+                }
+                row.append(&label);
+                row.append(&button);
+                individual.append(&row);
+            }
+            page.append(&profile_card(
+                "02",
+                "Individual LEDs",
+                "Each selection resends one coherent five-LED frame in the kernel.",
+                &individual,
+            ));
+        }
+        Err(error) => {
+            let unavailable = gtk::Box::new(gtk::Orientation::Vertical, 6);
+            let title = gtk::Label::new(Some("Lighting interface unavailable"));
+            title.set_xalign(0.0);
+            title.add_css_class("warning-label");
+            let detail = gtk::Label::new(Some(&error.to_string()));
+            detail.set_xalign(0.0);
+            detail.set_wrap(true);
+            unavailable.append(&title);
+            unavailable.append(&detail);
+            page.append(&profile_card(
+                "01",
+                "Kernel support required",
+                "Install and boot a kernel containing the AE-5 onboard multicolor LED patch.",
+                &unavailable,
+            ));
+        }
+    }
+
+    gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .child(&page)
+        .build()
+}
+
+fn color_button(label: &str, color: RgbColor) -> gtk::ColorDialogButton {
+    let dialog = gtk::ColorDialog::builder()
+        .title(label)
+        .modal(true)
+        .with_alpha(false)
+        .build();
+    let button = gtk::ColorDialogButton::new(Some(dialog));
+    button.set_rgba(&rgba_from_rgb(color));
+    button.set_tooltip_text(Some(label));
+    button.update_property(&[gtk::accessible::Property::Label(label)]);
+    button
+}
+
+fn rgba_from_rgb(color: RgbColor) -> gtk::gdk::RGBA {
+    gtk::gdk::RGBA::new(
+        f32::from(color.red) / 255.0,
+        f32::from(color.green) / 255.0,
+        f32::from(color.blue) / 255.0,
+        1.0,
+    )
+}
+
+fn rgb_from_rgba(color: &gtk::gdk::RGBA) -> RgbColor {
+    let channel = |value: f32| (value.clamp(0.0, 1.0) * 255.0).round() as u8;
+    RgbColor::new(
+        channel(color.red()),
+        channel(color.green()),
+        channel(color.blue()),
+    )
 }
 
 fn native_rates_card(status: &gtk::Label, current: std::io::Result<NativeRatesConfig>) -> gtk::Box {
@@ -2337,6 +2518,17 @@ mod tests {
             native_rates_summary(&config),
             "Enabled in PipeWire configuration\n44.1, 48, and 96 kHz"
         );
+    }
+
+    #[test]
+    fn round_trips_lighting_colors_through_gtk() {
+        for color in [
+            RgbColor::new(0, 0, 0),
+            RgbColor::new(255, 255, 255),
+            RgbColor::new(12, 127, 241),
+        ] {
+            assert_eq!(rgb_from_rgba(&rgba_from_rgb(color)), color);
+        }
     }
 
     #[test]

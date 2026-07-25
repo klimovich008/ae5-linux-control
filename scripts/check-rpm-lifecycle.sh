@@ -46,6 +46,7 @@ for command in ae5-control ae5ctl ae5-collect-report; do
 		fail "installed command is unavailable: $command"
 done
 ae5ctl help | grep -Fq 'sbcommand-import-active'
+ae5ctl help | grep -Fq 'lighting-restore'
 ae5-collect-report --self-test
 
 if [[ ! -e /dev/snd ]] && ae5ctl status >/dev/null 2>&1; then

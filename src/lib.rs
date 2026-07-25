@@ -1,5 +1,6 @@
 pub mod controls;
 pub mod device;
+pub mod lighting;
 pub mod pipewire;
 pub mod profile;
 pub mod profile_library;
@@ -10,6 +11,10 @@ pub use controls::{
     equalizer_band_block_reason, playback_switch_block_reason, snapshot_controls,
 };
 pub use device::Ae5Device;
+pub use lighting::{
+    Ae5Lighting, LightingConfig, ONBOARD_LED_COUNT, RgbColor, lighting_config_path,
+    restore_saved_lighting, saved_lighting, set_saved_led, set_saved_lighting,
+};
 pub use pipewire::{
     NativeRatesConfig, PipeWireNode, ae5_input, ae5_output, native_rates_config,
     set_ae5_default_input, set_ae5_default_output, set_native_rates_enabled,

@@ -188,20 +188,7 @@ pub(crate) fn suspend_ae5_output(card_index: i32) -> io::Result<SuspendedAe5Outp
 }
 
 pub fn ae5_route_state(card_index: i32) -> io::Result<PipeWireRouteState> {
-    let node = ae5_output(card_index)?.ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::NotFound,
-            format!("PipeWire has no AE-5 playback output for ALSA card {card_index}"),
-        )
-    })?;
-    let details = run_wpctl(&["inspect", &node.id.to_string()])?;
-    let device_id = property(&details, "device.id").ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            "the AE-5 PipeWire node has no device.id",
-        )
-    })?;
-    parse_route_state(&run_pw_dump(&device_id)?, card_index)
+    parse_route_state(&run_pw_dump()?, card_index)
 }
 
 pub(crate) fn set_ae5_output_profile(
@@ -685,24 +672,21 @@ fn run_wpctl(arguments: &[&str]) -> io::Result<String> {
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
-fn run_pw_dump(device_id: &str) -> io::Result<String> {
-    let output = Command::new("pw-dump")
-        .arg(device_id)
-        .output()
-        .map_err(|error| {
-            if error.kind() == io::ErrorKind::NotFound {
-                io::Error::new(
-                    io::ErrorKind::NotFound,
-                    "pw-dump is unavailable; install PipeWire utilities",
-                )
-            } else {
-                error
-            }
-        })?;
+fn run_pw_dump() -> io::Result<String> {
+    let output = Command::new("pw-dump").output().map_err(|error| {
+        if error.kind() == io::ErrorKind::NotFound {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                "pw-dump is unavailable; install PipeWire utilities",
+            )
+        } else {
+            error
+        }
+    })?;
     if !output.status.success() {
         let detail = String::from_utf8_lossy(&output.stderr).trim().to_owned();
         return Err(io::Error::other(if detail.is_empty() {
-            format!("pw-dump {device_id} failed")
+            "pw-dump failed".to_owned()
         } else {
             detail
         }));
@@ -1044,6 +1028,13 @@ id 58, type PipeWire:Interface:Node
     #[test]
     fn parses_and_validates_the_active_ae5_route() {
         let output = r#"[
+          {
+            "id": 12,
+            "info": {
+              "props": {"api.alsa.card": 2},
+              "params": {}
+            }
+          },
           {
             "id": 55,
             "info": {

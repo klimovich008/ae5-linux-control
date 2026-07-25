@@ -5,6 +5,7 @@ readonly startup_budget_ms=1000
 readonly refresh_budget_ms=100
 readonly idle_cpu_budget_percent=1
 readonly rss_budget_kib=$((100 * 1024))
+readonly idle_settle_seconds=1
 readonly idle_samples=50
 readonly idle_interval_seconds=0.1
 
@@ -59,6 +60,9 @@ read_ticks() {
 	awk '{ print $14 + $15 }' "/proc/$pid/stat"
 }
 
+# Do not count the final frame queued by the measured refresh as idle work.
+# Continuous or periodic work still appears in the following five-second sample.
+sleep "$idle_settle_seconds"
 start_ticks=$(read_ticks)
 max_rss_kib=0
 for ((sample = 0; sample < idle_samples; sample++)); do

@@ -283,16 +283,63 @@ defaults were unchanged, and the complete host mixer SHA-256 remained
 This closes the native desktop-dialog behavior gate without claiming that
 fixture colors prove the physical LEDs' visible output.
 
+## Rootless host installation and desktop launch
+
+The development account has no sudo password, so a separate source installer
+now provides a real, reversible application without pretending to install
+system components. It builds the locked release, stores its private payload
+under the user's XDG data directory, and links the CLI, GUI, report command,
+desktop/AppStream/icon metadata, autostart entry, and per-user
+WirePlumber/ACP files into their standard user locations. It leaves an
+existing byte-identical path untouched, refuses any conflict before writing,
+checks the required system ACP includes, and never restarts WirePlumber while
+audio may be active.
+
+`scripts/check-user-install.sh` passed an isolated lifecycle with temporary
+HOME and XDG roots:
+
+- release payload and integration hashes matched their source files;
+- the desktop and AppStream files validated and the installed CLI/report
+  commands ran;
+- a second install was idempotent;
+- unrelated destination content and a missing ACP include each stopped the
+  installer before a partial payload appeared;
+- an invalid payload marker stopped uninstall before any launcher was
+  unlinked;
+- the installed uninstaller removed its links and payload without relying on
+  the source checkout while preserving profile and lighting sentinels.
+
+The same path was then left installed for the real user on 2026-07-25. The GUI
+and CLI SHA-256 values are respectively
+`e43c30a608673f9a273ce4e896ac8691e72cbdab96824e841099e438319635ea`
+and
+`0a79f16c68b12a55adeed96e75ab2ad59336c072de47f96d51ac6bb94a1b6c31`.
+The installer retained all existing, byte-identical routing links and did not
+restart the audio session. Its retained
+`ae5-control-user-install --uninstall` command was byte-identical to the
+source installer. Launching the installed desktop entry produced the real
+`AE-5 Control` GTK frame from the installed payload; accessibility confirmed
+the exact `1102:0012/1102:0051` identity and all eight pages before closing
+the window normally.
+
+Before and after installation and both launches, the complete host mixer
+SHA-256 was
+`3e595532348efe1e2e9c066039131e97505cb9b71bc6bfd8fa8a59301091e802`.
+The AE-5/Fifine defaults, zero-stream state, every routing-file hash, and every
+existing AE-5 profile/lighting hash were identical. This proves a useful
+no-root desktop installation and its isolated removal behavior. It does not
+claim an authenticated RPM transaction or install the RGB kernel/udev pieces.
+
 ## Remaining release gate
 
 This proves clean Fedora dependency resolution and package ownership/removal,
 physical-card operation of exact payloads, and a normal-user maintained-LTS
 lighting package cycle, plus the unchanged release GUI's native color-dialog
-path. It does not claim a system-installed application on the development
-host or visible physical color output.
+path and a rootless application-menu installation on the development host. It
+does not claim a host RPM transaction or visible physical color output.
 
 Before calling Phase 5 complete, install the RPM through an authenticated
 development-host package transaction, launch it from the desktop application
 menu, exercise a user-approved physical control and visibly confirm one
-on-card color, uninstall it, and confirm the profile library, lighting
-configuration, and ALSA state remain intact.
+on-card color, uninstall it, and confirm the already-proven per-user profile
+library and lighting configuration plus ALSA state remain intact.

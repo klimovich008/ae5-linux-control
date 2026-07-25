@@ -38,6 +38,36 @@ Normal use does not require root, a project daemon, or a setuid helper.
 WirePlumber reads the packaged profile on its next start; log out and back in,
 or restart the user WirePlumber service when no audio stream is active.
 
+## Per-user source installation
+
+If the account cannot perform a system package transaction, install a local
+release build into the standard XDG user directories:
+
+```sh
+bash scripts/install-user.sh
+```
+
+The installer builds with Cargo, copies a private payload under
+`~/.local/share/ae5-control/user-install`, and creates only the required
+per-user binary, self-contained uninstaller, desktop, AppStream, icon,
+autostart, WirePlumber, and ACP links. Existing byte-identical routing files
+are retained, any conflicting path aborts the operation before installation,
+and missing system ACP includes are rejected instead of producing dangling
+links. It does not restart WirePlumber automatically.
+
+Remove only installer-owned integration and payload files with:
+
+```sh
+ae5-control-user-install --uninstall
+```
+
+Native profiles and `lighting.json` are deliberately preserved. The user
+installation cannot install the kernel RGB patch or a udev rule; use the RPM
+when those system pieces are required. `scripts/check-user-install.sh`
+validates an isolated install, idempotent reinstall, metadata and command
+execution, dependency/conflict refusal, invalid-marker refusal before unlink,
+checkout-independent removal, and state preservation.
+
 On a kernel containing the project's onboard-RGB patch, the package rule
 matches only the original AE-5 `1102:0012/1102:0051`, all five exact
 `hdaudioC*D*:rgb:ae5-[1-5]` names, and the `red green blue` channel order. It
@@ -64,5 +94,5 @@ normal-user installation, lighting, rollback, and removal of an exact package
 on the target AE-5 are
 recorded in
 [`docs/PACKAGING_VALIDATION.md`](../docs/PACKAGING_VALIDATION.md). An
-authenticated desktop-menu launch on the host remains part of the final
-release gate.
+installed per-user desktop-menu launch has passed on the host; an authenticated
+host RPM install/upgrade/remove cycle remains part of the final release gate.

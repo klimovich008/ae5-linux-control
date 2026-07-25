@@ -28,6 +28,7 @@ jobs:
       - run: udevadm verify --resolve-names=never packaging/udev/*.rules
       - run: appstreamcli validate --no-net --strict packaging/io.github.klimovich008.ae5control.metainfo.xml
       - run: systemd-analyze --user verify systemd/user/*
+      - run: cargo build --locked --release --all-features && bash scripts/check-user-install.sh
       - run: cargo fmt --check
       - run: cargo clippy --all-targets --all-features -- -D warnings
       - run: cargo test --all-features

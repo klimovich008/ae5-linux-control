@@ -255,7 +255,26 @@ CLI, desktop entry, AppStream metadata, icon, scoped onboard-LED device rule,
 and login-time color restore without a privileged helper.
 A clean Fedora 44 build/install/verify/remove transaction is now enforced in
 pull-request CI, and a read-only run of an exact RPM payload on the physical
-AE-5 passed. The evidence and remaining authenticated-host install gate are in
+AE-5 passed.
+
+When system package installation is unavailable, build and install the same
+application for the current desktop user:
+
+```sh
+bash scripts/install-user.sh
+# Later, if wanted:
+ae5-control-user-install --uninstall
+```
+
+This rootless path installs the binaries, application-menu metadata,
+login-time lighting restore, and card-scoped WirePlumber/ACP configuration
+under the normal XDG user directories. It refuses conflicting files and
+removal preserves profiles and lighting settings. It cannot install a kernel
+patch or udev permissions, so onboard-lighting writes still require the
+system package's exact rule. The isolated lifecycle check runs in CI, and the
+reference host has launched the installed application from its desktop entry
+with an unchanged mixer and route state. Full evidence and the remaining
+authenticated-RPM gate are in
 [docs/PACKAGING_VALIDATION.md](docs/PACKAGING_VALIDATION.md).
 
 The **Profiles** page can:

@@ -610,6 +610,9 @@ Goal: make the verified application easy to install without expanding the
 support claim prematurely.
 
 - Package first for the user's distribution.
+- Provide a reversible XDG user installation when an authenticated package
+  transaction is unavailable, without pretending it can install kernel or
+  udev components.
 - Add a desktop entry and only the runtime dependencies actually used.
 - Use normal audio-group/session permissions; do not install a setuid helper.
 - Test the current stable kernel and one maintained LTS kernel.
@@ -622,9 +625,12 @@ Current package status: pull-request CI builds a fresh Fedora 44 RPM and runs
 its real install, verification, command smoke tests, removal, file-cleanup,
 and profile/ALSA-state preservation checks in a disposable container. An exact
 RPM payload has also passed physical-card detection and a safe write/readback
-on Linux 6.18.40 LTS. Authenticated host installation and desktop-menu launch,
-one approved write as the desktop user, and clean host removal remain before
-this phase is complete.
+on Linux 6.18.40 LTS. The rootless XDG installer passed an automated isolated
+install/reinstall/remove lifecycle and launched the installed GTK application
+from its desktop entry on the physical-card host with exact mixer and route
+preservation. Authenticated host RPM installation/removal, one approved
+physical write as the desktop user, and visible onboard color confirmation
+remain before this phase is complete.
 
 Exit criterion: a clean machine can install, detect, configure, uninstall, and
 return to standard ALSA behavior without manual cleanup.

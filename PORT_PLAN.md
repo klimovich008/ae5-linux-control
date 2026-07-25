@@ -331,8 +331,14 @@ Current evidence: the card-scoped ACP route preserves the shared Front DAC,
 and a guarded external-microphone test measured its physical 997 Hz headphone
 output 19.59 dB above a Front-muted negative control. The integrated candidate
 also survived three warm guest reboots and 50 alternating output selections
-with the expected codec-pin state and exact mixer restoration. The remaining
-gate is the ten-host-cold-boot and twenty-suspend/resume lifecycle matrix.
+with the expected codec-pin state and exact mixer restoration. On the stock
+host, the installed CLI then completed a Speakers-to-Headphone desktop route
+cycle and produced a physical 997 Hz component 10.88 dB above both its quiet
+baseline and Front-muted negative control, with exact persistent mixer and
+route restoration. The paired boot collector now verifies the root-cause
+Front state and reports trailing progress toward ten consecutive valid boots.
+The remaining gate is the ten-host-cold-boot and twenty-suspend/resume
+lifecycle matrix.
 
 #### Sound does not match Windows
 

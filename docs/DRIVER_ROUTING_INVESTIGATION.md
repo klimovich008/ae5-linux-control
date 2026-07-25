@@ -203,6 +203,35 @@ these values. The test restored the sink to 43%, `Output Select=Headphone`,
 Fifine remained the 100% default source, no stream remained open, and no
 kernel or package was changed.
 
+On 2026-07-25, a second physical check exercised the installed rootless
+`ae5ctl` path rather than setting ALSA and PipeWire separately. With no stream
+open, it selected Speakers and then Headphone. The corresponding desktop
+ports changed to `analog-output-lineout;output-speaker` and then
+`sound-blaster-ae5-output-headphones;output-headphones`; `Output Select`
+read back exactly and `Front` remained on. The complete mixer was byte-equal
+before and after that route cycle.
+
+The same guarded 15% sink-volume setup then compared a quiet baseline, the
+selected headphone route, and a `Front=off` negative control. The generated
+997 Hz fixture had SHA-256
+`943fe7eaf841b23afb9eadadc8b6cc19b47cc555ea9522721f192066a2cec38d`.
+
+| Condition | 987-1007 Hz RMS dBFS |
+|---|---:|
+| Baseline | -113.98 |
+| Installed-CLI headphone route | -103.10 |
+| Negative control, Front off | -113.98 |
+
+The installed-CLI route was 10.88 dB above both controls. The first immediate
+post-stream snapshot retained ALSA's volatile `PCM Playback Channel Map` as
+`FL,FR`; after the closed stream settled, it returned to the idle value and
+the complete mixer again matched SHA-256
+`3e595532348efe1e2e9c066039131e97505cb9b71bc6bfd8fa8a59301091e802`.
+The AE-5/Fifine defaults, fixed port, and 43% sink volume were unchanged, no
+stream or relevant kernel warning remained, and all ambient WAV data was
+deleted. This independently proves audibility after an application route
+cycle; it is not a cold-boot, DAC-filter, or Windows-parity measurement.
+
 ## Safe cold-boot probe
 
 `collect-routing-state.sh` discovers the exact audited card by
@@ -225,6 +254,28 @@ user manager starts. Both append to the private file:
 ```text
 ~/.local/state/ae5-control/routing-boot.log
 ```
+
+Summarize the paired early/late snapshots and require ten consecutive valid
+headphone route-state pairs with:
+
+```sh
+bash scripts/collect-routing-state.sh --summary 10
+```
+
+The command validates `Output Select`, both `Front` channels, auto-detect,
+jack presence, all four output-pin states, PipeWire service timing, the
+card-specific headphone port, and the active duplex profile. It exits
+nonzero until the trailing run reaches the requested count; an incomplete or
+failed pair resets that run. Its parser and failure behavior run in CI through
+`--self-test`. The summary proves the persisted state and startup transition;
+the user must still confirm audible output before opening a mixer or toggling
+the route on each counted boot.
+
+The two historical boot pairs predate collection of the root-cause `Front`
+switch, so the strict summary correctly counts neither as a complete sample.
+The updated probe is installed for the next boot. The earlier post-fix pair
+still proves its recorded output-selection, codec-pin, and desktop-port state,
+but is not silently promoted to the stronger acceptance gate.
 
 After the next reboot, test sound before opening AE-5 Control or manually
 toggling an output. If sound is broken, capture one more snapshot:

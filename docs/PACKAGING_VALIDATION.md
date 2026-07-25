@@ -339,6 +339,46 @@ existing AE-5 profile/lighting hash were identical. This proves a useful
 no-root desktop installation and its isolated removal behavior. It does not
 claim an authenticated RPM transaction or install the RGB kernel/udev pieces.
 
+## Transactional rootless upgrades
+
+The user installer now stages every release file under the same data
+filesystem, compares the staged files byte for byte with their build inputs,
+and only then swaps the complete payload into the stable `user-install`
+location. Existing application-menu, command, WirePlumber, and ACP links
+continue to target that stable path. A rejected upgrade therefore cannot mix
+old and new binaries.
+
+The isolated lifecycle check replaced both installed binaries with explicit
+old-version sentinels, reran the installer, and obtained exact current release
+binaries while preserving the link manifest, native profile, and lighting
+configuration. A forced staged-file verification failure, a failed live
+directory swap, and a second attempted upgrade with a conflicting command path
+all left every live payload file byte-identical. The swap failure restored the
+complete previous payload. No staging or backup directory remained after the
+successful or rejected upgrades.
+
+The existing development-host installation was then upgraded in place. Its
+GUI/CLI SHA-256 pair changed from
+`8f9e43543c5fdf1de8f9c09d587b8c193d099d43b2714ab8a6f8e81019d18912` /
+`553a1e4eca4a1f4c993fbd8b6e5cee7b3695a88a6205d4f52651fa854744fae8`
+to
+`b22a3fedd035b1dcca15822ee6521fc86c03d05a01e7eee91d66dcae0c547e99` /
+`f15a973bc6e38e1952ccbbcd98dcb567ff71e533d866f51fa478b97fd1580f0c1`.
+All 16 installed payload inputs matched the current source files byte for byte
+and no staging or backup directory remained. The installed CLI found the
+physical `1102:0012/1102:0051` card and matched its ALSA Headphone/Microphone
+choices to the PipeWire routes with the Fedora 44 `wpctl` implementation.
+
+The desktop entry resolved to the upgraded payload. In the real KDE/Wayland
+session, AT-SPI confirmed the exact card identity and route-health card, loaded
+all eight pages, and closed the window through its advertised `window.close`
+action. The full mixer remained at SHA-256
+`3e595532348efe1e2e9c066039131e97505cb9b71bc6bfd8fa8a59301091e802`;
+the route-health output and existing user configuration set were unchanged.
+No AE-5 PCM opened, all five PipeWire/WirePlumber units stayed active, and no
+matching kernel warning appeared. This validation was read-only and played no
+audio.
+
 ## Output route-health RPM rebuild
 
 The route-health payload was also rebuilt as the Fedora 44 binary RPM with

@@ -271,13 +271,15 @@ ae5-control-user-install --uninstall
 
 This rootless path installs the binaries, application-menu metadata,
 login-time lighting restore, and card-scoped WirePlumber/ACP configuration
-under the normal XDG user directories. It refuses conflicting files and
-removal preserves profiles and lighting settings. It cannot install a kernel
-patch or udev permissions, so onboard-lighting writes still require the
-system package's exact rule. The isolated lifecycle check runs in CI, and the
-reference host has launched the installed application from its desktop entry
-with an unchanged mixer and route state. Full evidence and the remaining
-authenticated-RPM gate are in
+under the normal XDG user directories. It refuses conflicting files and stages
+a complete verified payload before replacing an earlier user installation.
+Rerun the same command to upgrade; profiles and lighting settings are
+preserved by upgrades and removal. It cannot install a kernel patch or udev
+permissions, so onboard-lighting writes still require the system package's
+exact rule. The isolated lifecycle check runs in CI, and the reference host has
+launched the installed application from its desktop entry with an unchanged
+mixer and route state. Full evidence and the remaining authenticated-RPM gate
+are in
 [docs/PACKAGING_VALIDATION.md](docs/PACKAGING_VALIDATION.md).
 
 The **Profiles** page can:

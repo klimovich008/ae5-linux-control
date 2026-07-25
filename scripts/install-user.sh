@@ -282,12 +282,73 @@ if [[ -e $manifest || -L $manifest ]]; then
 	}
 fi
 
+had_payload=no
+if [[ -d $payload_root ]]; then
+	had_payload=yes
+fi
+if [[ -e $payload_parent || -L $payload_parent ]]; then
+	[[ -d $payload_parent && ! -L $payload_parent ]] || {
+		printf 'error: refusing unexpected payload parent: %s\n' \
+			"$payload_parent" >&2
+		exit 1
+	}
+else
+	install -d -m0755 "$payload_parent"
+fi
+staging_root=$(mktemp -d "$payload_parent/.user-install.new.XXXXXX")
+old_payload=
+cleanup_staging() {
+	local status=$?
+	trap - EXIT
+	if [[ -n ${old_payload:-} && -d $old_payload ]]; then
+		if [[ ! -e $payload_root && ! -L $payload_root ]]; then
+			mv -- "$old_payload" "$payload_root" || {
+				printf 'error: failed to restore previous payload: %s\n' \
+					"$old_payload" >&2
+			}
+		elif [[ -d $payload_root && ! -L $payload_root ]]; then
+			find "$old_payload" -depth -delete || true
+		fi
+	fi
+	if [[ -n ${staging_root:-} && -d $staging_root ]]; then
+		find "$staging_root" -depth -delete || true
+	fi
+	exit "$status"
+}
+trap cleanup_staging EXIT
+
 for index in "${!payload_sources[@]}"; do
 	install -Dm"${payload_modes[$index]}" \
-		"${payload_sources[$index]}" "$payload_root/${payload_paths[$index]}"
+		"${payload_sources[$index]}" "$staging_root/${payload_paths[$index]}"
+	cmp -s -- "${payload_sources[$index]}" \
+		"$staging_root/${payload_paths[$index]}" || {
+		printf 'error: staged payload verification failed: %s\n' \
+			"${payload_paths[$index]}" >&2
+		exit 1
+	}
 done
-printf '%s\n' "$marker_value" > "$marker"
-chmod 0644 "$marker"
+printf '%s\n' "$marker_value" > \
+	"$staging_root/.ae5-control-user-install"
+chmod 0644 "$staging_root/.ae5-control-user-install"
+
+if [[ -d $payload_root ]]; then
+	old_payload=$(mktemp -d "$payload_parent/.user-install.old.XXXXXX")
+	rmdir -- "$old_payload"
+	mv -- "$payload_root" "$old_payload"
+fi
+if ! mv -- "$staging_root" "$payload_root"; then
+	if [[ -n $old_payload && -d $old_payload &&
+		! -e $payload_root && ! -L $payload_root ]]; then
+		mv -- "$old_payload" "$payload_root"
+	fi
+	exit 1
+fi
+staging_root=
+if [[ -n $old_payload && -d $old_payload ]]; then
+	find "$old_payload" -depth -delete
+fi
+trap - EXIT
+
 install -d -m0700 "$(dirname -- "$manifest")"
 touch "$manifest"
 chmod 0600 "$manifest"
@@ -310,7 +371,13 @@ for index in "${!link_keys[@]}"; do
 done
 
 refresh_desktop_database
-printf 'AE-5 Control installed for %s without root\n' "${USER:-the current user}"
+if [[ $had_payload == yes ]]; then
+	printf 'AE-5 Control upgraded for %s without root\n' \
+		"${USER:-the current user}"
+else
+	printf 'AE-5 Control installed for %s without root\n' \
+		"${USER:-the current user}"
+fi
 printf 'launch it from the application menu or run %s/ae5-control\n' "$bin_root"
 printf 'restart WirePlumber when no audio stream is active, or log out and back in\n'
 printf 'onboard lighting still requires the project kernel patch and system udev rule\n'

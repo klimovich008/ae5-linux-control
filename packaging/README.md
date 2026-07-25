@@ -56,7 +56,10 @@ per-user binary, self-contained uninstaller, desktop, AppStream, icon,
 autostart, WirePlumber, and ACP links. Existing byte-identical routing files
 are retained, any conflicting path aborts the operation before installation,
 and missing system ACP includes are rejected instead of producing dangling
-links. It does not restart WirePlumber automatically.
+links. Rerunning the installer stages and verifies a complete payload before
+replacing the previous version; user profiles and lighting settings are
+outside that payload and remain unchanged. It does not restart WirePlumber
+automatically.
 
 Remove only installer-owned integration and payload files with:
 
@@ -67,8 +70,9 @@ ae5-control-user-install --uninstall
 Native profiles and `lighting.json` are deliberately preserved. The user
 installation cannot install the kernel RGB patch or a udev rule; use the RPM
 when those system pieces are required. `scripts/check-user-install.sh`
-validates an isolated install, idempotent reinstall, metadata and command
-execution, dependency/conflict refusal, invalid-marker refusal before unlink,
+validates an isolated install, idempotent reinstall, old-to-new transactional
+upgrade, metadata and command execution, dependency/conflict refusal without
+changing the live payload, invalid-marker refusal before unlink,
 checkout-independent removal, and state preservation.
 
 On a kernel containing the project's onboard-RGB patch, the package rule

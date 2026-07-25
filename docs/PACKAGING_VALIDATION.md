@@ -251,15 +251,48 @@ the package, normal-user shared backend, persistence, and failure handling,
 but not a physical click through the GTK color dialog. Visible color
 confirmation is also still pending.
 
+## Desktop GTK lighting interaction
+
+An additional test on 2026-07-25 ran the unchanged release GUI, SHA-256
+`e43c30a608673f9a273ce4e896ac8691e72cbdab96824e841099e438319635ea`,
+under the real KDE/Wayland desktop as UID 1000. A rootless, user-preserving
+mount namespace bound five private, writable LED-class fixtures over
+`/sys/class/leds` for that process only. The fixtures used the production
+AE-5 names, `red green blue` channel order, and maximum brightness 255; no
+test path or fake backend was added to the application.
+
+The desktop accessibility interface selected the lazily loaded **Lighting**
+page and invoked the semantic GTK actions rather than screen coordinates. The
+native `GtkColorDialog` then passed these checks:
+
+- choosing Red for the unified control wrote and read back `#E01B24` on all
+  five fixtures and saved the same five values to `lighting.json`;
+- choosing Blue for LED 3 wrote and read back `#3584E4` only on LED 3, retained
+  Red on the other four, and refreshed the status and per-LED labels;
+- selecting Green for LED 2 and pressing **Cancel** left every LED attribute
+  and the saved JSON byte-for-byte unchanged;
+- after all fixture colors and brightness values were changed out of band,
+  `lighting-restore` reproduced the saved Red/Blue frame and a fresh GUI
+  process displayed the five restored values.
+
+Both GUI processes closed through their advertised accessibility action.
+After the namespace ended, the host `/sys/class/leds` mount resolved exactly
+as before, no application process or audio stream remained, the AE-5/Fifine
+defaults were unchanged, and the complete host mixer SHA-256 remained
+`3e595532348efe1e2e9c066039131e97505cb9b71bc6bfd8fa8a59301091e802`.
+This closes the native desktop-dialog behavior gate without claiming that
+fixture colors prove the physical LEDs' visible output.
+
 ## Remaining release gate
 
 This proves clean Fedora dependency resolution and package ownership/removal,
 physical-card operation of exact payloads, and a normal-user maintained-LTS
-lighting package cycle. It does not claim a system-installed application on
-the development host.
+lighting package cycle, plus the unchanged release GUI's native color-dialog
+path. It does not claim a system-installed application on the development
+host or visible physical color output.
 
 Before calling Phase 5 complete, install the RPM through an authenticated
 development-host package transaction, launch it from the desktop application
-menu, exercise a user-approved control and color-dialog action as the desktop
-user, uninstall it, and confirm the profile library, lighting configuration,
-and ALSA state remain intact.
+menu, exercise a user-approved physical control and visibly confirm one
+on-card color, uninstall it, and confirm the profile library, lighting
+configuration, and ALSA state remain intact.

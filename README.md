@@ -211,7 +211,11 @@ without changing its ALSA mixer controls.
 
 The **Lighting** page uses native GTK color dialogs for a unified color or five
 individual LED colors. It shares the CLI's verified, transactional backend and
-reverts the displayed color when a hardware or persistence write fails.
+reverts the displayed color when a hardware or persistence write fails. The
+unchanged release GUI has exercised that native dialog in a real KDE/Wayland
+desktop against five private LED-class fixtures: unified and individual
+changes, cancellation, JSON persistence, restore, and cold GUI readback all
+passed without changing the host's `/sys` mount or audio state.
 
 Stereo ALSA controls receive separate accessible channel sliders; selectors,
 switches, and bounded sliders write through the verified ALSA backend. Each
@@ -360,8 +364,12 @@ brightness off/on, unchanged audio controls, and exact host recovery. A second
 physical cycle installed the exact RPM, changed and persisted colors as an
 unprivileged user, exercised hardware and file-write rollback, restored saved
 colors, and returned the scoped sysfs permissions to their original mode on
-uninstall. Visual color confirmation remains before the feature is complete;
-the external strip is not yet supported. The patch and evidence are in
+uninstall. A separate real-desktop test exercised the native GTK chooser,
+verified unified and per-LED file writes, proved Cancel made no change, and
+reloaded the saved pattern after restart through an isolated LED-class
+fixture. Visible confirmation on the physical card remains before the feature
+is complete; the external strip is not yet supported. The patch and evidence
+are in
 [kernel/README.md](kernel/README.md) and
 [docs/LTS_KERNEL_VALIDATION.md](docs/LTS_KERNEL_VALIDATION.md).
 

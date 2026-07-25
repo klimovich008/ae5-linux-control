@@ -287,8 +287,11 @@ physical initialization, control defaults, manual-route behavior, one safe
 app write, onboard-LED class registration/writes, package install/removal, and
 host recovery. It now also proves the scoped normal-user lighting backend,
 persistence, rollback, permission cleanup, and external headphone
-level/mute/gain behavior. It does not replace visible LED confirmation, a GTK
-color-dialog action in a real desktop session, the external-strip protocol,
-or the remaining bare-metal cold-boot, suspend/resume,
-speaker/line-out/digital, analog-input, electrical filter, long-duration
-stability, and Windows analog-parity gates.
+level/mute/gain behavior. A separate KDE/Wayland test exercised the unchanged
+release GUI's native GTK color chooser, unified and individual writes,
+cancellation, persistence restore, and cold readback against an isolated
+five-device LED-class fixture while preserving the exact host mixer state. It
+does not replace visibly confirming a GUI-selected color on the physical
+card, the external-strip protocol, or the remaining bare-metal cold-boot,
+suspend/resume, speaker/line-out/digital, analog-input, electrical filter,
+long-duration stability, and Windows analog-parity gates.

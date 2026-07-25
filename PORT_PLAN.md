@@ -112,7 +112,7 @@ what the installed kernel actually exposes on the user's card.
 | What U Hear | Exposed as capture PCM/mixer controls | Test and expose if present |
 | True Direct Mode | No clear public ALSA control | Driver research gate |
 | Speaker distance calibration | Hardware requests are known internally but not offered as a stable public control | Driver or PipeWire research gate |
-| Onboard RGB/Aurora | Five-device multicolor LED-class candidate is physically validated | Use the shared Rust backend and exact package permission rule |
+| Onboard RGB/Aurora | Five-device multicolor LED-class candidate, normal-user backend, and native GTK dialog are validated | Visibly confirm one GUI-selected color on the physical card |
 | External-strip RGB | No current `ca0132` interface | Continue as a separate kernel/OpenRGB workstream |
 | Scout Mode | No current upstream interface | Exclude initially |
 | Dolby/DTS live encoding | No current upstream interface | Exclude |
@@ -576,8 +576,11 @@ Candidate order:
 
 RGB work builds on the existing OpenRGB investigation and must not use
 `/dev/mem` or unrestricted userspace MMIO. The onboard five-LED candidate now
-has a physically validated kernel interface and normal-user Rust backend; the
-external strip remains a separate protocol and acceptance gate.
+has a physically validated kernel interface and normal-user Rust backend. Its
+unchanged release GUI also passed native GTK unified/per-LED, cancel,
+persistence, and cold-readback checks against a private LED-class fixture in
+a real KDE/Wayland session. Visible physical confirmation and the external
+strip remain separate acceptance gates.
 
 Temporary test kernels remain boot-menu alternatives to the known-good stock
 kernel. Proprietary Creative binaries or firmware are not copied into the
@@ -594,7 +597,9 @@ suspend/resume, and the contributor's personal DCO sign-off remain before this
 project treats the relevant series as fully accepted and submitted.
 The separately reviewable onboard-RGB candidate passed the same strict build,
 a no-device boot, root LED-class exercise, and a normal-user package cycle on
-the physical card; visible color confirmation remains open.
+the physical card. The native GTK dialog path passed separately in a real
+desktop session with an isolated LED-class fixture; visible color confirmation
+on the card remains open.
 
 Exit criterion for each feature: the new interface has readback, validation,
 power-management coverage, clean kernel logs, and repeatable hardware results.

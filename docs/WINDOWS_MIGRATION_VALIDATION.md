@@ -15,6 +15,10 @@ its active user-owned AE-5 profile and equalizer files.
   the newest numeric Command version, limits each directory to 512 entries,
   ignores symlinked candidates, and rejects multiple newest configs or AE-5
   product directories.
+- A validated `SelectedHpEq` identifier may read one regular UTF-8 file from
+  the exact `ProgramData/Creative/SBCommand/Product/AE5/SpeakerEqConfigs`
+  fallback when the per-user cache omits display metadata. The common 1 MiB
+  source limit still applies.
 - On a complete Windows volume, driver discovery compares the installed
   `CtxHda.sys` with at most 16 matching packages in a 16,384-entry-bounded
   DriverStore scan. It reads `DriverVer` only from the uniquely matching INF
@@ -180,3 +184,35 @@ did not apply either profile or open an audio stream. An aggregate hash over
 the active configuration, speaker/headphone profiles, and speaker/headphone EQ
 files was identical before and after:
 `a2c9f7d4a3491c045d07b42df87ea1c9ed6a2bc2484937717ce51925100595c0`.
+
+## Speaker category and headphone model metadata
+
+Scoped inspection of the exact Command speaker view model established that
+`SelectedSpeakerType=Desktop` is a UI crossover template, not an independent
+device effect. Its processing path writes the X-Bass crossover that Command
+persists independently as `Bass.XOver`; the importer already maps that source
+field. The Desktop selection is now reported as an exact no-op. Other speaker
+categories remain conservative warnings.
+
+The exact AE-5 `SpeakerEqConfigs` directory contains 33 tiny text records with
+only `model` and `order` metadata. Command uses the filename/index to select a
+SpeakerEQ preset from the Windows SoundCore or APO backend; the text file
+contains no curve or coefficient that Linux can import. The converter now
+validates the selected identifier and reads the bounded model line so the one
+remaining headphone warning names the selected hardware model. It does not
+map that metadata to the graphic EQ or touch the card. Full hashes and the
+inspection boundary are recorded in
+[`SOURCE_INVENTORY.md`](SOURCE_INVENTORY.md) and
+[`HEADPHONE_TUNING_INVESTIGATION.md`](HEADPHONE_TUNING_INVESTIGATION.md).
+
+A fresh mounted-user conversion retained the same 21 speaker and 20 headphone
+controls. The speaker report improved from 31 exact, 2 approximate, and 2
+unsupported items to 32 exact, 2 approximate, and 1 unsupported item; the
+remaining warning is the active LFE/X-Bass conflict. The headphone counts
+remain 24 exact, 8 approximate, and 1 unsupported because the selected
+driver/APO tuning still has no verified Linux equivalent, but that warning now
+includes its display model. The conversion used disposable output and
+configuration paths and opened no audio stream. An aggregate over the five
+active inputs plus the selected ProgramData metadata config was identical
+before and after:
+`a62b4ab1ce65c5bcdd80829e07bc028710e5ea9c6675ba966e6b3a4bf48d7eaf`.

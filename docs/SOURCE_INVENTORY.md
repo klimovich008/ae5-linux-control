@@ -252,6 +252,41 @@ only zero as a no-op and continues to report nonzero values for review.
 No Windows code was executed. No Creative binary, managed instruction dump,
 profile content, or copied implementation is committed.
 
+## Windows speaker and headphone preset metadata
+
+The exact shared Command speaker-configuration view model exposes `Builtin`,
+`Desktop`, `Bookshelf`, `Tower`, and `Custom` speaker categories. For
+`Desktop`, the only processing action is to derive an X-Bass crossover from
+the current speaker layout and write
+`XBassCrossOverFrequencyEffectParameterId`. The persisted profile separately
+stores its active `Bass.XOver` value, which the Linux importer already
+handles. `SelectedSpeakerType=Desktop` therefore requires no second Linux
+control; other categories remain warnings until their complete paths are
+classified.
+
+The neighboring named-headphone list is not a collection of EQ curves. All 33
+AE-5 `SpeakerEqConfigs/*.cfg` files are 23–48-byte CRLF text records containing
+only a display model and sort order. Command uses each filename as a preset
+identifier. Its SoundCore backend maps that identifier to a driver-enumerated
+SpeakerEQ image index, while its APO backend writes the selected config path
+to the headphone SpeakerEQ endpoint property. No coefficient data is present
+in the product text metadata.
+
+The native importer now reads only the selected config's bounded `model` line
+to make the unsupported warning intelligible. It never maps the file to the
+ten-band EQ or sends it to hardware.
+
+| Evidence | SHA-256 |
+|---|---|
+| Creative device-feature library | `e76ad407d5a2b7eeeb1049fa92d4b378ef03fdfddb8c7c963d8e07d8537eecdb` |
+| Shared UI framework | `06e7a61c95392fe76ec59d4a1ef1c5a8c465b07dd8c7d7b5256c2ce7ab109e3e` |
+| Selected headphone metadata config | `6d51c470242b53ea025f1a72de772f5a75d3c1c8e9f8021660b8709202023ed1` |
+| Default no-tuning metadata config | `030693fc1dc35d32014db59bde6615028e2cdc42aab47ef9f1255c435f1b5b22` |
+| Deterministic 33-config manifest | `a8741684a5078a556c107434ae82288d0f48c8e51d75600b62d78e55aff631e1` |
+
+No Windows code was executed. No Creative binary, config content, coefficient,
+managed instruction dump, or copied implementation is committed.
+
 ## Firmware already distributed for Linux
 
 Fedora package `alsa-firmware-1.2.4-17.fc44` supplies the target system's

@@ -201,9 +201,12 @@ interoperability evidence and input hashes are recorded in
 This flow follows the selected profile and EQ IDs, preserves the output route,
 and maps standard Windows speaker masks from stereo through 5.1. It reads only
 plain XML string settings. Binary-serialized application state is never
-deserialized. Creative headphone tuning selections are reported as
-unsupported until the Linux driver exposes a safe equivalent. A Windows Bass
-request on an LFE speaker layout is also retained as unsupported because
+deserialized. The Desktop speaker category is recorded as an exact no-op
+because Command uses it only to choose the separately represented `Bass.XOver`
+value. Named Creative headphone tuning remains unsupported until Linux exposes
+a safe equivalent; the importer resolves its display model from Command's
+bounded text metadata so the warning identifies what was selected. A Windows
+Bass request on an LFE speaker layout is also retained as unsupported because
 CA0132 cannot enable X-Bass there; the converted profile explicitly turns
 X-Bass off before changing to that route.
 

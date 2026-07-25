@@ -34,6 +34,34 @@ download and after the complete AE-5 DSP setup. Both attempts ended in
 `-EIO`; neither returned an address. This is a negative result, not evidence
 that a different guessed request shape or the Chromebook image is safe.
 
+## Exact Command preset path
+
+The exact AE-5 Command product contains 33 `SpeakerEqConfigs/*.cfg` files.
+They are 23–48-byte CRLF text metadata records containing only a display model
+and sort order. They contain no frequencies, gains, filter coefficients,
+firmware address, or executable data.
+
+Scoped inspection of Command's managed interoperability path confirms the
+boundary. The UI reads those two text fields for display, keeps the config
+filename as the preset identifier, and passes the ordered filename/index list
+to the device feature. The SoundCore backend matches each filename against the
+Windows device's enumerated SpeakerEQ image list and selects an integer index.
+The APO backend writes the selected config path to the headphone SpeakerEQ
+preset-file endpoint property. The actual response therefore remains inside
+the Windows driver/APO or device repository; it cannot be reconstructed from
+the shipped text configs.
+
+The Linux importer now uses the same bounded text metadata only to name the
+selected model in its unsupported warning. It does not treat the config as a
+curve, copy it into a native profile, or send it to the card. The exact
+selected config has SHA-256
+`6d51c470242b53ea025f1a72de772f5a75d3c1c8e9f8021660b8709202023ed1`;
+the default no-tuning config has SHA-256
+`030693fc1dc35d32014db59bde6615028e2cdc42aab47ef9f1255c435f1b5b22`;
+and the deterministic manifest over all 33 configs has SHA-256
+`a8741684a5078a556c107434ae82288d0f48c8e51d75600b62d78e55aff631e1`.
+No config content or Creative implementation is committed.
+
 ## Verified public-source behavior
 
 The exact CA0132 source used by the running kernel is byte-identical to Linux

@@ -172,7 +172,9 @@ pub fn import_active_profile_with_report(
             add_speaker_layout(&config, &mut controls, &mut report)?;
             omit_incompatible_lfe_x_bass(&mut controls, &mut report);
         }
-        SbCommandTarget::Headphone => report_headphone_tuning(&config, &mut report)?,
+        SbCommandTarget::Headphone => {
+            report_headphone_tuning(&config, user_config_path, product_dir, &mut report)?
+        }
     }
 
     Ok(SbCommandImport {
@@ -711,15 +713,24 @@ fn add_speaker_layout(
     if let Some(speaker_type) = user_setting(config, "SelectedSpeakerType")?
         && !speaker_type.is_empty()
     {
-        report.unsupported.push(format!(
-            "SelectedSpeakerType {speaker_type} (no mapped AE-5 ALSA control)"
-        ));
+        if speaker_type.eq_ignore_ascii_case("Desktop") {
+            report.exact.push(
+                "SelectedSpeakerType Desktop → crossover semantics represented by Bass.XOver"
+                    .to_owned(),
+            );
+        } else {
+            report.unsupported.push(format!(
+                "SelectedSpeakerType {speaker_type} (no mapped AE-5 ALSA control)"
+            ));
+        }
     }
     Ok(())
 }
 
 fn report_headphone_tuning(
     config: &str,
+    user_config_path: &Path,
+    product_dir: &Path,
     report: &mut SbCommandImportReport,
 ) -> Result<(), SbCommandError> {
     if let Some(tuning) = user_setting(config, "SelectedHpEq")? {
@@ -728,8 +739,41 @@ fn report_headphone_tuning(
                 .exact
                 .push("SelectedHpEq → no Creative headphone tuning".to_owned());
         } else {
+            validate_identifier("SelectedHpEq", &tuning)?;
+            let file_name = format!("{tuning}.cfg");
+            let user_config = product_dir.join("SpeakerEqConfigs").join(&file_name);
+            let installed_config = user_config_path
+                .ancestors()
+                .find(|path| {
+                    path.file_name()
+                        .and_then(|name| name.to_str())
+                        .is_some_and(|name| name.eq_ignore_ascii_case("Users"))
+                })
+                .and_then(Path::parent)
+                .map(|windows_root| {
+                    windows_root
+                        .join("ProgramData/Creative/SBCommand/Product/AE5/SpeakerEqConfigs")
+                        .join(file_name)
+                });
+            let config_path = std::iter::once(user_config)
+                .chain(installed_config)
+                .find(|path| is_regular_file(path));
+            let model = if let Some(config_path) = config_path {
+                load_text(&config_path)?
+                    .lines()
+                    .find_map(|line| line.strip_prefix("model "))
+                    .filter(|model| {
+                        !model.is_empty()
+                            && model.len() <= 120
+                            && !model.chars().any(char::is_control)
+                    })
+                    .map(str::to_owned)
+            } else {
+                None
+            };
             report.unsupported.push(format!(
-                "SelectedHpEq {tuning} (Creative headphone tuning has no mapped AE-5 ALSA control)"
+                "SelectedHpEq {tuning}{} → Creative driver/APO tuning (no mapped AE-5 ALSA control)",
+                model.map_or_else(String::new, |model| format!(" ({model})"))
             ));
         }
     }
@@ -838,7 +882,7 @@ fn validate_identifier(name: &str, value: &str) -> Result<(), SbCommandError> {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
     {
         return Err(invalid(format!(
-            "setting '{name}' is not a safe profile identifier"
+            "setting '{name}' is not a safe identifier"
         )));
     }
     Ok(())
@@ -1587,6 +1631,93 @@ mod tests {
         assert_eq!(speaker_layout(59), Some("4.1"));
         assert_eq!(speaker_layout(63), Some("5.1"));
         assert_eq!(speaker_layout(7), None);
+    }
+
+    #[test]
+    fn separates_speaker_type_metadata_from_the_imported_crossover() {
+        let desktop = r#"
+            <setting name="SelectedSpeakerChannelMask" serializeAs="String">
+                <value>63</value>
+            </setting>
+            <setting name="SelectedSpeakerType" serializeAs="String">
+                <value>Desktop</value>
+            </setting>
+        "#;
+        let mut controls = BTreeMap::new();
+        let mut report = SbCommandImportReport::default();
+
+        add_speaker_layout(desktop, &mut controls, &mut report).unwrap();
+
+        assert_eq!(
+            controls["Surround Channel Config"].choice.as_deref(),
+            Some("5.1")
+        );
+        assert!(
+            report
+                .exact
+                .iter()
+                .any(|item| item.contains("crossover semantics represented by Bass.XOver"))
+        );
+        assert!(
+            report
+                .unsupported
+                .iter()
+                .all(|item| !item.contains("SelectedSpeakerType"))
+        );
+
+        let mut report = SbCommandImportReport::default();
+        add_speaker_layout(
+            &desktop.replace("Desktop", "Tower"),
+            &mut BTreeMap::new(),
+            &mut report,
+        )
+        .unwrap();
+        assert!(
+            report
+                .unsupported
+                .iter()
+                .any(|item| item.contains("SelectedSpeakerType Tower"))
+        );
+    }
+
+    #[test]
+    fn resolves_headphone_tuning_display_metadata_without_mapping_the_effect() {
+        let root = std::env::temp_dir().join(format!(
+            "ae5-speaker-eq-config-test-{}-{}",
+            std::process::id(),
+            NEXT_DIRECTORY.fetch_add(1, Ordering::Relaxed)
+        ));
+        let user_config = root.join("Users/Max/AppData/Local/Creative/user.config");
+        let product = root.join("Users/Max/AppData/Local/Creative/Product/AE5");
+        let configs = root.join("ProgramData/Creative/SBCommand/Product/AE5/SpeakerEqConfigs");
+        fs::create_dir_all(&configs).unwrap();
+        fs::write(
+            configs.join("EXAMPLE.cfg"),
+            "model Example Headphones\r\norder 50\r\n",
+        )
+        .unwrap();
+        let config = r#"
+            <setting name="SelectedHpEq" serializeAs="String">
+                <value>EXAMPLE</value>
+            </setting>
+        "#;
+        let mut report = SbCommandImportReport::default();
+
+        report_headphone_tuning(config, &user_config, &product, &mut report).unwrap();
+
+        assert!(report.unsupported.iter().any(|item| {
+            item.contains("SelectedHpEq EXAMPLE (Example Headphones) → Creative driver/APO tuning")
+        }));
+        assert!(
+            report_headphone_tuning(
+                &config.replace("EXAMPLE", "../escape"),
+                &user_config,
+                &product,
+                &mut SbCommandImportReport::default()
+            )
+            .is_err()
+        );
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

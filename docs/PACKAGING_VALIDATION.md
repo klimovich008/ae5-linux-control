@@ -311,9 +311,9 @@ HOME and XDG roots:
 
 The same path was then left installed for the real user on 2026-07-25. The GUI
 and CLI SHA-256 values are respectively
-`d5bd4d9b21d82d877d1f53d35164f997c894a7c83316e0526e1cd43b12581141`
+`8f9e43543c5fdf1de8f9c09d587b8c193d099d43b2714ab8a6f8e81019d18912`
 and
-`3ba2a3e246f06e0dd09441a09f01470eaebab50334be873be5dd0fb49a237d5c`.
+`553a1e4eca4a1f4c993fbd8b6e5cee7b3695a88a6205d4f52651fa854744fae8`.
 The installer retained all existing, byte-identical routing links and did not
 restart the audio session. Its retained
 `ae5-control-user-install --uninstall` command was byte-identical to the
@@ -323,13 +323,13 @@ the exact `1102:0012/1102:0051` identity and all eight pages before closing
 the window normally.
 
 The upgraded payload adds a read-only native PipeWire route-health check.
-`ae5ctl route-status` read the active `pw-dump` Route and matched ALSA
-Headphone to
-`sound-blaster-ae5-output-headphones;output-headphones`, the duplex profile,
-and `sound-blaster-ae5.conf`. The installed desktop entry exposed the same
-**Desktop route health** card through AT-SPI, including the combined
-`Matched`, ALSA, PipeWire, profile, and profile-set text. The real GTK frame
-then closed through its advertised `window.close` action.
+`ae5ctl route-status` read the active `pw-dump` Routes and matched ALSA
+Headphone and Microphone to the card-specific output and input routes, the
+duplex profile, and `sound-blaster-ae5.conf`. The installed desktop entry
+exposed the same **Desktop route health** card through AT-SPI, including the
+combined `Matched`, ALSA output/input, PipeWire output/input, profile, and
+profile-set text. The real GTK frame then closed through its advertised
+`window.close` action.
 
 Before and after installation and both launches, the complete host mixer
 SHA-256 was
@@ -339,7 +339,7 @@ existing AE-5 profile/lighting hash were identical. This proves a useful
 no-root desktop installation and its isolated removal behavior. It does not
 claim an authenticated RPM transaction or install the RGB kernel/udev pieces.
 
-## Route-health RPM rebuild
+## Output route-health RPM rebuild
 
 The route-health payload was also rebuilt as the Fedora 44 binary RPM with
 SHA-256
@@ -355,6 +355,22 @@ resolved `pipewire-utils-1.6.8`. Package verification and the installed
 commands passed; removal deleted all 19 package-owned files while preserving
 the profile and ALSA-state sentinels byte-for-byte. The previous RPM set and
 its hashes remain preserved under `dist/previous-bea6902/`.
+
+## Bidirectional route-health RPM rebuild
+
+Extending the same parser and diagnostics to `Input Source` produced binary
+RPM SHA-256
+`8b039a1305fc5804910ecd807bfacc53ef655d2c532d216756d7ed96c3c4b647`
+and source RPM SHA-256
+`1ea43a7b5e389dd40f319799331137244ff639ef614c10e88d5fd86f2275b9f7`.
+The hardened offline release build again passed all 57 Rust tests and every
+package check. The package retained its explicit `pipewire-utils` dependency
+and passed digest verification.
+
+A fresh Fedora 44 container installed the exact package, including
+`pipewire-utils-1.6.8`, verified its commands, and removed all 19 owned files.
+The profile and ALSA-state sentinels remained byte-for-byte identical. The
+prior output-only RPMs are preserved under `dist/previous-c026e4f/`.
 
 ## Remaining release gate
 

@@ -151,6 +151,16 @@ back to Headphone. `route-status` printed both sides of the split and exited
 passed, no stream opened, defaults were unchanged, and the complete mixer
 returned to SHA-256
 `3e595532348efe1e2e9c066039131e97505cb9b71bc6bfd8fa8a59301091e802`.
+
+The matching input negative test selected PipeWire's
+`sound-blaster-ae5-input-line-in` route and then changed only raw ALSA back to
+Microphone. `route-status` kept the healthy Headphone result, reported
+`ALSA selects Microphone, but PipeWire uses
+sound-blaster-ae5-input-line-in`, and exited 1. Reapplying Microphone through
+the shared setter restored `sound-blaster-ae5-input-microphone`. The complete
+mixer, both desktop defaults, both PipeWire routes, and the zero-stream state
+matched their exact starting values afterward.
+
 The check is deliberately limited to the validated analog-stereo profiles;
 other profiles report that limitation rather than guessing route semantics.
 

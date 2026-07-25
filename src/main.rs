@@ -145,8 +145,9 @@ fn print_status() -> Result<(), Box<dyn Error>> {
         Ok(state) => print_route_state(
             &state,
             selected_choice(&controls, "Output Select").unwrap_or("unavailable"),
+            selected_choice(&controls, "Input Source").unwrap_or("unavailable"),
         ),
-        Err(error) => println!("  Desktop route: unavailable ({error})"),
+        Err(error) => println!("  Desktop routes: unavailable ({error})"),
     }
     match Ae5Lighting::discover().and_then(|lighting| lighting.colors()) {
         Ok(colors) => println!(
@@ -195,9 +196,18 @@ fn print_route_status() -> Result<(), Box<dyn Error>> {
             "the AE-5 has no readable Output Select choice",
         )
     })?;
+    let input_choice = selected_choice(&controls, "Input Source").ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            "the AE-5 has no readable Input Source choice",
+        )
+    })?;
     let state = ae5_route_state(device.card_index)?;
-    print_route_state(&state, output_choice);
-    if let Some(issue) = state.output_issue(output_choice) {
+    print_route_state(&state, output_choice, input_choice);
+    if let Some(issue) = state
+        .output_issue(output_choice)
+        .or_else(|| state.input_issue(input_choice))
+    {
         return Err(io::Error::other(issue).into());
     }
     Ok(())
@@ -330,10 +340,14 @@ fn print_pipewire_node(kind: &str, node: &PipeWireNode) {
     );
 }
 
-fn print_route_state(state: &PipeWireRouteState, output_choice: &str) {
+fn print_route_state(state: &PipeWireRouteState, output_choice: &str, input_choice: &str) {
     println!(
-        "  Desktop route: {}",
+        "  Desktop output route: {}",
         state.output_route.as_deref().unwrap_or("unavailable")
+    );
+    println!(
+        "  Desktop input route: {}",
+        state.input_route.as_deref().unwrap_or("unavailable")
     );
     println!(
         "  PipeWire profile: {} ({})",
@@ -344,8 +358,12 @@ fn print_route_state(state: &PipeWireRouteState, output_choice: &str) {
             .unwrap_or("unknown profile set")
     );
     match state.output_issue(output_choice) {
-        None => println!("  Route health: matched ALSA {output_choice}"),
-        Some(issue) => println!("  Route health: warning ({issue})"),
+        None => println!("  Output route health: matched ALSA {output_choice}"),
+        Some(issue) => println!("  Output route health: warning ({issue})"),
+    }
+    match state.input_issue(input_choice) {
+        None => println!("  Input route health: matched ALSA {input_choice}"),
+        Some(issue) => println!("  Input route health: warning ({issue})"),
     }
 }
 
@@ -722,7 +740,7 @@ fn print_help() {
          \x20 status    Show the detected AE-5 and important live controls (default)\n\
          \x20 controls  Show every live ALSA simple control\n\
          \x20 output-status       Show the AE-5 PipeWire playback target\n\
-         \x20 route-status        Verify ALSA and PipeWire output routing agree\n\
+         \x20 route-status        Verify ALSA and PipeWire hardware routes agree\n\
          \x20 set-default-output  Make the AE-5 the PipeWire default playback target\n\
          \x20 input-status        Show the AE-5 PipeWire recording target\n\
          \x20 set-default-input   Make the AE-5 the PipeWire default recording target\n\

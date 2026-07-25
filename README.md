@@ -32,10 +32,10 @@ cargo run -- input-status
 cargo run -- set-default-input
 ```
 
-`route-status` is read-only and exits nonzero when the ALSA `Output Select`
-choice and PipeWire's active hardware route disagree. The default-device
-actions invoke `wpctl` directly without a shell and verify the new default.
-They do not change the card's ALSA mixer controls.
+`route-status` is read-only and exits nonzero when the ALSA `Output Select` or
+`Input Source` choice disagrees with PipeWire's active hardware routes. The
+default-device actions invoke `wpctl` directly without a shell and verify the
+new default. They do not change the card's ALSA mixer controls.
 
 The optional native-rate configuration lets PipeWire switch the global graph
 between 44.1, 48, and 96 kHz after its next restart:
@@ -345,10 +345,10 @@ negative control, then measured an independent installed-CLI
 Speakers→Headphone cycle 10.88 dB above both its quiet and muted controls.
 Both restored the exact persistent mixer, route, and volume state. Repeated
 cold-boot/suspend acceptance remains. The Rust CLI and GTK diagnostics also
-read PipeWire's live Route parameter: a deliberately recreated
-Headphone-versus-Line-Out split failed `route-status`, while the normal setter
-repaired it and restored the exact mixer hash. Evidence and transition
-matrices are documented in
+read PipeWire's live Route parameters: deliberately recreated
+Headphone-versus-Line-Out and Microphone-versus-Line-In splits failed
+`route-status`, while the normal setters repaired both and restored the exact
+mixer hash. Evidence and transition matrices are documented in
 [docs/DRIVER_ROUTING_INVESTIGATION.md](docs/DRIVER_ROUTING_INVESTIGATION.md).
 The ineffective AE-5 What U Hear volume/mute controls, guarded measurements,
 profile compatibility, and build-tested kernel candidate are documented in

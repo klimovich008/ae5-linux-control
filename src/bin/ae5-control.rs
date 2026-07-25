@@ -795,33 +795,43 @@ fn route_health_summary(
         .iter()
         .find(|control| control.name == "Output Select")
         .and_then(|control| control.selected.as_deref());
-    match (current, output_choice) {
-        (Ok(state), Some(choice)) => {
-            let issue = state.output_issue(choice);
+    let input_choice = controls
+        .iter()
+        .find(|control| control.name == "Input Source")
+        .and_then(|control| control.selected.as_deref());
+    match (current, output_choice, input_choice) {
+        (Ok(state), Some(output), Some(input)) => {
+            let issues = [state.output_issue(output), state.input_issue(input)]
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>();
             (
                 format!(
-                    "{}\nALSA: {choice}\nPipeWire: {}\nProfile: {} ({}){}",
-                    if issue.is_none() {
+                    "{}\nALSA output: {output}\nPipeWire output: {}\nALSA input: {input}\nPipeWire input: {}\nProfile: {} ({}){}",
+                    if issues.is_empty() {
                         "Matched"
                     } else {
                         "Needs attention"
                     },
                     state.output_route.as_deref().unwrap_or("unavailable"),
+                    state.input_route.as_deref().unwrap_or("unavailable"),
                     state.active_profile.as_deref().unwrap_or("unavailable"),
                     state
                         .profile_set
                         .as_deref()
                         .unwrap_or("unknown profile set"),
-                    issue
-                        .as_deref()
-                        .map(|issue| format!("\n{issue}"))
-                        .unwrap_or_default()
+                    if issues.is_empty() {
+                        String::new()
+                    } else {
+                        format!("\n{}", issues.join("\n"))
+                    }
                 ),
-                issue.is_none(),
+                issues.is_empty(),
             )
         }
-        (Ok(_), None) => ("Output Select is unavailable from ALSA.".to_owned(), false),
-        (Err(error), _) => (
+        (Ok(_), None, _) => ("Output Select is unavailable from ALSA.".to_owned(), false),
+        (Ok(_), _, None) => ("Input Source is unavailable from ALSA.".to_owned(), false),
+        (Err(error), _, _) => (
             format!("PipeWire route status is unavailable: {error}"),
             false,
         ),
@@ -2565,17 +2575,34 @@ mod tests {
 
     #[test]
     fn reports_matched_and_split_desktop_routes() {
-        let controls = [ControlSnapshot {
-            name: "Output Select".to_owned(),
-            selected: Some("Headphone".to_owned()),
-            choices: vec!["Speakers".to_owned(), "Headphone".to_owned()],
-            playback_switch: None,
-            capture_switch: None,
-            playback_level: None,
-            capture_level: None,
-            playback_channels: Vec::new(),
-            capture_channels: Vec::new(),
-        }];
+        let controls = [
+            ControlSnapshot {
+                name: "Output Select".to_owned(),
+                selected: Some("Headphone".to_owned()),
+                choices: vec!["Speakers".to_owned(), "Headphone".to_owned()],
+                playback_switch: None,
+                capture_switch: None,
+                playback_level: None,
+                capture_level: None,
+                playback_channels: Vec::new(),
+                capture_channels: Vec::new(),
+            },
+            ControlSnapshot {
+                name: "Input Source".to_owned(),
+                selected: Some("Microphone".to_owned()),
+                choices: vec![
+                    "Microphone".to_owned(),
+                    "Line In".to_owned(),
+                    "Front Microphone".to_owned(),
+                ],
+                playback_switch: None,
+                capture_switch: None,
+                playback_level: None,
+                capture_level: None,
+                playback_channels: Vec::new(),
+                capture_channels: Vec::new(),
+            },
+        ];
         let mut state = PipeWireRouteState {
             profile_set: Some("sound-blaster-ae5.conf".to_owned()),
             active_profile: Some("output:analog-stereo+input:analog-stereo".to_owned()),
@@ -2585,14 +2612,22 @@ mod tests {
 
         let (summary, healthy) = route_health_summary(&controls, Ok(state.clone()));
         assert!(healthy);
-        assert!(summary.contains("Matched\nALSA: Headphone"));
+        assert!(summary.contains("Matched\nALSA output: Headphone"));
+        assert!(summary.contains("ALSA input: Microphone"));
         assert!(summary.contains("sound-blaster-ae5.conf"));
 
         state.output_route = Some("analog-output-lineout;output-speaker".to_owned());
-        let (summary, healthy) = route_health_summary(&controls, Ok(state));
+        let (summary, healthy) = route_health_summary(&controls, Ok(state.clone()));
         assert!(!healthy);
         assert!(summary.contains("Needs attention"));
         assert!(summary.contains("reapply the output choice"));
+
+        state.output_route =
+            Some("sound-blaster-ae5-output-headphones;output-headphones".to_owned());
+        state.input_route = Some("sound-blaster-ae5-input-line-in".to_owned());
+        let (summary, healthy) = route_health_summary(&controls, Ok(state));
+        assert!(!healthy);
+        assert!(summary.contains("reapply the input choice"));
     }
 
     #[test]

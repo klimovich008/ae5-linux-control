@@ -30,20 +30,8 @@ pub struct PipeWireRouteState {
 
 impl PipeWireRouteState {
     pub fn output_issue(&self, output_choice: &str) -> Option<String> {
-        if self.profile_set.as_deref() != Some(AE5_PROFILE_SET) {
-            return Some(format!(
-                "PipeWire is not using {AE5_PROFILE_SET}; install the AE-5 routing profile and restart WirePlumber"
-            ));
-        }
-        if !self
-            .active_profile
-            .as_deref()
-            .is_some_and(|profile| profile.starts_with("output:analog-stereo"))
-        {
-            return Some(format!(
-                "the current PipeWire profile is {}; output-route health is validated only for analog stereo",
-                self.active_profile.as_deref().unwrap_or("unavailable")
-            ));
+        if let Some(issue) = self.profile_issue("output:analog-stereo", "output") {
+            return Some(issue);
         }
         let expected = match output_choice {
             "Speakers" => "analog-output-lineout;output-speaker",
@@ -56,6 +44,43 @@ impl PipeWireRouteState {
                 self.output_route.as_deref().unwrap_or("no output route")
             )
         })
+    }
+
+    pub fn input_issue(&self, input_choice: &str) -> Option<String> {
+        if let Some(issue) = self.profile_issue("input:analog-stereo", "input") {
+            return Some(issue);
+        }
+        let expected = match input_choice {
+            "Microphone" => "sound-blaster-ae5-input-microphone",
+            "Front Microphone" => "sound-blaster-ae5-input-front-microphone",
+            "Line In" => "sound-blaster-ae5-input-line-in",
+            other => return Some(format!("unsupported ALSA input choice '{other}'")),
+        };
+        (self.input_route.as_deref() != Some(expected)).then(|| {
+            format!(
+                "ALSA selects {input_choice}, but PipeWire uses {}; reapply the input choice",
+                self.input_route.as_deref().unwrap_or("no input route")
+            )
+        })
+    }
+
+    fn profile_issue(&self, required: &str, direction: &str) -> Option<String> {
+        if self.profile_set.as_deref() != Some(AE5_PROFILE_SET) {
+            return Some(format!(
+                "PipeWire is not using {AE5_PROFILE_SET}; install the AE-5 routing profile and restart WirePlumber"
+            ));
+        }
+        if !self
+            .active_profile
+            .as_deref()
+            .is_some_and(|profile| profile.split('+').any(|part| part == required))
+        {
+            return Some(format!(
+                "the current PipeWire profile is {}; {direction}-route health is validated only for analog stereo",
+                self.active_profile.as_deref().unwrap_or("unavailable")
+            ));
+        }
+        None
     }
 }
 
@@ -518,10 +543,17 @@ id 58, type PipeWire:Interface:Node
             }
         );
         assert_eq!(state.output_issue("Headphone"), None);
+        assert_eq!(state.input_issue("Microphone"), None);
         assert_eq!(
             state.output_issue("Speakers").as_deref(),
             Some(
                 "ALSA selects Speakers, but PipeWire uses sound-blaster-ae5-output-headphones;output-headphones; reapply the output choice"
+            )
+        );
+        assert_eq!(
+            state.input_issue("Line In").as_deref(),
+            Some(
+                "ALSA selects Line In, but PipeWire uses sound-blaster-ae5-input-microphone; reapply the input choice"
             )
         );
         assert_eq!(
@@ -566,6 +598,12 @@ id 58, type PipeWire:Interface:Node
         assert!(
             state
                 .output_issue("Headphone")
+                .unwrap()
+                .contains("validated only for analog stereo")
+        );
+        assert!(
+            state
+                .input_issue("Microphone")
                 .unwrap()
                 .contains("validated only for analog stereo")
         );

@@ -33,6 +33,18 @@ const PERFORMANCE_PROBE: &str = "AE5_CONTROL_PERFORMANCE_PROBE";
 const DIRECT_MODE_DESCRIPTION: &str = "Bypasses CA0132 DSP processing for a stereo hardware path. \
     AE-5 Control briefly suspends PipeWire while switching; use stream or software volume because \
     the card's DSP effects and hardware playback levels are bypassed.";
+const EQ_BAND_LABELS: [&str; 10] = [
+    "31 Hz",
+    "62 Hz (Bass in Command)",
+    "125 Hz",
+    "250 Hz",
+    "500 Hz",
+    "1 kHz",
+    "2 kHz",
+    "4 kHz",
+    "8 kHz (Treble in Command)",
+    "16 kHz",
+];
 
 fn main() -> gtk::glib::ExitCode {
     if std::env::var_os("GSK_RENDERER").is_none() {
@@ -1884,7 +1896,8 @@ fn control_row(
 
     let labels = gtk::Box::new(gtk::Orientation::Vertical, 3);
     labels.set_hexpand(true);
-    let name = gtk::Label::new(Some(&control.name));
+    let display_name = control_display_name(&control.name);
+    let name = gtk::Label::new(Some(&display_name));
     name.set_xalign(0.0);
     name.set_wrap(true);
     labels.append(&name);
@@ -1984,10 +1997,22 @@ fn control_row(
         .build();
     let description = control_row_description(control, explanation);
     list_row.update_property(&[
-        gtk::accessible::Property::Label(&control.name),
+        gtk::accessible::Property::Label(&display_name),
         gtk::accessible::Property::Description(&description),
     ]);
     list_row
+}
+
+fn control_display_name(name: &str) -> String {
+    let Some(index) = name
+        .strip_prefix("EQ Band")
+        .and_then(|value| value.parse::<usize>().ok())
+    else {
+        return name.to_owned();
+    };
+    EQ_BAND_LABELS
+        .get(index)
+        .map_or_else(|| name.to_owned(), |label| format!("{name} · {label}"))
 }
 
 fn control_row_description(
@@ -2570,6 +2595,22 @@ mod tests {
                 1
             );
         }
+    }
+
+    #[test]
+    fn labels_equalizer_frequencies_and_command_aliases() {
+        assert_eq!(control_display_name("EQ Band0"), "EQ Band0 · 31 Hz");
+        assert_eq!(
+            control_display_name("EQ Band1"),
+            "EQ Band1 · 62 Hz (Bass in Command)"
+        );
+        assert_eq!(
+            control_display_name("EQ Band8"),
+            "EQ Band8 · 8 kHz (Treble in Command)"
+        );
+        assert_eq!(control_display_name("EQ Band9"), "EQ Band9 · 16 kHz");
+        assert_eq!(control_display_name("EQ Band10"), "EQ Band10");
+        assert_eq!(control_display_name("Master"), "Master");
     }
 
     #[test]

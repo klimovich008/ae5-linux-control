@@ -350,8 +350,9 @@ enabled and exact Microphone, Front Microphone, and Line In routes; all three
 input ports selected the matching ALSA enum in a physical-card matrix. The
 fixed headphone route survived a WirePlumber restart and one instrumented cold
 boot with the intended output selection, codec pin, and WirePlumber port and
-without an intervening output toggle. The boot probe now also records the
-root-cause `Front` switch for future samples and reports progress with
+without an intervening output toggle. The boot probe now waits for the
+root-cause `Front` switch and every other required route control in one
+complete snapshot, then reports progress with
 `bash scripts/collect-routing-state.sh --summary 10`. Guarded Fifine
 microphone tests measured the fixed route 18.84 dB above a Front-muted
 negative control, then measured an independent installed-CLI

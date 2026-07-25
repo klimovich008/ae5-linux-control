@@ -266,8 +266,10 @@ cycle; it is not a cold-boot, DAC-filter, or Windows-parity measurement.
 `collect-routing-state.sh` discovers the exact audited card by
 `1102:0012/1102:0051`; it does not assume card 1. It reads the route controls,
 jack state, all four AE-5 output pins, service timing, and the matching
-PipeWire card/sink. It waits up to five seconds for the ALSA control interface
-to become readable and never writes a mixer control.
+PipeWire card/sink. It waits up to five seconds for one complete ALSA snapshot:
+card metadata, `Output Select`, `Front`, auto-detect, and jack state must all
+be readable in the same attempt. Merely opening the card is not sufficient.
+The probe never writes a mixer control.
 
 Install two temporary user services:
 
@@ -300,11 +302,14 @@ failed pair resets that run. Its parser and failure behavior run in CI through
 the user must still confirm audible output before opening a mixer or toggling
 the route on each counted boot.
 
-The two historical boot pairs predate collection of the root-cause `Front`
-switch, so the strict summary correctly counts neither as a complete sample.
-The updated probe is installed for the next boot. The earlier post-fix pair
-still proves its recorded output-selection, codec-pin, and desktop-port state,
-but is not silently promoted to the stronger acceptance gate.
+The first historical pair predates collection of the root-cause `Front`
+switch. The second requested it, but exposed a subtler readiness race: card
+metadata became readable before `Front`, and the failed query was discarded.
+The strict summary therefore correctly reports `0/10`. The corrected collector
+requires the entire route-control set before recording `alsa_control_ready=yes`
+and is installed for the next boot. The earlier post-fix pair still proves its
+recorded output-selection, codec-pin, and desktop-port state, but is not
+silently promoted to the stronger acceptance gate.
 
 Before the next reboot campaign, save the normal profile, deliberately
 establish the documented at-or-below-20%/Low-gain test state, and leave that

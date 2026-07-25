@@ -31,12 +31,36 @@ find_ae5_card() {
 	return 1
 }
 
-wait_for_alsa_control() {
-	local card_index=$1 attempt
+required_alsa_controls_ready() {
+	local card_index=$1
+
+	amixer -c "$card_index" info >/dev/null 2>&1 &&
+		amixer -c "$card_index" sget 'Output Select' >/dev/null 2>&1 &&
+		amixer -c "$card_index" sget 'Front' >/dev/null 2>&1 &&
+		amixer -c "$card_index" sget 'HP/Speaker Auto Detect' >/dev/null 2>&1 &&
+		amixer -c "$card_index" \
+			cget "iface=CARD,name='Headphone Jack'" >/dev/null 2>&1
+}
+
+read_alsa_route_controls() {
+	local card_index=$1
+
+	amixer -c "$card_index" sget 'Output Select' &&
+		amixer -c "$card_index" sget 'Front' &&
+		amixer -c "$card_index" sget 'HP/Speaker Auto Detect' &&
+		amixer -c "$card_index" \
+			cget "iface=CARD,name='Headphone Jack'"
+}
+
+wait_for_alsa_controls() {
+	local card_index=$1 attempt snapshot
 
 	for ((attempt = 1; attempt <= 50; attempt++)); do
-		if amixer -c "$card_index" info >/dev/null 2>&1; then
-			return 0
+		if required_alsa_controls_ready "$card_index"; then
+			if snapshot=$(read_alsa_route_controls "$card_index" 2>/dev/null); then
+				printf '%s\n' "$snapshot"
+				return 0
+			fi
 		fi
 		(( attempt == 50 )) || sleep 0.1
 	done
@@ -134,7 +158,7 @@ collect_service_state() {
 }
 
 collect() {
-	local label=$1 card_index boot_id
+	local label=$1 card_index boot_id alsa_controls
 
 	printf '# AE-5 routing state\n'
 	printf 'label=%s\n' "$label"
@@ -153,15 +177,11 @@ collect() {
 
 	section 'ALSA route controls'
 	if command -v amixer >/dev/null 2>&1; then
-		if wait_for_alsa_control "$card_index"; then
+		if alsa_controls=$(wait_for_alsa_controls "$card_index"); then
 			printf 'alsa_control_ready=yes\n'
-			amixer -c "$card_index" sget 'Output Select' 2>&1 || true
-			amixer -c "$card_index" sget 'Front' 2>&1 || true
-			amixer -c "$card_index" sget 'HP/Speaker Auto Detect' 2>&1 || true
-			amixer -c "$card_index" \
-				cget "iface=CARD,name='Headphone Jack'" 2>&1 || true
+			printf '%s\n' "$alsa_controls"
 		else
-			printf '[ALSA control did not become readable within 5 seconds]\n'
+			printf '[required ALSA controls did not become readable within 5 seconds]\n'
 		fi
 	else
 		printf '[amixer unavailable]\n'
@@ -396,27 +416,53 @@ emit_test_record() {
 run_self_test() (
 	local calls=0
 	local output
+	local -a commands=()
 
 	sleep() {
 		:
 	}
 	amixer() {
+		commands+=("$*")
+		return 0
+	}
+
+	if ! required_alsa_controls_ready 7 ||
+		(( ${#commands[@]} != 5 )) ||
+		[[ ${commands[2]} != '-c 7 sget Front' ]]; then
+		printf 'self-test failed: required ALSA control set\n' >&2
+		return 1
+	fi
+
+	commands=()
+	amixer() {
+		commands+=("$*")
+		[[ $* != '-c 7 sget Front' ]]
+	}
+	if required_alsa_controls_ready 7 || (( ${#commands[@]} != 3 )); then
+		printf 'self-test failed: partial ALSA control set was accepted\n' >&2
+		return 1
+	fi
+
+	required_alsa_controls_ready() {
 		calls=$((calls + 1))
 		(( calls >= 3 ))
 	}
+	read_alsa_route_controls() {
+		printf 'complete snapshot\n'
+	}
 
-	if ! wait_for_alsa_control 0 || (( calls != 3 )); then
+	if ! wait_for_alsa_controls 0 >/dev/null || (( calls != 3 )); then
 		printf 'self-test failed: ALSA readiness retry\n' >&2
 		return 1
 	fi
 
 	calls=0
-	amixer() {
+	required_alsa_controls_ready() {
 		calls=$((calls + 1))
 		return 1
 	}
 
-	if wait_for_alsa_control 0 || (( calls != 50 )); then
+	if wait_for_alsa_controls 0 || (( calls != 50 )); then
 		printf 'self-test failed: ALSA readiness timeout\n' >&2
 		return 1
 	fi

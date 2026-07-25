@@ -339,8 +339,9 @@ with the expected codec-pin state and exact mixer restoration. On the stock
 host, the installed CLI then completed a Speakers-to-Headphone desktop route
 cycle and produced a physical 997 Hz component 10.88 dB above both its quiet
 baseline and Front-muted negative control, with exact persistent mixer and
-route restoration. The paired boot collector now verifies the root-cause
-Front state and reports trailing progress toward ten consecutive valid boots.
+route restoration. The paired boot collector now waits for the complete
+root-cause route-control set and will report trailing progress toward ten
+consecutive valid boots; the two incomplete historical pairs remain `0/10`.
 The CLI and GTK diagnostics now compare ALSA `Output Select` and `Input Source`
 with PipeWire's live Route parameters. Physical deliberately split
 Headphone/Line-Out and Microphone/Line-In states were detected with nonzero

@@ -434,6 +434,30 @@ A fresh Fedora 44 container installed the exact package, including
 The profile and ALSA-state sentinels remained byte-for-byte identical. The
 prior output-only RPMs are preserved under `dist/previous-c026e4f/`.
 
+## Speaker-layout and software-mixer RPM rebuild
+
+The exact-layout synchronization and safe AE-5 software-mixer policy produced
+binary RPM SHA-256
+`57a03ecf28f56ef755d7620ce4df7adc6837205d70f616e6ab63edf6934518ed`
+and source RPM SHA-256
+`48da85c93762decf08be6ebb572b3041547797e2651dd5f5608253ba3e4a8a76`.
+The hardened offline release build passed all 69 Rust/GTK tests plus the ACP,
+diagnostics, desktop, AppStream, udev, and private-build-path checks.
+
+The packaged headphone path uses `volume=ignore` and has SHA-256
+`6f448005bbc506b0686d7bbe85b279d085390e2ecbf30639d6f010161d8e7e9e`.
+The exact-card WirePlumber rule requires `api.alsa.soft-mixer=true` and has
+SHA-256
+`3ea8eac992eb15b0a279f377eaa3b8749317f14d2b6fbfa4b817ae149db90010`.
+A fresh rootless Fedora 44 container installed the exact binary RPM, verified
+the package and installed commands, and removed all 19 package-owned files.
+The profile and ALSA-state sentinels remained byte-for-byte identical.
+
+The physical profile matrix used the matching release build and user-installed
+configuration rather than the temporary RPM payload. It is therefore hardware
+evidence for the source milestone, while the disposable-container result is
+the exact RPM packaging evidence.
+
 ## Remaining release gate
 
 This proves clean Fedora dependency resolution and package ownership/removal,

@@ -1,4 +1,6 @@
-use crate::pipewire::{set_ae5_control_route, suspend_ae5_output};
+use crate::pipewire::{
+    restore_ae5_output_profile, set_ae5_control_route, set_ae5_output_profile, suspend_ae5_output,
+};
 use alsa::mixer::{Mixer, Selem, SelemChannelId};
 use std::error::Error;
 use std::fmt;
@@ -16,6 +18,7 @@ const CHANNELS: &[SelemChannelId] = &[
     SelemChannelId::SideRight,
     SelemChannelId::RearCenter,
 ];
+const ROUTE_PLAYBACK_CONTROLS: &[&str] = &["Master", "Front", "Surround", "Center", "LFE", "PCM"];
 
 pub(crate) const EQUALIZER_PRESET_CONTROL: &str = "FX: Equalizer Preset";
 pub const DIRECT_MODE_CONTROL: &str = "AE-5: Direct Mode";
@@ -259,8 +262,10 @@ impl Ae5Mixer {
         let previous = choices
             .get(element.get_enum_item(SelemChannelId::FrontLeft)? as usize)
             .cloned();
-        if matches!(name, "Output Select" | "Surround Channel Config") {
-            let mut controls = self.snapshots()?;
+        let changes_output_route = matches!(name, "Output Select" | "Surround Channel Config");
+        let previous_controls = changes_output_route.then(|| self.snapshots()).transpose()?;
+        let projected_controls = if let Some(controls) = &previous_controls {
+            let mut controls = controls.clone();
             if let Some(control) = controls.iter_mut().find(|control| control.name == name)
                 && control.selected.as_deref() != Some(expected)
             {
@@ -269,27 +274,89 @@ impl Ae5Mixer {
                     return Err(ControlError::Invalid(reason.to_owned()));
                 }
             }
+            Some(controls)
+        } else {
+            None
+        };
+        let mut suspended = changes_output_route
+            .then(|| suspend_ae5_output(self.card_index))
+            .transpose()?;
+        let mut previous_profile = None;
+
+        let applied = (|| {
+            if let Some(controls) = &projected_controls {
+                let output = selected_choice(controls, "Output Select")?;
+                let layout = selected_choice(controls, "Surround Channel Config")?;
+                previous_profile = set_ae5_output_profile(self.card_index, output, layout)?;
+                suspended
+                    .as_mut()
+                    .expect("output-route changes suspend the sink")
+                    .ensure_current_suspended()?;
+            }
+            let routed = set_ae5_control_route(self.card_index, name, expected)?;
+            if !routed {
+                element.set_enum_item(SelemChannelId::FrontLeft, index as u32)?;
+            }
+            if let Some(controls) = &previous_controls {
+                suspended
+                    .as_mut()
+                    .expect("output-route changes suspend the sink")
+                    .ensure_current_suspended()?;
+                self.restore_route_playback_state(controls)?;
+            }
+            let actual = read_control(element)?;
+            if actual.selected.as_deref() != Some(expected) {
+                return Err(ControlError::Verification(format!(
+                    "'{name}' read back as {:?}, expected '{expected}'",
+                    actual.selected,
+                )));
+            }
+            Ok(actual)
+        })();
+        let result = match applied {
+            Ok(actual) => Ok(actual),
+            Err(error) => {
+                if let Some(suspended) = suspended.as_mut() {
+                    let _ = suspended.ensure_current_suspended();
+                }
+                let profile_rollback = previous_profile.as_deref().map_or_else(
+                    || "PipeWire profile unchanged".to_owned(),
+                    |profile| match restore_ae5_output_profile(self.card_index, profile) {
+                        Ok(()) => format!("restored PipeWire profile '{profile}'"),
+                        Err(error) => format!("PipeWire profile rollback failed: {error}"),
+                    },
+                );
+                if let Some(suspended) = suspended.as_mut() {
+                    let _ = suspended.ensure_current_suspended();
+                }
+                let choice_rollback = previous.as_deref().map_or_else(
+                    || "previous ALSA choice unavailable".to_owned(),
+                    |choice| self.restore_choice(name, choice),
+                );
+                if let Some(suspended) = suspended.as_mut() {
+                    let _ = suspended.ensure_current_suspended();
+                }
+                let playback_rollback = previous_controls.as_deref().map_or_else(
+                    || "route-sensitive playback state unchanged".to_owned(),
+                    |controls| match self.restore_route_playback_state(controls) {
+                        Ok(()) => "restored route-sensitive playback state".to_owned(),
+                        Err(error) => format!("playback-state rollback failed: {error}"),
+                    },
+                );
+                Err(ControlError::Verification(format!(
+                    "{error}; {profile_rollback}; {choice_rollback}; {playback_rollback}"
+                )))
+            }
+        };
+        let resumed = suspended
+            .map(|output| output.resume())
+            .transpose()
+            .map_err(ControlError::from);
+        match (result, resumed) {
+            (Ok(actual), Ok(_)) => Ok(actual),
+            (Err(error), _) => Err(error),
+            (Ok(_), Err(error)) => Err(error),
         }
-        let routed = set_ae5_control_route(self.card_index, name, expected)?;
-        if !routed {
-            element.set_enum_item(SelemChannelId::FrontLeft, index as u32)?;
-        }
-        let actual = read_control(element)?;
-        if actual.selected.as_deref() != Some(expected) {
-            let rollback = if routed {
-                previous
-                    .as_deref()
-                    .map(|previous| self.restore_desktop_route(name, previous))
-                    .unwrap_or_else(|| "the previous route was unavailable".to_owned())
-            } else {
-                "no rollback was attempted".to_owned()
-            };
-            return Err(ControlError::Verification(format!(
-                "'{name}' read back as {:?}, expected '{expected}'; {rollback}",
-                actual.selected,
-            )));
-        }
-        Ok(actual)
     }
 
     pub fn set_playback_switch(
@@ -458,19 +525,81 @@ impl Ae5Mixer {
         Ok(())
     }
 
-    fn restore_desktop_route(&self, name: &str, previous: &str) -> String {
-        match set_ae5_control_route(self.card_index, name, previous) {
-            Ok(true) => match self.snapshot(name) {
-                Ok(control) if control.selected.as_deref() == Some(previous) => {
-                    format!("restored '{previous}'")
-                }
-                Ok(control) => format!("rollback read back as {:?}", control.selected),
-                Err(error) => format!("rollback readback failed: {error}"),
-            },
-            Ok(false) => "the previous desktop route was unavailable".to_owned(),
-            Err(error) => format!("rollback failed: {error}"),
+    fn restore_choice(&self, name: &str, previous: &str) -> String {
+        let restored = (|| {
+            if !set_ae5_control_route(self.card_index, name, previous)? {
+                let element = self.find(name)?;
+                let choices = element.iter_enum()?.collect::<alsa::Result<Vec<_>>>()?;
+                let index = choice_index(&choices, previous).ok_or_else(|| {
+                    ControlError::Invalid(format!("'{previous}' is no longer valid for '{name}'"))
+                })?;
+                element.set_enum_item(SelemChannelId::FrontLeft, index as u32)?;
+            }
+            let control = self.snapshot(name)?;
+            if control.selected.as_deref() != Some(previous) {
+                return Err(ControlError::Verification(format!(
+                    "rollback read back as {:?}, expected '{previous}'",
+                    control.selected
+                )));
+            }
+            Ok(())
+        })();
+        match restored {
+            Ok(()) => format!("restored '{previous}'"),
+            Err(error) => format!("choice rollback failed: {error}"),
         }
     }
+
+    fn restore_route_playback_state(
+        &self,
+        controls: &[ControlSnapshot],
+    ) -> Result<(), ControlError> {
+        for name in ROUTE_PLAYBACK_CONTROLS {
+            let Some(previous) = controls.iter().find(|control| control.name == *name) else {
+                continue;
+            };
+            let element = self.find(name)?;
+            for channel in &previous.playback_channels {
+                let channel_id = find_channel(&element, &channel.name, false)?;
+                element.set_playback_volume(channel_id, channel.value)?;
+            }
+            if *name == "Master"
+                && let Some(enabled) = previous.playback_switch
+            {
+                element.set_playback_switch_all(i32::from(enabled))?;
+            }
+        }
+        for _ in 0..40 {
+            let mut matched = true;
+            for name in ROUTE_PLAYBACK_CONTROLS {
+                let Some(previous) = controls.iter().find(|control| control.name == *name) else {
+                    continue;
+                };
+                let actual = self.snapshot(name)?;
+                matched &= (*name != "Master"
+                    || actual.playback_switch == previous.playback_switch)
+                    && actual.playback_channels == previous.playback_channels;
+            }
+            if matched {
+                return Ok(());
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        Err(ControlError::Verification(
+            "route-sensitive playback state did not settle to its previous values".to_owned(),
+        ))
+    }
+}
+
+fn selected_choice<'a>(
+    controls: &'a [ControlSnapshot],
+    name: &str,
+) -> Result<&'a str, ControlError> {
+    controls
+        .iter()
+        .find(|control| control.name == name)
+        .and_then(|control| control.selected.as_deref())
+        .ok_or_else(|| ControlError::Missing(name.to_owned()))
 }
 
 fn read_control(element: Selem<'_>) -> alsa::Result<ControlSnapshot> {

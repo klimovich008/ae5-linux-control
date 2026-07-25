@@ -46,7 +46,7 @@ front=$(awk '
 	found && /^\[/ { exit }
 	found && /^(switch|volume) = / { print }
 ' "$path")
-[[ $front == $'switch = mute\nvolume = zero' ]]
+[[ $front == $'switch = mute\nvolume = ignore' ]]
 
 for input in microphone front-microphone line-in; do
 	input_path=$repo_root/packaging/alsa-card-profile/mixer/paths/sound-blaster-ae5-input-$input.conf
@@ -66,5 +66,6 @@ grep -Fq '[Option Input Source:Line In]' \
 grep -Fq 'device.vendor.id = "0x1102"' "$rule"
 grep -Fq 'device.product.id = "0x0012"' "$rule"
 grep -Fq 'device.profile-set = "sound-blaster-ae5.conf"' "$rule"
+grep -Fq 'api.alsa.soft-mixer = true' "$rule"
 
 printf 'AE-5 ACP profile: stable managed route order and shared Front DAC validated\n'

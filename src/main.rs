@@ -150,6 +150,7 @@ fn print_status() -> Result<(), Box<dyn Error>> {
         Ok(state) => print_route_state(
             &state,
             selected_choice(&controls, "Output Select").unwrap_or("unavailable"),
+            selected_choice(&controls, "Surround Channel Config").unwrap_or("unavailable"),
             selected_choice(&controls, "Input Source").unwrap_or("unavailable"),
         ),
         Err(error) => println!("  Desktop routes: unavailable ({error})"),
@@ -207,10 +208,17 @@ fn print_route_status() -> Result<(), Box<dyn Error>> {
             "the AE-5 has no readable Input Source choice",
         )
     })?;
+    let speaker_layout =
+        selected_choice(&controls, "Surround Channel Config").ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                "the AE-5 has no readable Surround Channel Config choice",
+            )
+        })?;
     let state = ae5_route_state(device.card_index)?;
-    print_route_state(&state, output_choice, input_choice);
+    print_route_state(&state, output_choice, speaker_layout, input_choice);
     if let Some(issue) = state
-        .output_issue(output_choice)
+        .output_issue(output_choice, speaker_layout)
         .or_else(|| state.input_issue(input_choice))
     {
         return Err(io::Error::other(issue).into());
@@ -345,7 +353,12 @@ fn print_pipewire_node(kind: &str, node: &PipeWireNode) {
     );
 }
 
-fn print_route_state(state: &PipeWireRouteState, output_choice: &str, input_choice: &str) {
+fn print_route_state(
+    state: &PipeWireRouteState,
+    output_choice: &str,
+    speaker_layout: &str,
+    input_choice: &str,
+) {
     println!(
         "  Desktop output route: {}",
         state.output_route.as_deref().unwrap_or("unavailable")
@@ -362,7 +375,7 @@ fn print_route_state(state: &PipeWireRouteState, output_choice: &str, input_choi
             .as_deref()
             .unwrap_or("unknown profile set")
     );
-    match state.output_issue(output_choice) {
+    match state.output_issue(output_choice, speaker_layout) {
         None => println!("  Output route health: matched ALSA {output_choice}"),
         Some(issue) => println!("  Output route health: warning ({issue})"),
     }

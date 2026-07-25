@@ -817,9 +817,13 @@ fn route_health_summary(
         .iter()
         .find(|control| control.name == "Input Source")
         .and_then(|control| control.selected.as_deref());
-    match (current, output_choice, input_choice) {
-        (Ok(state), Some(output), Some(input)) => {
-            let issues = [state.output_issue(output), state.input_issue(input)]
+    let speaker_layout = controls
+        .iter()
+        .find(|control| control.name == "Surround Channel Config")
+        .and_then(|control| control.selected.as_deref());
+    match (current, output_choice, speaker_layout, input_choice) {
+        (Ok(state), Some(output), Some(layout), Some(input)) => {
+            let issues = [state.output_issue(output, layout), state.input_issue(input)]
                 .into_iter()
                 .flatten()
                 .collect::<Vec<_>>();
@@ -847,9 +851,13 @@ fn route_health_summary(
                 issues.is_empty(),
             )
         }
-        (Ok(_), None, _) => ("Output Select is unavailable from ALSA.".to_owned(), false),
-        (Ok(_), _, None) => ("Input Source is unavailable from ALSA.".to_owned(), false),
-        (Err(error), _, _) => (
+        (Ok(_), None, _, _) => ("Output Select is unavailable from ALSA.".to_owned(), false),
+        (Ok(_), _, None, _) => (
+            "Surround Channel Config is unavailable from ALSA.".to_owned(),
+            false,
+        ),
+        (Ok(_), _, _, None) => ("Input Source is unavailable from ALSA.".to_owned(), false),
+        (Err(error), _, _, _) => (
             format!("PipeWire route status is unavailable: {error}"),
             false,
         ),
@@ -2657,9 +2665,27 @@ mod tests {
                 playback_channels: Vec::new(),
                 capture_channels: Vec::new(),
             },
+            ControlSnapshot {
+                name: "Surround Channel Config".to_owned(),
+                selected: Some("2.0".to_owned()),
+                choices: vec![
+                    "2.0".to_owned(),
+                    "2.1".to_owned(),
+                    "4.0".to_owned(),
+                    "4.1".to_owned(),
+                    "5.1".to_owned(),
+                ],
+                playback_switch: None,
+                capture_switch: None,
+                playback_level: None,
+                capture_level: None,
+                playback_channels: Vec::new(),
+                capture_channels: Vec::new(),
+            },
         ];
         let mut state = PipeWireRouteState {
             profile_set: Some("sound-blaster-ae5.conf".to_owned()),
+            soft_mixer: Some(true),
             active_profile: Some("output:analog-stereo+input:analog-stereo".to_owned()),
             input_route: Some("sound-blaster-ae5-input-microphone".to_owned()),
             output_route: Some("sound-blaster-ae5-output-headphones;output-headphones".to_owned()),

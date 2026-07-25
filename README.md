@@ -81,9 +81,12 @@ unpatched kernel.
 
 Typed write commands validate choices and ranges and verify the value by
 reading it back. `Output Select` and `Input Source` use the matching
-WirePlumber port from the packaged AE-5 profile so the desktop route and ALSA
-enum cannot silently disagree; the other controls write directly through
-ALSA:
+WirePlumber port from the packaged AE-5 profile, while `Surround Channel
+Config` selects the exact stereo, 2.1, 4.0, 4.1, or 5.1 PipeWire profile.
+The shared transaction suspends output, verifies both layers, and rolls back
+on failure. The packaged card rule also enables PipeWire software volume for
+this exact AE-5 so desktop route changes cannot reload unsafe hardware gains;
+the other controls write directly through ALSA:
 
 ```sh
 cargo run -- get "Output Select"
@@ -383,7 +386,17 @@ check progress with `--suspend-summary 20`. The Rust CLI and GTK diagnostics
 also read PipeWire's live Route parameters: deliberately recreated
 Headphone-versus-Line-Out and Microphone-versus-Line-In splits failed
 `route-status`, while the normal setters repaired both and restored the exact
-mixer hash. Evidence and transition matrices are documented in
+mixer hash. A later silent real-card matrix synchronized 2.0, 2.1, 4.0, 4.1,
+and 5.1 with `analog-stereo`, `analog-surround-21`,
+`analog-surround-40`, `analog-surround-41`, and `analog-surround-51`,
+preserving the duplex input profile and every hardware gain. It also exposed
+and fixed two unsafe ACP interactions: hardware volume ownership reloaded
+saved route gains, and the old headphone path interpreted `volume=zero` as
+0 dB. The package now requires `api.alsa.soft-mixer=true` and uses
+`volume=ignore`; the backend refuses managed routing until that policy is
+active. Every matrix stage kept PipeWire at 0%, ALSA at or below 20%, Low
+gain, and all PCM devices closed; no sound was played. Evidence and transition
+matrices are documented in
 [docs/DRIVER_ROUTING_INVESTIGATION.md](docs/DRIVER_ROUTING_INVESTIGATION.md).
 The ineffective AE-5 What U Hear volume/mute controls, guarded measurements,
 profile compatibility, and build-tested kernel candidate are documented in

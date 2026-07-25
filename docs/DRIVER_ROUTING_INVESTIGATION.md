@@ -93,11 +93,11 @@ That assumption is false for CA0132 desktop cards.
 The package now supplies:
 
 - `sound-blaster-ae5-output-headphones.conf`, which includes the generic path
-  but changes only Front to `switch=mute` and `volume=zero`;
+  but changes only Front to `switch=mute` and `volume=ignore`;
 - `sound-blaster-ae5.conf`, which replaces the generic headphone path in the
   analog stereo mappings;
 - a WirePlumber rule selecting that profile set only for PCI Creative
-  `1102:0012` cards.
+  `1102:0012` cards and enabling `api.alsa.soft-mixer`.
 
 The live profile was parsed by PipeWire's `spa-acp-tool`, exposed the fixed
 headphone route, and passed Speakers → Headphones switching with
@@ -126,6 +126,24 @@ WirePlumber, then used the rebuilt CLI:
 | Microphone | `sound-blaster-ae5-input-microphone` | `Microphone` |
 | Front Microphone | `sound-blaster-ae5-input-front-microphone` | `Front Microphone` |
 | Line In | `sound-blaster-ae5-input-line-in` | `Line In` |
+
+`Surround Channel Config` now participates in the same transaction. The
+projected output choice and layout select an exact available PipeWire profile,
+while the current analog input side is retained:
+
+| ALSA output/layout | PipeWire output component |
+|---|---|
+| Headphone, any stored layout | `output:analog-stereo` |
+| Speakers 2.0 | `output:analog-stereo` |
+| Speakers 2.1 | `output:analog-surround-21` |
+| Speakers 4.0 | `output:analog-surround-40` |
+| Speakers 4.1 | `output:analog-surround-41` |
+| Speakers 5.1 | `output:analog-surround-51` |
+
+The backend requires each target profile to be advertised as available,
+suspends the AE-5 output, verifies the active profile and ALSA readback, and
+restores the prior profile, choice, and route-sensitive levels if a later step
+fails.
 
 A separate two-control native profile changed Headphone/Microphone to
 Speakers/Line In and restored it. Both matrices returned the complete ALSA
@@ -161,8 +179,21 @@ the shared setter restored `sound-blaster-ae5-input-microphone`. The complete
 mixer, both desktop defaults, both PipeWire routes, and the zero-stream state
 matched their exact starting values afterward.
 
-The check is deliberately limited to the validated analog-stereo profiles;
-other profiles report that limitation rather than guessing route semantics.
+Route health now validates all five supported analog layouts against their
+exact active profile. A silent physical-card matrix traversed 2.0, 2.1, 4.0,
+4.1, and 5.1, repeated intermediate transitions, and returned through
+Headphone to 2.0. Every stage retained `+input:analog-stereo`, the Microphone
+route, Low headphone gain, closed PCM devices, and the intended ALSA levels.
+
+The first safety run also found that WirePlumber's saved Speakers route could
+turn a muted 0% test state into 43% desktop volume, raw Front/Surround/Center/
+LFE 90/99, and PCM 251/255. No stream was open and no sound played, but the
+transaction stopped immediately. `api.alsa.soft-mixer=true` now keeps desktop
+volume in software instead of changing the AE-5 mixer. A second issue was the
+custom headphone path's `volume=zero`: in ACP syntax this means 0 dB and set
+Front to 90/99. Changing it to `volume=ignore` retained Front 19/99 across the
+same route. The Rust setters fail closed if the exact profile set or software
+mixer policy is absent.
 
 WirePlumber documents `monitor.alsa.rules` as the supported mechanism for
 updating ALSA-device properties, while ACP is responsible for profiles, ports,

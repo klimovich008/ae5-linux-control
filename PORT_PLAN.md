@@ -353,6 +353,16 @@ with PipeWire's live Route parameters. Physical deliberately split
 Headphone/Line-Out and Microphone/Line-In states were detected with nonzero
 results and repaired through the shared Rust setters with the exact mixer hash
 restored.
+The same shared setter now maps ALSA 2.0, 2.1, 4.0, 4.1, and 5.1 to the exact
+PipeWire analog profile while preserving the duplex input side. A silent
+physical-card matrix validated every profile and the return to Headphone/2.0
+with all PCMs closed. During that matrix, saved PipeWire routes were proven to
+reload hardware gains as high as 98% even from a nominal 20% desktop setting.
+The card-scoped rule now requires PipeWire software volume, and the headphone
+path ignores rather than forces the shared Front DAC volume. Repeated
+post-fix transitions preserved raw Master 19/99, Front 19/99, PCM 51/255,
+zeroed unused channels, Low gain, and a 0% muted test sink. Managed routing
+fails closed until the live PipeWire device reports this policy.
 The remaining gate is the ten-host-cold-boot and twenty-suspend/resume
 lifecycle matrix.
 

@@ -557,6 +557,41 @@ udev validation. A clean disposable-container lifecycle found
 `route-repair` in the installed CLI, removed all 19 package-owned files, and
 preserved the profile and ALSA-state sentinels byte-for-byte.
 
+## Startup-route recovery upgrade
+
+The startup-recovery release extends both WirePlumber profile activation and
+ALSA PCM-close polling from one to five seconds. On the physical card, an
+immediate post-restart repair exercised the longer path for 3.282 seconds,
+re-applied Headphone and Microphone, unmuted Front, and returned all 48 simple
+controls to SHA-256
+`b58ff5fa3cc6ae9271b45720ecd7f66edbdb13b455ba9ea72e1c47e165f49b9b`.
+PipeWire remained exactly `0.20`; Master and Front remained 19/99, PCM 51/255,
+and headphone gain Low. No test sound was played.
+
+The rootless installation was upgraded transactionally without restarting the
+active desktop audio session. Its app and CLI are byte-identical to the
+release build:
+
+- GUI SHA-256:
+  `575dbe23bfd24243f554d0add6d927a1c6a53ad02921a175e544a67ef02f6110`
+- CLI SHA-256:
+  `1323df9afe500f7a152f8aa81cad1377af1e743e7e14127690ff914c10e6fae0`
+
+The corrected boot probe was also installed for the next reboot, with
+SHA-256
+`59908e9d2aa529a6405973b303102f003019fe313614d3de2b8819934d79b996`.
+It reports historical records without Front evidence as unavailable rather
+than falsely calling them muted.
+
+The Fedora 44 binary RPM SHA-256 is
+`95caeade4aa1403acb7abc60fd611ba100715235f155c4655e6c238bc7b7dfa8`;
+the source RPM SHA-256 is
+`95cf4195fc6ad7a69cf952178fa8be4747d6df7d9a6e80cfb5f58082e4ba58fd`.
+The build repeated all 75 release tests and package metadata checks. A fresh
+Fedora 44 container resolved its full dependency set, installed and verified
+the binary RPM, removed all 19 package-owned files, and preserved the profile
+and ALSA-state sentinels byte-for-byte.
+
 ## Remaining release gate
 
 This proves clean Fedora dependency resolution and package ownership/removal,

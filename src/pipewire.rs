@@ -253,7 +253,8 @@ fn native_rates_config_at(path: &Path) -> io::Result<NativeRatesConfig> {
 
 fn ae5_node(card_index: i32, nodes: &str) -> io::Result<Option<PipeWireNode>> {
     let mut fallback = None;
-    for listing in parse_node_list(&run_wpctl(&["list", "audio", nodes])?) {
+    let status = run_wpctl(&["status", "-n"])?;
+    for listing in parse_status_node_list(&status, nodes) {
         let details = run_wpctl(&["inspect", &listing.id.to_string()])?;
         if property(&details, "alsa.card").and_then(|value| value.parse().ok()) != Some(card_index)
         {
@@ -537,17 +538,43 @@ struct NodeListing {
     is_default: bool,
 }
 
-fn parse_node_list(output: &str) -> Vec<NodeListing> {
-    output
-        .lines()
-        .filter_map(|line| {
-            let id = line.split_whitespace().next()?.parse().ok()?;
-            Some(NodeListing {
-                id,
-                is_default: line.split_whitespace().last() == Some("*"),
-            })
-        })
-        .collect()
+fn parse_status_node_list(output: &str, nodes: &str) -> Vec<NodeListing> {
+    let heading = match nodes {
+        "sinks" => "Sinks:",
+        "sources" => "Sources:",
+        _ => return Vec::new(),
+    };
+    let mut in_section = false;
+    let mut listings = Vec::new();
+
+    for line in output.lines() {
+        let line = line
+            .trim()
+            .trim_start_matches(|character: char| "│├└─ ".contains(character))
+            .trim_start();
+        if line == heading {
+            in_section = true;
+            continue;
+        }
+        if in_section && line.ends_with(':') {
+            break;
+        }
+        if !in_section {
+            continue;
+        }
+
+        let (is_default, line) = line
+            .strip_prefix('*')
+            .map_or((false, line), |line| (true, line.trim_start()));
+        let Some(id) = line
+            .split_once('.')
+            .and_then(|(id, _)| id.trim().parse().ok())
+        else {
+            continue;
+        };
+        listings.push(NodeListing { id, is_default });
+    }
+    listings
 }
 
 fn property(output: &str, name: &str) -> Option<String> {
@@ -569,20 +596,38 @@ mod tests {
     #[test]
     fn parses_wpctl_node_identity_and_default_marker() {
         let listing = "\
-57\talsa_output.pci-hdmi\taudio/sink\t \n\
-58\talsa_output.pci-ae5\taudio/sink\t*\n";
+Audio
+ ├─ Devices:
+ │      47. alsa_card.pci-ae5                 [alsa]
+ │
+ ├─ Sinks:
+ │      48. alsa_output.pci-hdmi              [vol: 1.00]
+ │  *   49. alsa_output.pci-ae5.analog-stereo [vol: 0.40]
+ │
+ ├─ Sources:
+ │  *   50. alsa_input.pci-ae5.analog-stereo  [vol: 1.00]
+ │
+ └─ Streams:
+";
         assert_eq!(
-            parse_node_list(listing),
+            parse_status_node_list(listing, "sinks"),
             vec![
                 NodeListing {
-                    id: 57,
+                    id: 48,
                     is_default: false,
                 },
                 NodeListing {
-                    id: 58,
+                    id: 49,
                     is_default: true,
                 },
             ]
+        );
+        assert_eq!(
+            parse_status_node_list(listing, "sources"),
+            vec![NodeListing {
+                id: 50,
+                is_default: true,
+            }]
         );
 
         let details = r#"

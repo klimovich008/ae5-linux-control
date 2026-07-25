@@ -5,7 +5,9 @@ experiments. The original four functional patches were loaded together on the
 target AE-5 in a guarded KVM guest. The onboard-LED candidate was then added to
 that same validated stack and exercised in a separate guarded cycle. The
 Direct Mode candidate was prepared later from an independent behavior
-specification and has completed static validation only. It has not been loaded.
+specification, loaded on the physical card through VFIO, and exercised for
+playback, bypass, output routing, failure handling, and normal-route
+restoration.
 The diagnostic SpeakerEQ probe was loaded separately in two earlier cycles and
 produced the bounded negative result described below. None changes the running
 host kernel merely by being present in this repository.
@@ -32,12 +34,15 @@ also built `ca0132.o` with the same warning gate, and strict `checkpatch.pl`
 reported zero findings for its 217 changed lines. No patch content needed
 rebasing or correction.
 
-The later Direct Mode patch also applies to that exact `for-next` base. Strict
-`checkpatch.pl` reported zero findings across its 218 changed lines. It applies
-cleanly after the five production patches and to the maintained 6.18.40
-backport trees. The combined `ca0132.o` and parser-test object compiled in a
-fresh out-of-tree x86-64 build with `W=1` and warnings treated as errors.
-Physical playback, transition, and power-management gates remain open.
+The regenerated Direct Mode patch also applies to that exact `for-next` base.
+Strict `checkpatch.pl` reported zero findings across 643 checked lines. It
+applies cleanly after the five production patches and to the maintained
+6.18.40 backport trees. Applying it to the production-plus-RGB baseline
+reproduced the physically tested source byte for byte. The complete module set
+rebuilt in a fresh out-of-tree x86-64 build with `W=1` and warnings treated as
+errors. Physical playback, transition, routing, and busy gates pass;
+three warm boots also pass; bare-metal power-management, host cold-boot, and
+connected line-out gates remain open.
 
 External submission has not been performed. Each submitting contributor must
 personally add the Developer Certificate of Origin `Signed-off-by` line before
@@ -47,9 +52,12 @@ sending a patch to the maintainer recipients reported by
 ## AE-5 Direct Mode
 
 [`ca0132-ae5-direct-mode.patch`](ca0132-ae5-direct-mode.patch) adds an
-AE-5-only `AE-5: Direct Mode Playback Switch`. It is a candidate until a
-physical passthrough cycle proves that the bypass produces audio and restores
-the normal DSP route.
+AE-5-only `AE-5: Direct Mode Playback Switch`. A physical passthrough cycle
+proved 48/96 kHz stereo output, DSP bypass, coherent Headphone/Speakers
+selection, and restoration of the normal DSP route without the previously
+required ALSA toggle. It remains a candidate pending host cold-boot,
+bare-metal suspend/resume, and connected line-out acceptance; three warm guest
+boots already pass.
 
 The behavior-level interoperability result is:
 
@@ -61,36 +69,42 @@ The behavior-level interoperability result is:
 The stream routes, `0xd0` rate, channel count, and enable state independently
 match the driver's existing `ae5_post_dsp_stream_setup()` path. That startup
 path writes ASI value `4`; the reconstructed Windows Direct-to-normal
-transition writes `7`, so the candidate uses `7` and keeps the difference
-behind the physical acceptance gate. The patch uses the existing ChipIO helpers
-under `chipio_mutex`, reads stream `0x18` back after both transitions, and
-changes the cached mode only after successful readback.
+transition writes `7`, and physical restoration now validates that
+transition-specific value. The patch uses the existing ChipIO helpers under
+`chipio_mutex`, snapshots and restores the exact playback-router entries that
+Direct PCM overwrites, reads stream state back after transitions, and changes
+the cached mode only after successful readback.
 
 To avoid reproducing transition-time distortion or loss of sound, the control
 returns `-EBUSY` whenever analog playback is open. A Direct Mode PCM open is
-stereo-only, and the driver reports no DSP playback delay while bypassed.
-Codec reinitialization restores the requested direct state. The patch does not
-expand the analog converter's advertised rates or sample widths.
+limited to stereo 48 or 96 kHz, and the driver reports no DSP playback delay
+while bypassed. The first subsequent normal prepare reapplies the cached
+processing edge and rebinds the HDA converter. Codec reinitialization restores
+the requested direct state. The patch does not expand sample-width support.
 
 The Rust application detects the control dynamically. It temporarily suspends
 only the AE-5 PipeWire sink, waits for analog PCM to close, writes and verifies
 the control, and resumes the sink. The GTK page disables DSP controls that
-cannot affect Direct Mode while retaining output, gain, and DAC-filter
-controls.
+cannot affect Direct Mode, including PCM and hardware output levels, while
+retaining output, gain, and DAC-filter controls. A real-card regression fixed
+route validation so an already-enabled X-Bass no longer blocks safe output
+selection while Direct Mode is active.
 
 Suggested upstream commit message:
 
 ```text
 ALSA: hda/ca0132: Add AE-5 Direct Mode control
 
-The AE-5 can bypass its DSP playback path by stopping ChipIO stream 0x18.
-Returning to normal playback requires restoring streams 0x05 and 0x18,
-the 96 kHz ASI connection, and ASI control state.
+The AE-5 can bypass its DSP playback path through a separate stream 0x14
+route while ChipIO stream 0x18 is stopped. Direct PCM setup changes rate,
+clock, and playback-router state. Returning to normal playback requires
+restoring the overwritten router entries, streams 0x05 and 0x18, the 96 kHz
+ASI connection, cached processing state, and the HDA converter endpoint.
 
 Expose the route as an AE-5-only playback switch. Reject transitions while
-the analog PCM is open, constrain direct playback to stereo, verify stream
-state after the transition, and restore the selected mode after codec
-reinitialization.
+the analog PCM is open, constrain direct playback to stereo 48/96 kHz,
+verify stream state, and restore the selected mode after codec
+reinitialization. Rebind the endpoint on the first normal prepare.
 ```
 
 The submitting contributor must add their own Developer Certificate of Origin
@@ -100,12 +114,21 @@ The submitting contributor must add their own Developer Certificate of Origin
 
 The exact patch is based on `sound.git` `for-next`
 `61471f29f3157f33a61194bf82b4a289cc03e1f1`. It passes `git diff --check`,
-strict `checkpatch.pl` with no findings, and compilation of
-`sound/hda/codecs/ca0132.o` using a fresh output directory and the running
-Nobara x86-64 configuration.
+strict `checkpatch.pl` with no findings across 643 checked lines, exact
+patch-reproduction comparison, and a complete warnings-as-errors module build.
+The physical AE-5 passed exact 48/96 kHz stereo negotiation, S16/S32 playback,
+open-PCM rejection, DSP-bypass comparison, normal restoration, ten repeated
+cycles, and Headphone/Speakers routing with at least 35.5 dB acoustic
+separation. The complete mixer state returned exactly and the kernel log
+remained clean. Three warm guest boots then loaded the exact signed module and
+each completed Direct and normal PCM with an unchanged safe mixer hash. All
+playback fixtures were at approximately 5% digital amplitude; future tests are
+capped at 20%. A post-Direct What U Hear capture and final VFIO shutdown then
+returned the exact guest and host mixer hashes, host default nodes, profile,
+routes, services, PCI driver, and inactive VM configuration.
 
-No live hardware write was made. The full independent evidence, application
-sequencing, supported-format boundary, and physical acceptance matrix are in
+The full independent evidence, application sequencing, supported-format
+boundary, passed gates, and remaining power/boot/line-out matrix are in
 [`DIRECT_MODE_INVESTIGATION.md`](../docs/DIRECT_MODE_INVESTIGATION.md).
 
 ## AE-5 onboard multicolor LEDs

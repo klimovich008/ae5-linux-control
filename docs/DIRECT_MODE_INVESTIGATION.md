@@ -3,13 +3,17 @@
 ## Status
 
 An AE-5-only kernel and application candidate is implemented, statically
-validated, and ready for an isolated physical-card test. It is not yet a
-verified feature. The running stock kernel was not modified and no live mixer
-or PipeWire state was changed while developing the candidate.
+validated, and running against the physical card in a managed VFIO guest.
+Stereo playback, DSP bypass, output selection, busy rejection, exact
+Direct-to-normal restoration, and repeated transitions have passed. The
+candidate remains deferred rather than release-supported until its
+power-management, repeated-boot, and physical line-out gates pass.
 
-The candidate deliberately does not advertise 192 or 384 kHz. Its first
-hardware gate is reliable stereo playback at rates already exposed by the
-Linux analog PCM, followed by an exact return to the normal DSP path.
+Direct Mode deliberately exposes only stereo 48 and 96 kHz. Exact ALSA
+negotiation rejects 44.1, 88.2, and 192 kHz and six-channel opens. Earlier
+diagnostic candidates produced silence at 44.1 kHz and distortion at 88.2 kHz,
+so those rates must not be advertised without a new hardware explanation and
+acceptance run. The analog PCM does not expose 384 kHz.
 
 ## Evidence boundary
 
@@ -80,11 +84,17 @@ The kernel side:
   devices;
 - serializes the transition against analog PCM open and close;
 - returns `-EBUSY` instead of rerouting an open playback stream;
-- constrains the next Direct Mode PCM open to two channels;
-- verifies stream `0x18` state after each transition;
+- constrains the next Direct Mode PCM open to stereo 48 or 96 kHz;
+- prepares stream `0x14`, the HDA converter, clock, rate, and ASI state for
+  each Direct PCM;
+- snapshots only the router entries overwritten after stream `0x05` changes
+  to the direct source, then restores those exact entries transactionally;
+- verifies stream `0x14` and `0x18` state around their respective transitions;
+- reapplies the cached playback-processing edge and rebinds the HDA converter
+  on the first normal PCM prepare after Direct Mode;
 - reports zero CA0132 DSP latency while Direct Mode is active;
 - restores the requested direct state after codec reinitialization;
-- leaves the existing analog PCM rate and sample-width capabilities unchanged.
+- leaves the existing analog PCM sample-width capabilities unchanged.
 
 The Rust backend detects the control at runtime, so stock kernels continue to
 work without an empty or misleading UI. Before changing Direct Mode it:
@@ -99,12 +109,15 @@ work without an empty or misleading UI. Before changing Direct Mode it:
 7. resumes the sink, including a best-effort retry during error unwinding.
 
 The GTK Playback page explains the stereo DSP bypass and disables choices,
-levels, and playback-effect enables that are ineffective in Direct Mode.
+levels, and playback-effect enables that are ineffective in Direct Mode,
+including `PCM`, Master, and channel volumes.
 Recording and CrystalVoice controls remain available because the reconstructed
 stream `0x18` behavior does not prove that capture processing is bypassed.
 Output selection, headphone gain, DAC filter, and the Direct Mode switch remain
-available. Native profiles capture the control automatically when the patched
-kernel exposes it.
+available. A hardware-backed regression found and fixed a route-validation bug
+where an already-enabled X-Bass made `Output Select` appear unavailable during
+Direct Mode. Native profiles capture the control automatically when the
+patched kernel exposes it.
 
 ## Static validation
 
@@ -112,56 +125,103 @@ On 2026-07-25:
 
 - the kernel patch passed `git diff --check`;
 - strict `scripts/checkpatch.pl` reported zero errors, warnings, or checks
-  across 218 changed lines;
+  across 643 checked lines;
 - the patch applied after all five production CA0132 patches and to the
   maintained 6.18.40 backport trees;
+- applying the regenerated repository patch to the production-plus-RGB
+  baseline reproduced the physically tested `ca0132.c` byte for byte;
 - the combined `ca0132.o` and DSP-image parser-test object compiled with
   `W=1` and warnings treated as errors;
-- `sound/hda/codecs/ca0132.o` compiled successfully in a fresh out-of-tree
-  x86-64 build using the running Nobara configuration;
+- a complete `make modules` pass rebuilt the in-tree signed
+  `snd-hda-codec-ca0132.ko` with `W=1 KCFLAGS=-Werror` using the test-kernel
+  configuration;
 - `cargo test --all-features` passed 47 library and 12 GTK tests;
 - `cargo clippy --all-targets --all-features -- -D warnings` passed;
 - an isolated Fedora 44 RPM build passed its release tests and metadata checks,
   and the package requires the `pulseaudio-utils` provider of `pactl`;
-- the live host mixer baseline remained
-  `3e595532348efe1e2e9c066039131e97505cb9b71bc6bfd8fa8a59301091e802`.
+- the repository patch SHA-256 is
+  `c05d55c3c827dc035c36614d0c67bd59c14943942d4a9b670dd2c720c65e3257`.
 
-A standalone `.ko` modpost was not claimed: the lightweight object build has
-no `vmlinux` symbol table. The C compilation itself completed without an
-error.
+## Physical validation
 
-## Physical acceptance sequence
+The guarded test used the exact `1102:0012/1102:0051` AE-5 in a Fedora 44
+guest running `6.18.40-ae5-lts-rgb-direct+`. The loaded signed module had
+SHA-256
+`0a3d637a07b1834dc830e21325b0557a68530b3902aa32a16ac0f7853941db67`.
+Headphone gain was Low, headphones were not worn, and the playback fixture
+peaked at `-26.02 dBFS`, approximately 5% digital amplitude. Future audio
+tests are capped at 20% for both hardware and software volume.
 
-Use the managed VFIO guest first, with the default host kernel retained as the
-recovery path.
+Exact ALSA parameter negotiation in Direct Mode produced:
 
-1. Apply the production patch series and this Direct Mode patch to the pinned
-   kernel. Do not include the diagnostic SpeakerEQ probe.
-2. Build the complete kernel and modules with warnings treated as errors.
-3. Boot the guest with the physical AE-5 passed through and save the complete
-   guest mixer, PipeWire state, and kernel log baseline.
-4. Confirm exactly one new simple control named `AE-5: Direct Mode`, initially
-   off.
-5. Hold analog playback open and prove that a raw Direct Mode write returns
-   `EBUSY` without changing the control or producing a driver warning.
-6. Stop the direct ALSA client. Toggle through the application and prove that
-   its scoped PipeWire suspension permits the write and that the sink resumes.
-7. In Direct Mode, verify stereo playback through the physical headphone
-   output with the external microphone fixture. Test 44.1, 48, and 96 kHz
-   separately; test 88.2 kHz only after those pass.
-8. Prove a six-channel open is rejected in Direct Mode while stereo opens
-   successfully.
-9. Compare an effects-on/off pair. Direct Mode must remain unchanged within
-   the measurement tolerance; normal mode must restore the previously proven
-   effect response.
-10. Toggle Direct Mode off and prove normal playback, DSP effects, output
-    selection, and What U Hear return without a manual ALSA toggle.
-11. Repeat across headphone and line-out, 20 safe mode transitions, suspend
-    and resume, three warm boots, and at least one cold boot.
-12. Restore the saved guest state and require an exact mixer hash, no CA0132,
-    HDA, DSP, timeout, lockdep, or kernel warning, and automatic host recovery
-    after VFIO shutdown.
+| Request | Result |
+|---|---|
+| 48 kHz, stereo | accepted |
+| 96 kHz, stereo | accepted |
+| 44.1 kHz, stereo | rejected with `EINVAL` |
+| 88.2 kHz, stereo | rejected with `EINVAL` |
+| 192 kHz, stereo | rejected with `EINVAL` |
+| 48 or 96 kHz, six channels | rejected with `EINVAL` |
 
-Only after that matrix passes should 192 or 384 kHz support be investigated.
-Those rates require converter-capability and physical-output evidence; static
-Windows acceptance alone is not a Linux support claim.
+Both signed 16-bit and signed 32-bit stereo playback succeeded at 48 kHz.
+External microphone captures placed Direct 96 kHz within 0.20 dB of Direct
+48 kHz.
+
+Normal-route restoration was measured in one
+normal-before → Direct → normal-after sequence. The 48 kHz channel levels were
+`-65.86/-65.88 dB` before, `-49.10/-49.12 dB` in Direct Mode, and
+`-66.01/-66.04 dB` on the first normal playback. A second normal playback was
+`-65.76/-65.79 dB`. Both normal results were within 0.16 dB of the baseline,
+without a manual ALSA output toggle.
+
+The DSP-bypass pair measured `-49.26/-49.27 dB` with `Enable OutFX` off and
+`-49.25/-49.27 dB` with it on, a maximum 0.01 dB difference. Restored normal
+effects measured `-66.19/-66.20 dB`, 16.93 dB below the Direct reference.
+
+The route regression cycle selected Speakers and Headphone through the Rust
+application while Direct Mode remained enabled. PipeWire and ALSA agreed after
+each change. A narrow 1 kHz measurement was
+`-114.31/-114.43 dBFS RMS` at the headphone microphone with Speakers selected
+and `-78.81/-78.83 dBFS RMS` with Headphone selected, a 35.5 dB minimum
+separation. Disabling Direct Mode restored normal playback, the complete mixer
+hash, the Headphone PipeWire route, and a closed PCM.
+
+Additional operational gates passed:
+
+- an application transition while raw PCM was running failed because the
+  analog PCM remained open after scoped PipeWire suspension;
+- a raw ALSA control write while PCM was open returned `EBUSY`;
+- Direct Mode remained unchanged after both failures and toggled normally once
+  the holder closed;
+- ten Direct-to-normal cycles completed 20 transitions and 20 real PCM
+  lifecycles with the complete mixer hash unchanged;
+- three consecutive warm guest boots loaded the exact signed module, restored
+  the same safe post-PipeWire mixer hash, and each completed one Direct and one
+  normal PCM lifecycle with Master at 20%, PipeWire at 5%, and a 5% fixture;
+- a post-Direct normal What U Hear capture retained a measurable 1 kHz
+  component, then closed both playback and capture PCMs with the complete mixer
+  hash unchanged;
+- final cleanup restored the original guest mixer hash
+  `54d927161482ce452096f0e9a66dd958b2e9cde4aa58bd366053308d7ace8b08`,
+  shut the guest down, removed its persistent host device, rebound the AE-5 to
+  the host stock driver, and restored the host mixer hash
+  `3e595532348efe1e2e9c066039131e97505cb9b71bc6bfd8fa8a59301091e802`;
+- the restored host retained the AE-5 default sink, FIFINE default source,
+  analog-stereo duplex profile, matched Headphone/Microphone routes, and all
+  five active PipeWire/WirePlumber units;
+- the final kernel log contained no CA0132, HDA, DSP, timeout, or lock warning
+  beyond the expected out-of-tree taint and existing HDA IRQ timing notice.
+
+## Remaining acceptance
+
+Direct Mode stays deferred until all of these complete:
+
+1. At least one host cold boot with automatic card and mode recovery.
+2. Twenty bare-metal suspend/resume cycles with playback and exact mixer
+   checks. The managed QEMU machine explicitly disables S3 and S4, so a guest
+   result cannot satisfy this gate.
+3. A connected physical line-out or speaker receiver proving signal on the
+   Speakers route, not only headphone suppression.
+
+Only after those gates pass should any additional Direct rate be investigated.
+Static Windows acceptance alone is not a Linux support claim.

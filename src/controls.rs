@@ -82,6 +82,10 @@ pub fn playback_switch_block_reason(
     if let Some(reason) = direct_mode_block_reason(name, controls) {
         return Some(reason);
     }
+    bass_switch_block_reason(name, controls)
+}
+
+fn bass_switch_block_reason(name: &str, controls: &[ControlSnapshot]) -> Option<&'static str> {
     let speakers_selected = controls.iter().any(|control| {
         control.name == "Output Select" && control.selected.as_deref() == Some("Speakers")
     });
@@ -174,6 +178,7 @@ fn is_direct_mode_bypassed_control(name: &str, controls: &[ControlSnapshot]) -> 
                 | "Center"
                 | "LFE"
                 | "Master"
+                | "PCM"
         )
 }
 
@@ -186,7 +191,9 @@ pub(crate) fn invalid_bass_state_reason(controls: &[ControlSnapshot]) -> Option<
                 .find(|control| control.name == name)
                 .and_then(|control| control.playback_switch)
                 .unwrap_or(false);
-            playback_switch_block_reason(name, enabled, controls)
+            enabled
+                .then(|| bass_switch_block_reason(name, controls))
+                .flatten()
         })
 }
 
@@ -901,7 +908,11 @@ mod tests {
         let controls = vec![
             playback_switch(DIRECT_MODE_CONTROL, true),
             playback_switch("FX: Surround", false),
+            playback_switch("FX: X-Bass", true),
+            playback_switch("Bass Redirection", false),
             capture_switch("FX: Noise Reduction", true),
+            selected_choice("Surround Channel Config", "2.0"),
+            selected_choice("Output Select", "Headphone"),
         ];
 
         assert_eq!(
@@ -916,6 +927,11 @@ mod tests {
             playback_switch_block_reason("FX: Surround", false, &controls),
             None
         );
+        assert_eq!(
+            playback_switch_block_reason("FX: X-Bass", true, &controls),
+            Some(DIRECT_MODE_DSP_BLOCK)
+        );
+        assert_eq!(invalid_bass_state_reason(&controls), None);
         assert_eq!(
             equalizer_band_block_reason("EQ Band0", &controls),
             Some(DIRECT_MODE_DSP_BLOCK)
@@ -936,6 +952,11 @@ mod tests {
         assert_eq!(
             direct_mode_block_reason("AE-5: Headphone Gain", &controls),
             None
+        );
+        assert_eq!(direct_mode_block_reason("Output Select", &controls), None);
+        assert_eq!(
+            direct_mode_block_reason("PCM", &controls),
+            Some(DIRECT_MODE_DSP_BLOCK)
         );
         assert_eq!(
             direct_mode_block_reason(DIRECT_MODE_CONTROL, &controls),

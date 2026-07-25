@@ -360,14 +360,23 @@ licence boundary, and pinned revisions are recorded in
 [docs/SOURCE_INVENTORY.md](docs/SOURCE_INVENTORY.md).
 
 A later AE-5-only Direct Mode candidate now exposes a standard ALSA playback
-switch, refuses to reroute an open PCM, restricts direct playback to stereo,
-and reconstructs the normal DSP route when disabled. The Rust CLI and GTK app
-detect it only when the patched kernel supplies it; they briefly suspend the
-AE-5 PipeWire sink to make the transition safely and explain which DSP
-controls are bypassed. Strict kernel style checking, object compilation, all
-59 Rust/GTK tests, and Clippy pass, but no live hardware write has been made,
-so Direct Mode remains deferred. The independent driver comparison, patch, and
-physical acceptance matrix are in
+switch, refuses to reroute an open PCM, restricts direct playback to stereo
+48/96 kHz, and reconstructs the exact normal DSP/router path when disabled.
+The Rust CLI and GTK app detect it only when the patched kernel supplies it;
+they briefly suspend the AE-5 PipeWire sink to make the transition safely and
+explain which DSP controls are bypassed while retaining output selection,
+headphone gain, and DAC-filter access. A managed physical-card cycle passed
+S16/S32 playback, exact rate/channel rejection, DSP bypass, normal-route
+restoration, ten repeated cycles, and coherent Speakers/Headphone selection
+with at least 35.5 dB acoustic separation. Strict kernel style checking, a
+complete warnings-as-errors module build, all 59 Rust/GTK tests, and Clippy
+also pass. Three warm boots each retained the safe mixer state and completed
+Direct and normal PCM playback. Direct Mode remains deferred for a host cold
+boot, bare-metal suspend/resume, and connected line-out gates. A post-Direct
+What U Hear capture and exact final VFIO guest/host recovery also pass. Audio
+tests use approximately 5% digital amplitude and are capped at 20%. The
+independent driver comparison, patch, passed evidence, and remaining acceptance
+matrix are in
 [docs/DIRECT_MODE_INVESTIGATION.md](docs/DIRECT_MODE_INVESTIGATION.md).
 
 The target host can safely isolate the AE-5 for Linux-guest kernel A/B tests.

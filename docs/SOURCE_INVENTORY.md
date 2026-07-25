@@ -150,10 +150,11 @@ Only an independent behavior specification was carried into the project:
 The stream routes, `0xd0` rate, channel count, and enable state independently
 match the GPL Linux AE-5 startup path. Linux startup currently writes ASI value
 `4`, whereas the Windows Direct-to-normal transition writes `7`; the candidate
-uses that transition-specific value and leaves it behind a physical acceptance
-gate. No decompiled function, copied control flow, binary, or report is
-committed. The resulting candidate and physical acceptance boundary are
-documented in
+uses that transition-specific value. Physical-card tests now validate exact
+normal-route restoration around it; repeated-boot, power-management, and
+connected line-out gates remain. No decompiled function, copied control flow,
+binary, or report is committed. The resulting candidate and physical
+acceptance boundary are documented in
 [`DIRECT_MODE_INVESTIGATION.md`](DIRECT_MODE_INVESTIGATION.md).
 
 ## Firmware already distributed for Linux

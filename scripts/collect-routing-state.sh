@@ -377,7 +377,9 @@ summarize_history() {
 				reject("ALSA control not ready")
 			if (output != "Headphone")
 				reject("Output Select is not Headphone")
-			if (front_left != "on" || front_right != "on")
+			if (front_left == "" || front_right == "")
+				reject("Front state is unavailable")
+			else if (front_left != "on" || front_right != "on")
 				reject("Front is not unmuted")
 			if (auto_detect != "off")
 				reject("auto-detect is not off")
@@ -704,8 +706,10 @@ emit_test_record() {
 	printf 'label=%s\nkernel=test-kernel\nboot_id=%s\n' "$label" "$boot_id"
 	printf 'alsa_control_ready=yes\n'
 	printf "  Item0: 'Headphone'\n"
-	printf '  Front Left: Playback 90 [on]\n'
-	printf '  Front Right: Playback 90 [%s]\n' "$front_state"
+	if [[ $front_state != missing ]]; then
+		printf '  Front Left: Playback 90 [on]\n'
+		printf '  Front Right: Playback 90 [%s]\n' "$front_state"
+	fi
 	printf '  Mono: Playback [off]\n'
 	printf "numid=63,iface=CARD,name='Headphone Jack'\n"
 	printf '  : values=on\n'
@@ -810,6 +814,20 @@ run_self_test() (
 	fi
 	grep -q '^consecutive_valid=0$' <<< "$output" || {
 		printf 'self-test failed: routing failure did not reset progress\n' >&2
+		return 1
+	}
+
+	if output=$(
+		{
+			emit_test_record before-pipewire boot-1 missing
+			emit_test_record after-pipewire boot-1 missing
+		} | summarize_routing_history /dev/stdin 1
+	); then
+		printf 'self-test failed: missing Front state was accepted\n' >&2
+		return 1
+	fi
+	grep -q 'Front state is unavailable' <<< "$output" || {
+		printf 'self-test failed: missing Front state was misdiagnosed\n' >&2
 		return 1
 	}
 

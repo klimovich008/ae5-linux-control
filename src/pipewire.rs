@@ -454,7 +454,9 @@ fn set_card_profile(card: &PipeWireCardProfile, target: &str) -> io::Result<()> 
         ));
     }
     run_pactl(&["set-card-profile", &card.card_name, target])?;
-    for _ in 0..40 {
+    // WirePlumber can take several seconds to expose the active profile after
+    // a session-policy restart.
+    for _ in 0..200 {
         if ae5_card_profile_by_name(&card.card_name)?.active_profile == target {
             return Ok(());
         }
@@ -761,7 +763,9 @@ fn parse_pactl_sink_suspended(output: &str, node_name: &str) -> io::Result<bool>
 
 fn wait_for_alsa_playback_closed(card_index: i32) -> io::Result<()> {
     let path = PathBuf::from(format!("/proc/asound/card{card_index}/pcm0p/sub0/status"));
-    for _ in 0..40 {
+    // A newly created sink can briefly report suspended while ALSA is still
+    // settling after a session-policy restart.
+    for _ in 0..200 {
         match fs::read_to_string(&path) {
             Ok(status) if status.trim() == "closed" => return Ok(()),
             Ok(_) => thread::sleep(Duration::from_millis(25)),

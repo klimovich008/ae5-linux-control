@@ -418,7 +418,11 @@ already-selected Headphone value deliberately preserves a muted Front switch,
 so the CLI `route-repair` command and the conditional GTK action provide the
 separate, explicit recovery path. Both repaired a guarded real-card negative
 test, returned the raw mixer to its exact starting hash, kept PipeWire at the
-20% ceiling, and opened no PCM. A later silent real-card matrix synchronized
+20% ceiling, and opened no PCM. Route writes still require the analog PCM to
+close first; the bounded wait allows five seconds for WirePlumber startup to
+settle and otherwise fails without touching the mixer. Historical boot records
+that predate Front collection are reported as unavailable instead of being
+mislabelled as muted. A later silent real-card matrix synchronized
 2.0, 2.1, 4.0, 4.1, and 5.1 with
 `analog-stereo`, `analog-surround-21`,
 `analog-surround-40`, `analog-surround-41`, and `analog-surround-51`,

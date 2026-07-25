@@ -201,6 +201,26 @@ from the same negative state and proved that the button, rather than its test
 cleanup guard, restored Front. Both tests kept PipeWire at `0.20`, left every
 PCM closed, and played no audio.
 
+A later guarded startup fixture confirmed that restarting WirePlumber does not
+silently heal a deliberately muted Front switch. A settled repair restored it
+in 119 ms. Invoked immediately after another restart, the final rebuilt
+release needed 3.282 seconds, safely re-applied both desktop routes, unmuted
+Front, and returned all 48 simple controls to the exact starting SHA-256
+`b58ff5fa3cc6ae9271b45720ecd7f66edbdb13b455ba9ea72e1c47e165f49b9b`.
+A normal sink suspension closed the analog PCM in 11 ms, while the sink took
+2.886 seconds to reappear after a session-policy restart. Route transactions
+therefore allow up to five seconds for a newly-created sink to settle, but
+still refuse every mixer write unless the PCM is confirmed closed. The
+fixtures retained PipeWire `0.20`, raw Master and Front 19/99, PCM 51/255, and
+Low gain; no test sound was played.
+
+A concurrent acoustic probe intentionally kept those same per-stage ceilings
+and used a 10%-full-scale 997 Hz source. The Fifine microphone did not detect
+the tone above its narrow-band background. This result is inconclusive for
+routing: the three ALSA controls represented approximately -80 dB, -71 dB,
+and -40.8 dB and their attenuation compounded. They were not raised merely to
+obtain an audible measurement.
+
 On the physical host, a controlled negative test selected PipeWire's
 `analog-output-lineout;output-speaker` route and then changed only raw ALSA
 back to Headphone. `route-status` printed both sides of the split and exited
@@ -376,11 +396,14 @@ the route on each counted boot.
 The first historical pair predates collection of the root-cause `Front`
 switch. The second requested it, but exposed a subtler readiness race: card
 metadata became readable before `Front`, and the failed query was discarded.
-The strict summary therefore correctly reports `0/10`. The corrected collector
-requires the entire route-control set before recording `alsa_control_ready=yes`
-and is installed for the next boot. The earlier post-fix pair still proves its
-recorded output-selection, codec-pin, and desktop-port state, but is not
-silently promoted to the stronger acceptance gate.
+The strict summary therefore correctly reports `0/10`. Its parser now
+distinguishes an unavailable Front snapshot from an observed muted switch, so
+legacy evidence is not given a false root cause. The corrected collector
+requires the entire route-control set before recording
+`alsa_control_ready=yes` and is installed for the next boot. The earlier
+post-fix pair still proves its recorded output-selection, codec-pin, and
+desktop-port state, but is not silently promoted to the stronger acceptance
+gate.
 
 ## Safe suspend/resume probe
 

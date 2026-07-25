@@ -73,10 +73,9 @@ and desktop preview.
 The active speaker selection now converts to a native profile containing 21 ALSA
 controls. Its Windows channel mask mapped exactly to the AE-5 `5.1` speaker
 choice, and the output route mapped to `Speakers`. The source profile also
-enabled Windows Bass. Linux CA0132 cannot enable X-Bass with an LFE channel,
-so the importer retained that setting as unsupported and added an explicit
-X-Bass-off transition before the route change instead of generating an
-unapplicable profile.
+enabled Windows Bass. The later exact Bass Management trace described below
+established that this toggle maps to speaker bass redirection, not X-Bass, for
+that layout.
 
 The active headphone selection now converts to a native profile containing 20
 ALSA controls, including the `Headphone` output route. The selected Creative
@@ -174,10 +173,10 @@ A fresh mounted-user conversion produced the same 21 speaker and 20 headphone
 controls. The speaker report improved from 26 exact, 2 approximate, and 7
 unsupported items to 31 exact, 2 approximate, and 2 unsupported items. The
 headphone report improved from 19 exact, 8 approximate, and 6 unsupported
-items to 24 exact, 8 approximate, and 1 unsupported item. The remaining
-warnings are active behavior: the selected speaker tuning plus the LFE/X-Bass
-conflict for speakers, and the selected Creative headphone tuning for
-headphones.
+items to 24 exact, 8 approximate, and 1 unsupported item. At that stage, the
+remaining warnings were active behavior: the selected speaker tuning plus the
+LFE/X-Bass conflict for speakers, and the selected Creative headphone tuning
+for headphones.
 
 The rerun used disposable `HOME`, configuration, report, and output paths. It
 did not apply either profile or open an audio stream. An aggregate hash over
@@ -208,7 +207,7 @@ inspection boundary are recorded in
 A fresh mounted-user conversion retained the same 21 speaker and 20 headphone
 controls. The speaker report improved from 31 exact, 2 approximate, and 2
 unsupported items to 32 exact, 2 approximate, and 1 unsupported item; the
-remaining warning is the active LFE/X-Bass conflict. The headphone counts
+then-remaining warning was the active LFE/X-Bass conflict. The headphone counts
 remain 24 exact, 8 approximate, and 1 unsupported because the selected
 driver/APO tuning still has no verified Linux equivalent, but that warning now
 includes its display model. The conversion used disposable output and
@@ -216,3 +215,38 @@ configuration paths and opened no audio stream. An aggregate over the five
 active inputs plus the selected ProgramData metadata config was identical
 before and after:
 `a62b4ab1ce65c5bcdd80829e07bc028710e5ea9c6675ba966e6b3a4bf48d7eaf`.
+
+## LFE Bass Management mapping
+
+Scoped inspection of the exact Command profile and device-feature assemblies
+established that the shared Bass feature changes its backend according to the
+speaker channel mask. For headphones and speaker layouts without a subwoofer,
+its toggle, strength, and crossover target X-Bass. When the Windows subwoofer
+bit is present, the same toggle targets Bass Management and the crossover
+targets the Bass Management frequency parameter. Command does not retrieve the
+X-Bass strength for that route because it is inactive.
+
+CA0132 already exposes the matching `Bass Redirection` and
+`Bass Redirection Crossover` controls and uses the same 10 Hz crossover steps.
+The active importer now maps Windows 2.1, 4.1, and 5.1 Bass state to those
+controls, writes X-Bass off before changing the route, and skips the inactive
+strength value. Headphone and non-LFE speaker imports continue to use X-Bass.
+The exact assembly and analysis-tool hashes and the interoperability boundary
+are recorded in [`SOURCE_INVENTORY.md`](SOURCE_INVENTORY.md).
+
+A fresh mounted-user conversion produced a 23-control speaker profile with 34
+exact, 1 approximate, and 0 unsupported mappings. The resulting profile passed
+read-only validation against the physical AE-5. The unchanged headphone
+conversion retained 20 controls with 24 exact, 8 approximate, and 1
+unsupported mapping for the selected driver/APO headphone tuning.
+
+The conversion used disposable Linux output and configuration directories,
+did not apply either profile, and opened no audio stream. A deterministic
+aggregate over the mounted Command configuration, product data, and the 33
+headphone metadata records was identical before and after:
+`920077c5a07bf682066116c29a1b6bf22b6b46a86684a7ebaccfbabc9a746174`.
+The physical card's raw and simple mixer hashes also remained
+`3e595532348efe1e2e9c066039131e97505cb9b71bc6bfd8fa8a59301091e802`
+and
+`65a1da375bd1e6d523a91ee819fa1d8e88f63a34afc10b8e1ef56c736cc38a25`,
+respectively, and every PCM substream remained closed.

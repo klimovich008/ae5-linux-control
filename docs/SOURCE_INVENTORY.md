@@ -287,6 +287,39 @@ ten-band EQ or sends it to hardware.
 No Windows code was executed. No Creative binary, config content, coefficient,
 managed instruction dump, or copied implementation is committed.
 
+## Windows Bass Management selection
+
+The exact Command 3.5.10.0 managed path explains why an enabled `Bass` object
+can coexist with the active AE-5 5.1 profile. The profile binds that object to
+the shared `BassMgmtXBassEnableAttributeId` feature. Its device implementation
+uses the X-Bass enable key for headphones and speaker layouts without a
+subwoofer, but uses the Bass Management enable key when the speaker channel
+mask contains the Windows subwoofer bit (`0x8`). In that same case it redirects
+the shared crossover property to the Bass Management crossover parameter.
+
+The strength value is not a Bass Management parameter. Command deliberately
+does not retrieve it for an external speaker layout with a subwoofer, while
+the device feature continues to associate it with the ordinary X-Bass
+strength parameter. It is therefore inactive when the Bass toggle selects Bass
+Management.
+
+This behavior has direct public-source Linux equivalents. CA0132 exposes
+`Bass Redirection` and `Bass Redirection Crossover`, uses the same 10–1000 Hz
+crossover table as X-Bass, enables redirection only for layouts with an LFE
+channel, and suppresses X-Bass on those layouts. The active Windows importer
+now maps 2.1, 4.1, and 5.1 Bass state to those controls, explicitly disables
+X-Bass before the route change, and does not write the inactive strength.
+
+| Evidence | SHA-256 |
+|---|---|
+| Creative profile library | `a190130b146eb46e55a05ddfae0ead722fc45786cdba990ddc9ce1994ec319a1` |
+| Creative device-feature library | `e76ad407d5a2b7eeeb1049fa92d4b378ef03fdfddb8c7c963d8e07d8537eecdb` |
+| Inherited AE-5 product UI assembly | `aacce22cbad477dd631bcdaa59f4798fbdf66c33bd559f45ab1ecbfcc82500c3` |
+| ILSpy command-line package 10.1.1.8388 | `17a8baf571c889516bf8c268e3089156ba4cdfc2192a814206a3233581c9ae77` |
+
+No Windows code was executed. No Creative binary, decompiler output, profile
+content, or copied implementation is committed.
+
 ## Firmware already distributed for Linux
 
 Fedora package `alsa-firmware-1.2.4-17.fc44` supplies the target system's

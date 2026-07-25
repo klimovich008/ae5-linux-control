@@ -205,10 +205,11 @@ deserialized. The Desktop speaker category is recorded as an exact no-op
 because Command uses it only to choose the separately represented `Bass.XOver`
 value. Named Creative headphone tuning remains unsupported until Linux exposes
 a safe equivalent; the importer resolves its display model from Command's
-bounded text metadata so the warning identifies what was selected. A Windows
-Bass request on an LFE speaker layout is also retained as unsupported because
-CA0132 cannot enable X-Bass there; the converted profile explicitly turns
-X-Bass off before changing to that route.
+bounded text metadata so the warning identifies what was selected. Command's
+shared Bass feature uses X-Bass for headphones and speaker layouts without a
+subwoofer, but switches to Bass Management for 2.1, 4.1, and 5.1. The active
+setup importer mirrors that behavior with CA0132's `Bass Redirection` and
+`Bass Redirection Crossover` controls while explicitly turning X-Bass off.
 
 The importer maps SBX switches and levels, crossover frequency, Smart Volume
 mode, and all ten EQ bands. It selects the driver's Flat preset before custom

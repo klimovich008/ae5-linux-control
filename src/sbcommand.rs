@@ -170,7 +170,7 @@ pub fn import_active_profile_with_report(
     match target {
         SbCommandTarget::Speaker => {
             add_speaker_layout(&config, &mut controls, &mut report)?;
-            omit_incompatible_lfe_x_bass(&mut controls, &mut report);
+            map_lfe_bass_management(&mut controls, &mut report);
         }
         SbCommandTarget::Headphone => {
             report_headphone_tuning(&config, user_config_path, product_dir, &mut report)?
@@ -780,7 +780,7 @@ fn report_headphone_tuning(
     Ok(())
 }
 
-fn omit_incompatible_lfe_x_bass(
+fn map_lfe_bass_management(
     controls: &mut BTreeMap<String, ProfileControl>,
     report: &mut SbCommandImportReport,
 ) {
@@ -788,11 +788,11 @@ fn omit_incompatible_lfe_x_bass(
         .get("Surround Channel Config")
         .and_then(|control| control.choice.as_deref())
         .is_some_and(|layout| layout.ends_with(".1"));
-    let x_bass_enabled = controls
-        .get("FX: X-Bass")
-        .and_then(|control| control.playback_switch)
-        == Some(true);
-    if !has_lfe || !x_bass_enabled {
+    let Some(x_bass) = controls.get("FX: X-Bass") else {
+        return;
+    };
+    let x_bass_enabled = x_bass.playback_switch.unwrap_or(false);
+    if !has_lfe {
         return;
     }
 
@@ -803,20 +803,30 @@ fn omit_incompatible_lfe_x_bass(
             ..ProfileControl::default()
         },
     );
-    controls.remove("FX: X-Bass Crossover");
-    report.exact.retain(|item| !is_x_bass_mapping(item));
-    report.approximate.retain(|item| !is_x_bass_mapping(item));
-    report.approximate.push(
-        "LFE speaker route safety → FX: X-Bass (playback off before route change)".to_owned(),
+    controls.insert(
+        "Bass Redirection".to_owned(),
+        ProfileControl {
+            playback_switch: Some(x_bass_enabled),
+            ..ProfileControl::default()
+        },
     );
-    report.unsupported.push(
-        "Bass enabled for an LFE speaker layout (Linux CA0132 cannot enable X-Bass with an LFE channel)"
-            .to_owned(),
-    );
-}
+    if let Some(crossover) = controls.remove("FX: X-Bass Crossover") {
+        controls.insert("Bass Redirection Crossover".to_owned(), crossover);
+    }
 
-fn is_x_bass_mapping(item: &str) -> bool {
-    item.starts_with("Bass → FX: X-Bass") || item.starts_with("Bass.XOver ")
+    for mappings in [&mut report.exact, &mut report.approximate] {
+        mappings.retain(|item| !item.starts_with("Bass → FX: X-Bass"));
+        for item in mappings
+            .iter_mut()
+            .filter(|item| item.starts_with("Bass.XOver "))
+        {
+            *item = item.replace("FX: X-Bass Crossover", "Bass Redirection Crossover");
+        }
+    }
+    report.exact.push(format!(
+        "Bass → Bass Redirection (playback {}; X-Bass off and strength inactive for an LFE speaker layout)",
+        on_off(x_bass_enabled)
+    ));
 }
 
 fn speaker_layout(mask: u32) -> Option<&'static str> {
@@ -1721,7 +1731,7 @@ mod tests {
     }
 
     #[test]
-    fn preserves_enabled_lfe_speaker_bass_as_unsupported() {
+    fn maps_enabled_lfe_speaker_bass_to_bass_management() {
         let mut controls = BTreeMap::from([
             (
                 "Surround Channel Config".to_owned(),
@@ -1747,14 +1757,14 @@ mod tests {
             ),
         ]);
         let mut report = SbCommandImportReport {
-            exact: vec![
-                "Bass → FX: X-Bass (playback on, level 53)".to_owned(),
-                "Bass.XOver 80 Hz → FX: X-Bass Crossover (80 Hz)".to_owned(),
+            exact: vec!["Bass.XOver 80 Hz → FX: X-Bass Crossover (80 Hz)".to_owned()],
+            approximate: vec![
+                "Bass → FX: X-Bass (playback on, level 53); rounded to ALSA step".to_owned(),
             ],
             ..SbCommandImportReport::default()
         };
 
-        omit_incompatible_lfe_x_bass(&mut controls, &mut report);
+        map_lfe_bass_management(&mut controls, &mut report);
 
         assert_eq!(
             controls["FX: X-Bass"],
@@ -1763,20 +1773,32 @@ mod tests {
                 ..ProfileControl::default()
             }
         );
+        assert_eq!(
+            controls["Bass Redirection"],
+            ProfileControl {
+                playback_switch: Some(true),
+                ..ProfileControl::default()
+            }
+        );
+        assert_eq!(
+            controls["Bass Redirection Crossover"],
+            ProfileControl {
+                playback_level: Some(8),
+                ..ProfileControl::default()
+            }
+        );
         assert!(!controls.contains_key("FX: X-Bass Crossover"));
-        assert!(report.exact.is_empty());
         assert!(
             report
-                .approximate
+                .exact
                 .iter()
-                .any(|item| item.contains("playback off before route change"))
+                .any(|item| item.contains("Bass.XOver 80 Hz → Bass Redirection Crossover"))
         );
-        assert!(
-            report
-                .unsupported
-                .iter()
-                .any(|item| item.contains("cannot enable X-Bass with an LFE channel"))
-        );
+        assert!(report.exact.iter().any(|item| {
+            item.contains("Bass → Bass Redirection (playback on; X-Bass off and strength inactive")
+        }));
+        assert!(report.approximate.is_empty());
+        assert!(report.unsupported.is_empty());
     }
 
     #[test]

@@ -133,7 +133,7 @@ decision.
 ## Prepared Windows dual-boot handoff
 
 The current test machine has a ready-to-use bundle at
-`C:\Users\Max\Documents\AE5-parity-capture`. It contains:
+`%USERPROFILE%\Documents\AE5-parity-capture`. It contains:
 
 - the exact hash-verified `fixtures-48000` reference set;
 - the official portable Audacity 3.7.7 64-bit archive and its published
@@ -169,6 +169,13 @@ Start recording at least half a second before playback and stop at least half
 a second afterward. Export 48 kHz, 24-bit PCM WAV without normalization,
 resampling, trimming, fades, denoising, or effects. Record every setting in
 `captures\WINDOWS-NOTES.txt`.
+
+An isolated Windows comparison VM now also has Command `3.5.10.0` installed
+and the exact saved AE-5 setting tree imported and startup-checked. The VM has
+no emulated audio device and cannot perform the capture until the physical
+AE-5 is assigned through the authenticated system libvirt domain. Its
+installed state, recovery hashes, and passthrough boundary are recorded in
+[`VFIO_TEST_PLAN.md`](VFIO_TEST_PLAN.md).
 
 ## Analyze and compare
 

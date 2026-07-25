@@ -476,6 +476,13 @@ The audited topology, package boundary, recovery rules, and per-kernel matrix
 are in [docs/VFIO_TEST_PLAN.md](docs/VFIO_TEST_PLAN.md). A guest cannot replace
 the final physical cold-boot and suspend tests.
 
+A separate Windows 11 comparison VM is now installed with the exact Creative
+Command `3.5.10.0` build and a file-by-file-verified copy of the saved AE-5
+settings. Command starts successfully and leaves the imported tree unchanged;
+live profile selection and response comparison remain gated on authenticated
+managed passthrough of the physical card. No source NTFS volume, audio device,
+or host PCI function is attached to the powered-off session guest.
+
 The complete patch stack now also builds, boots, and passes a guarded physical
 cycle on maintained Linux 6.18.40 LTS. That cycle covered the first-use/manual
 route fix, safe packaged control write, package install/removal, and exact host

@@ -93,6 +93,37 @@ mounted Creative and Creative_Technology_Ltd trees was
 `409cbe439f23ca22a378280499cdcad3c1f67999a841235cc7e0899bb8913f9f`
 both before and after the 2026-07-25 conversion rerun.
 
+## Isolated Windows import round trip
+
+The source settings were also imported into an isolated Windows 11 Enterprise
+Evaluation VM to validate the native Command side of the migration boundary.
+The source NTFS partition remained read-only on the Linux host and was never
+attached to the VM. A private read-only transfer ISO contained exactly 126
+files totaling 183,478 bytes. Every relative path, length, and SHA-256 matched
+the source before the disc was ejected.
+
+Sound Blaster Command was installed from Creative-signed media and updated
+from Creative's live release endpoint to `3.5.10.0`, the exact configuration
+version being imported. The installed executable has SHA-256
+`32c71d5ad40f5d3cc1bb35f756038e3de5c08e3291550f26ac9fa1cb1cabff58`
+and is byte-identical to the executable in the inspected source installation.
+The verified setting tree was copied into Command's actual versioned user,
+AE-5 product, and shared metadata locations without replacing any
+non-identical destination.
+
+Command then started interactively as the target Windows user. With no
+physical AE-5 assigned, it opened normally and requested that a supported
+device be connected. A normal close left all 126 files byte-for-byte
+identical to the staged import. This proves that the saved configuration can
+be transferred into a clean installation of the matching Command version
+without path, schema, or immediate startup corruption.
+
+It does not yet prove that Command selects every imported value after live
+device discovery or that Windows and Linux produce the same analog response.
+Those checks require managed AE-5 passthrough and the guarded at-or-below-20%
+capture procedure. No Windows image, Creative binary, user setting, private
+identifier, or VM credential is committed.
+
 ## Offline native-library round trip
 
 The installed `ae5ctl` later repeated both active imports under disposable

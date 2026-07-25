@@ -117,40 +117,90 @@ access. An unprivileged session daemon cannot safely perform managed host
 detachment. The physical-card tests therefore use the separately inspected
 `qemu:///system` guest.
 
-### Prepared Windows comparison guest
+### Installed Windows comparison guest
 
-On 2026-07-26, a separate `ae5-windows-compare` installation shell was
-defined under `qemu:///session`. It is powered off, persistent, and has
-autostart disabled. Its inactive XML contains:
+On 2026-07-26, the separate `ae5-windows-compare` guest was installed under
+`qemu:///session` from Microsoft's
+[Windows 11 Enterprise Evaluation](https://www.microsoft.com/en-us/evalcenter/download-windows-11-enterprise)
+media. The English 25H2 V2 ISO matched Microsoft's published SHA-256:
+
+```text
+a61adeab895ef5a4db436e0a7011c92a2ff17bb0357f58b13bbc4062e535e7b9
+```
+
+The installed image is Windows 11 Enterprise Evaluation x64, version
+`10.0.26200`, build `26200`. The persistent guest is powered off, has
+autostart disabled, and retains:
 
 - six host-passthrough vCPUs and 12 GiB RAM;
-- Q35, Secure Boot OVMF, and a private variable store;
-- an emulated TPM 2.0 CRB device;
-- a new 100 GiB qcow2 disk at
-  `~/.local/share/libvirt/images/ae5-windows-compare.qcow2`, currently only
-  196 KiB allocated;
-- user-mode networking with an emulated E1000E adapter;
+- Q35, Secure Boot OVMF, a private variable store, and an emulated TPM 2.0
+  CRB device;
+- a 100 GiB qcow2 disk;
+- user-mode networking through an emulated E1000E adapter;
 - a SPICE display listening only on `127.0.0.1`;
+- QEMU Guest Agent `110.0.2` and signed Red Hat VirtIO guest drivers
+  `100.101.104.28500`;
 - no emulated sound device, PCI host device, USB host device, physical disk,
-  ISO, or autostart.
+  mounted CD image, or autostart.
 
-The existing dual-boot NTFS partition is not present in the domain and will
-not be attached writable. Command settings will be copied into a separate
-read-only transfer image after Windows is installed.
+The original NTFS partition was never attached to the guest. Its three
+required Sound Blaster Command setting scopes were copied from the host's
+read-only mount into a private read-only transfer ISO. That ISO has SHA-256
+`642f48ba3b37d28905d7885da92d4e1e345f9578c7af0ea2669b3154d98b1ee3`
+and contains exactly 126 regular files totaling 183,478 bytes. A sorted
+relative-path, length, and SHA-256 manifest has SHA-256
+`0ca0d5a09f6848af6ff05dc38dad766719711ef06dbb25bdd567534e9b3dfda4`.
+Every transferred file matched its source before the transfer CD was ejected.
 
-The official Windows 11 x64 multi-edition ISO is the only missing installation
-input. No unofficial image was substituted. The guest must remain powered off
-until a hash-verified ISO is attached as a read-only CD-ROM.
+The existing Creative installers were checked against official sources and
+then validated with Windows Authenticode before execution:
 
-This session definition is only the safe installation environment. As noted
-above, `qemu:///session` cannot detach the host's AE-5. An attempted new system
-domain definition was rejected by the current host authorization policy; its
-unused 196 KiB system-pool volume was immediately deleted and no system domain
-was created. After the Windows disk is installed and shut down, an
-authenticated transaction must define or import the final `qemu:///system`
-guest before managed passthrough can be tested. The final definition must pass
-the same XML review and `scripts/check-vfio-host.sh --require-tools` gate
-before the card is added.
+| Component | Version | SHA-256 |
+|---|---:|---|
+| Sound Blaster Command master installer | 3.4.92.00 | `de40104936219bd1ae32304405e1144f07cd6b81cd1d219cf2bacc7991b70be3` |
+| AE-Series driver installer | 1.0.01.06 | `e57a2291728dad192adc191c6fafe1d5bfabfbbbf77a1765e12cda80b3af74da` |
+| Command update installer | 3.5.10.00 | `2b6d9bcd9f0a436c90a34e3af5ee3706c3e749cbe703ebddccfad9c21747a722` |
+
+Creative's live
+[Command release manifest](https://files.creative.com/creative/bin/apps/swureleases/win/sbcommand/release/SBCDProducts.json)
+identifies version `3.5.10.00` and MD5
+`ac68d97716a59d9588cf9e8562f7d1c0`; the downloaded update matched that
+value. The installed `Creative.SBCommand.exe` is version `3.5.10.0`, has
+SHA-256
+`32c71d5ad40f5d3cc1bb35f756038e3de5c08e3291550f26ac9fa1cb1cabff58`,
+and is byte-identical to the executable in the inspected source Windows
+installation.
+
+The staged settings were then copied into Command's exact versioned user,
+AE-5 product, and shared headphone-metadata locations. The newly installed
+shared metadata was already byte-identical, so it was not overwritten. An
+interactive test-user launch opened Command successfully and displayed the
+expected request to connect a supported device. After a normal app close, all
+126 imported files still matched the staging manifest exactly. No audio
+device existed in the guest and no audio was played.
+
+The guest reports zero present problem devices, Command `3.5.10.00`, the
+AE-Series package `1.0.01.06`, Creative Audio Service running automatically,
+and no Creative DriverStore entry. The last result is expected without an
+attached AE-5: PnP driver binding and the live settings view remain part of
+the passthrough test.
+
+Two powered-off recovery points exist outside the repository:
+
+| Recovery point | SHA-256 |
+|---|---|
+| Clean Windows and guest tools | `80997d09344e999b2607330336cc786784b01d0bb5d9e3799d581f695840f315` |
+| Command 3.5.10 and verified settings import | `a3a3f3caddacc55ad47ab1b9905ee4ed9258a751fe4a43bd4ef6c3ca2ece1183` |
+
+Both qcow2 images pass `qemu-img check`; the milestone copy is a read-only
+Btrfs reflink. No password, Windows image, Creative binary, setting file,
+profile identifier, or private manifest is stored in this repository.
+
+This session guest remains only the safe installation environment.
+`qemu:///session` cannot detach the host's AE-5. An authenticated transaction
+must define or import the final `qemu:///system` guest before managed
+passthrough can be tested. The final definition must pass the same XML review
+and `scripts/check-vfio-host.sh --require-tools` gate before the card is added.
 
 ### Candidate kernel smoke test
 

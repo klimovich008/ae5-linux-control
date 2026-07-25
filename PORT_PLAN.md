@@ -119,7 +119,7 @@ what the installed kernel actually exposes on the user's card.
 | External-strip RGB | No current `ca0132` interface | Continue as a separate kernel/OpenRGB workstream |
 | Scout Mode | No current upstream interface | Exclude initially |
 | Dolby/DTS live encoding | No current upstream interface | Exclude |
-| Windows profile migration | Command documents JSON profile export/import, and the AE-5 software release added EQ import/export | Parse verified exports and convert supported fields |
+| Windows profile migration | Command 3.5.10.0 profile/EQ exports are confirmed byte-for-byte equivalent to its stored JSON; the active originals convert and pass physical-card checks | Repeat compatibility checks when Creative changes the schema |
 | Windows/Linux sound mismatch | Likely spans driver initialization, DSP/speaker-EQ state, Direct Mode, and desktop resampling | Measure each layer and fix the first divergent shared path |
 
 ## 4. Minimal architecture
@@ -789,6 +789,9 @@ Version 1 is accepted only when:
 13. The stability suite completes with no new kernel error and no app crash.
 14. The feature-parity table names every Sound Blaster Command feature as
     verified, intentionally substituted, deferred, or unsupported.
+15. Every audio-producing development test keeps each hardware and software
+    playback-volume control at or below 20%, uses Low headphone gain, and keeps
+    the headphones unworn or physically clear during unattended playback.
 
 “Works as intended” means these results are saved with command output, logs,
 and measurement artifacts. It does not mean “the UI opened” or “sound was

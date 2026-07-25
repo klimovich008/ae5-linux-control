@@ -24,6 +24,33 @@ its active user-owned AE-5 profile and equalizer files.
   configuration files, identifiers, or user profile contents are committed.
 - Conversion creates native profiles but does not apply them to hardware.
 
+## Exact Command export equivalence
+
+The managed export paths in the user's exact Sound Blaster Command 3.5.10.0
+installation were inspected offline to answer one narrow interoperability
+question. `ExportProfile` copies the selected profile's stored `FilePath`
+directly to the destination chosen in the save dialog, with replacement
+enabled. `ExportPreset` does the same for the selected equalizer preset. The
+destination files are not reserialized or transformed. Command's subsequent
+JSON parsing and metadata changes apply only to the application's internal
+profile copy.
+
+Consequently, the active stored profile and EQ files consumed by the Linux
+importer are byte-for-byte the same payloads that this Command version writes
+through its export UI. The corresponding import paths also parse those JSON
+files through Command's normal profile and EQ deserializers before performing
+its product and duplicate checks.
+
+The inspected `Creative.SBConnect.UI.Framework.dll` has SHA-256
+`06e7a61c95392fe76ec59d4a1ef1c5a8c465b07dd8c7d7b5256c2ce7ab109e3e`.
+The active profile input was 2,106 bytes with SHA-256
+`bbf23d3348e25f61e98be3d5ffe43a10fea4daf73c3d649433f5e489c8b0588f`;
+the active EQ input was 1,214 bytes with SHA-256
+`fd63464944e3f55816d65ce1759858b628ffc127475478681a69e7e54d43bfeb`.
+These hashes identify the evidence without publishing profile names,
+identifiers, contents, or Creative binaries. No proprietary binary,
+disassembly, or source-derived code is stored in this repository.
+
 ## Real-installation result
 
 Selecting the mounted Windows user folder found Command 3.5.10.0 instead of
@@ -59,5 +86,6 @@ the nearest representable ALSA step and identified as approximate in the
 report. The converter now also selects `FX: Equalizer Preset` Flat before
 applying those custom bands, preventing a previously selected factory curve
 from surviving underneath them. An aggregate SHA-256 of every file below the
-mounted Creative and Creative_Technology_Ltd trees was identical before and
-after both conversions.
+mounted Creative and Creative_Technology_Ltd trees was
+`409cbe439f23ca22a378280499cdcad3c1f67999a841235cc7e0899bb8913f9f`
+both before and after the 2026-07-25 conversion rerun.

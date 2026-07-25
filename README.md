@@ -181,7 +181,10 @@ Both versions lead the migration report. If an installation has multiple
 candidates, `sbcommand-import-active` remains available with explicit
 `USER_CONFIG` and `AE5_PRODUCT_DIR` paths. The desktop performs the same
 discovery after **Import active Windows setup** asks for the mounted Windows
-user folder.
+user folder. In the validated Command 3.5.10.0 build, the application's export
+actions copy these stored profile and EQ JSON files byte-for-byte; the
+interoperability evidence and input hashes are recorded in
+[docs/WINDOWS_MIGRATION_VALIDATION.md](docs/WINDOWS_MIGRATION_VALIDATION.md).
 
 This flow follows the selected profile and EQ IDs, preserves the output route,
 and maps standard Windows speaker masks from stereo through 5.1. It reads only

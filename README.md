@@ -116,6 +116,7 @@ profiles ignore them during apply, preserving the exact preset curve:
 ```sh
 cargo run -- profile-library
 cargo run -- profile-save "My headphones" headphones.json
+cargo run -- profile-rename headphones.json "Late night"
 cargo run -- profile-show headphones.json
 cargo run -- profile-check headphones.json
 cargo run -- profile-apply headphones.json
@@ -151,6 +152,11 @@ standalone copy anywhere, and refuses to overwrite an existing file:
 ```sh
 cargo run -- profile-export headphones.json ~/Documents/headphones.json
 ```
+
+`profile-rename` changes only the saved display name, not the filename or live
+hardware. It accepts a library filename shown by `profile-library`, trims
+surrounding whitespace, writes atomically, and rejects symlinks or paths
+outside the library.
 
 The desktop keeps reusable profiles in
 `$XDG_CONFIG_HOME/ae5-control/profiles`, falling back to

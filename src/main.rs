@@ -5,9 +5,10 @@ use ae5_control::{
     discover_sbcommand_installation, export_library_profile,
     import_active_sbcommand_profile_with_report, import_discovered_sbcommand_profile_with_report,
     import_sbcommand_profile_with_report, lighting_config_path, linux_driver_defaults,
-    native_rates_config, profile_library, profile_library_directory, restore_saved_lighting,
-    set_ae5_default_input, set_ae5_default_output, set_native_rates_enabled, set_saved_led,
-    set_saved_lighting, snapshot_controls, validate_linux_driver_defaults,
+    native_rates_config, profile_library, profile_library_directory, rename_library_profile,
+    restore_saved_lighting, set_ae5_default_input, set_ae5_default_output,
+    set_native_rates_enabled, set_saved_led, set_saved_lighting, snapshot_controls,
+    validate_linux_driver_defaults,
 };
 use std::error::Error;
 use std::io;
@@ -78,6 +79,9 @@ fn run() -> Result<(), Box<dyn Error>> {
         [command] if command == "smoke-test" => smoke_test(),
         [command, name, path] if command == "profile-save" => save_profile(name, path),
         [command, source, output] if command == "profile-export" => export_profile(source, output),
+        [command, source, new_name] if command == "profile-rename" => {
+            rename_profile(source, new_name)
+        }
         [command, path] if command == "profile-show" => show_profile(path),
         [command, path] if command == "profile-check" => check_profile(path, false),
         [command, path, flag] if command == "profile-check" && flag == "--allow-high-gain" => {
@@ -531,6 +535,21 @@ fn export_profile(source: &str, output: &str) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+fn rename_profile(source: &str, new_name: &str) -> Result<(), Box<dyn Error>> {
+    let source = profile_library_directory()?.join(source);
+    let stored = rename_library_profile(&source, new_name)?;
+    let file_name = stored
+        .path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("profile.json");
+    println!(
+        "renamed saved profile to '{}' ({file_name})",
+        stored.profile.name
+    );
+    Ok(())
+}
+
 fn show_profile(path: &str) -> Result<(), Box<dyn Error>> {
     let profile = Profile::load(Path::new(path))?;
     println!("Profile: {}", profile.name);
@@ -764,6 +783,7 @@ fn print_help() {
          \x20 profile-library  List native profiles in the per-user library\n\
          \x20 profile-save NAME FILE\n\
          \x20 profile-export LIBRARY_FILE OUTPUT\n\
+         \x20 profile-rename LIBRARY_FILE NEW_NAME\n\
          \x20 profile-show FILE\n\
          \x20 profile-check FILE [--allow-high-gain]\n\
          \x20 profile-apply FILE [--allow-high-gain]\n\

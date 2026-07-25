@@ -56,6 +56,38 @@ desktop-file-validate \
 appstreamcli validate --no-net --strict \
 	"$data_root/metainfo/io.github.klimovich008.ae5control.metainfo.xml"
 PATH="$test_home/.local/bin:$PATH" ae5ctl help >/dev/null
+profile_root=$config_root/ae5-control/profiles
+install -d -m0700 "$profile_root"
+printf '%s\n' \
+	'{' \
+	'  "format_version": 1,' \
+	'  "name": "Headphones",' \
+	'  "target": "1102:0012/1102:0051",' \
+	'  "controls": {' \
+	'    "Output Select": {' \
+	'      "choice": "Headphone"' \
+	'    }' \
+	'  }' \
+	'}' > "$profile_root/rename-me.json"
+rename_output=$(
+	HOME=$test_home XDG_CONFIG_HOME=$config_root \
+		PATH="$test_home/.local/bin:$PATH" \
+		ae5ctl profile-rename rename-me.json '  Late night  '
+)
+grep -Fq "renamed saved profile to 'Late night' (rename-me.json)" \
+	<<<"$rename_output"
+grep -Fq '"name": "Late night"' "$profile_root/rename-me.json"
+cp -- "$profile_root/rename-me.json" "$config_root/ae5-control/outside.json"
+if HOME=$test_home XDG_CONFIG_HOME=$config_root \
+	PATH="$test_home/.local/bin:$PATH" \
+	ae5ctl profile-rename ../outside.json Escaped \
+	>"$test_root/profile-rename-escape.log" 2>&1; then
+	printf 'error: profile rename accepted a path outside the library\n' >&2
+	exit 1
+fi
+grep -Fq 'profile is not a JSON file directly inside the profile library' \
+	"$test_root/profile-rename-escape.log"
+grep -Fq '"name": "Late night"' "$config_root/ae5-control/outside.json"
 HOME=$test_home XDG_CONFIG_HOME=$config_root \
 	PATH="$test_home/.local/bin:$PATH" \
 	ae5-collect-report --self-test >/dev/null

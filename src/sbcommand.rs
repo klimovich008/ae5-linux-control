@@ -276,6 +276,29 @@ fn effect_controls(
         .as_ref()
         .ok_or_else(|| invalid("profile is missing SBXMaster settings"))?;
     report_unknown_fields(report, "Settings", &settings.extra, false);
+    if let Some(scout) = &settings.scout {
+        let configured = [
+            scout.enable,
+            scout.surround_enable,
+            scout.crystalizer_enable,
+            scout.x_bass_enable,
+            scout.svm_enable,
+            scout.dialog_plus_enable,
+            scout.graphics_eq_enable,
+        ]
+        .into_iter()
+        .any(|enabled| enabled != Some(false));
+        if configured {
+            report.unsupported.push(
+                "Settings.Scout enabled or configured (no mapped AE-5 ALSA control)".to_owned(),
+            );
+        } else {
+            report
+                .exact
+                .push("Settings.Scout disabled → no Linux control required".to_owned());
+        }
+        report_unknown_fields(report, "Settings.Scout", &scout.extra, false);
+    }
     report_unknown_fields(report, "SBXMaster", &master.extra, false);
     let master_enabled = master.enable.unwrap_or(true);
     controls.insert("Enable OutFX".to_owned(), switch(master_enabled));
@@ -319,6 +342,15 @@ fn effect_controls(
             ),
         );
         report_unknown_fields(report, "Bass", &bass.extra, false);
+        match bass.sub_woofer_gain {
+            Some(false) => report
+                .exact
+                .push("Bass.SubWooferGain off → no gain adjustment".to_owned()),
+            Some(true) => report
+                .unsupported
+                .push("Bass.SubWooferGain on (no mapped AE-5 ALSA control)".to_owned()),
+            None => {}
+        }
         if bass.x_over != 0.0 || enabled {
             let level = crossover(bass.x_over)?;
             controls.insert(
@@ -1067,6 +1099,7 @@ struct SourceProfile {
 struct SourceSettings {
     #[serde(rename = "Type")]
     kind: u8,
+    scout: Option<SourceScout>,
     surround: Option<SourceEffect>,
     crystalizer: Option<SourceEffect>,
     bass: Option<SourceBass>,
@@ -1095,6 +1128,24 @@ struct SourceBass {
     level: f64,
     #[serde(rename = "XOver")]
     x_over: f64,
+    sub_woofer_gain: Option<bool>,
+    #[serde(flatten)]
+    extra: BTreeMap<String, serde_json::Value>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct SourceScout {
+    enable: Option<bool>,
+    surround_enable: Option<bool>,
+    crystalizer_enable: Option<bool>,
+    #[serde(rename = "XBassEnable")]
+    x_bass_enable: Option<bool>,
+    #[serde(rename = "SVMEnable")]
+    svm_enable: Option<bool>,
+    dialog_plus_enable: Option<bool>,
+    #[serde(rename = "GraphicsEQEnable")]
+    graphics_eq_enable: Option<bool>,
     #[serde(flatten)]
     extra: BTreeMap<String, serde_json::Value>,
 }
@@ -1228,7 +1279,15 @@ mod tests {
                 "SpeakerMethod":0,
                 "Settings":[{
                     "Type":1,
-                    "Scout":null,
+                    "Scout":{
+                        "Enable":false,
+                        "SurroundEnable":false,
+                        "CrystalizerEnable":false,
+                        "XBassEnable":false,
+                        "SVMEnable":false,
+                        "DialogPlusEnable":false,
+                        "GraphicsEQEnable":false
+                    },
                     "Surround":{"Enable":true,"Level":0.675,"Mode":0},
                     "Bass":{
                         "Enable":false,
@@ -1268,13 +1327,57 @@ mod tests {
             report
                 .unsupported
                 .iter()
-                .any(|item| item.contains("Bass.SubWooferGain"))
+                .all(|item| !item.contains("Scout") && !item.contains("Bass.SubWooferGain"))
+        );
+        assert!(
+            report
+                .exact
+                .iter()
+                .any(|item| item.contains("Scout disabled"))
+        );
+        assert!(
+            report
+                .exact
+                .iter()
+                .any(|item| item.contains("Bass.SubWooferGain off"))
+        );
+    }
+
+    #[test]
+    fn retains_configured_scout_and_subwoofer_gain_as_unsupported() {
+        let profile: SourceProfile = serde_json::from_str(
+            r#"{
+                "Product":"AE5",
+                "Settings":[{
+                    "Type":1,
+                    "Scout":{"Enable":true},
+                    "Bass":{
+                        "Enable":false,
+                        "Level":0.0,
+                        "XOver":0.0,
+                        "SubWooferGain":true
+                    },
+                    "SBXMaster":{"Enable":true}
+                }]
+            }"#,
+        )
+        .unwrap();
+        let settings = select_settings(&profile.settings, SbCommandTarget::Headphone).unwrap();
+        let mut report = SbCommandImportReport::default();
+
+        effect_controls(settings, &mut report).unwrap();
+
+        assert!(
+            report
+                .unsupported
+                .iter()
+                .any(|item| item.contains("Settings.Scout enabled or configured"))
         );
         assert!(
             report
                 .unsupported
                 .iter()
-                .all(|item| !item.contains("Scout"))
+                .any(|item| item.contains("Bass.SubWooferGain on"))
         );
     }
 

@@ -215,7 +215,9 @@ unsupported non-null source settings. The CLI prints the complete report and
 the desktop preview lists every unsupported field. Unsupported settings such
 as a non-zero EQ preamp are skipped while the representable controls are
 retained; invalid products, files, ranges, units, band counts, and frequencies
-are still rejected.
+are still rejected. Explicitly disabled Scout settings and a false subwoofer
+gain flag are reported as exact no-ops; configured or enabled values remain
+unsupported.
 
 ## Native desktop application
 

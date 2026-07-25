@@ -122,3 +122,29 @@ Creative_Technology_Ltd aggregate remains
 `409cbe439f23ca22a378280499cdcad3c1f67999a841235cc7e0899bb8913f9f`.
 This completes the real custom-EQ native-library round-trip gate without
 publishing the user's profile names, identifiers, or tuning values.
+
+## Inactive unsupported-feature settings
+
+A later schema audit separated two inactive settings from genuinely
+unsupported active behavior. Both exact source targets contain a complete
+Scout object with every enable flag set to false and
+`Bass.SubWooferGain` set to false. Reproducing either state requires no Linux
+control, so the importer now records them as exact no-ops. A configured Scout
+object or `SubWooferGain` set to true remains explicitly unsupported; focused
+tests cover both refusal paths.
+
+Fresh mounted-user discovery with the rebuilt converter produced the same 21
+speaker and 20 headphone controls. The speaker report improved from 24 exact,
+2 approximate, and 9 unsupported items to 26 exact, 2 approximate, and 7
+unsupported items. The headphone report improved from 17 exact, 8
+approximate, and 8 unsupported items to 19 exact, 8 approximate, and 6
+unsupported items.
+
+The rerun used disposable output and configuration directories, applied no
+profile, and opened no audio stream. Before and after SHA-256 values were
+identical for the active Command configuration
+(`75e18eee256ad8e330df7470a1c35e3eef688fb1d2beffe6fda3f13add567eb3`),
+profile
+(`bbf23d3348e25f61e98be3d5ffe43a10fea4daf73c3d649433f5e489c8b0588f`),
+and EQ
+(`fd63464944e3f55816d65ce1759858b628ffc127475478681a69e7e54d43bfeb`).

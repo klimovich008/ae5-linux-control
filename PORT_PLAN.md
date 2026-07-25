@@ -342,6 +342,12 @@ baseline and Front-muted negative control, with exact persistent mixer and
 route restoration. The paired boot collector now waits for the complete
 root-cause route-control set and will report trailing progress toward ten
 consecutive valid boots; the two incomplete historical pairs remain `0/10`.
+The same collector now has paired, user-driven suspend records and a strict
+20-cycle summary. Its pre-suspend gate refuses to append or proceed when any
+ALSA/PipeWire playback stage exceeds 20%, gain is not Low, a PCM is open, or
+the route/evidence is incomplete; a pair also requires exact mixer
+restoration and no new relevant kernel warning. No physical suspend cycle has
+yet been counted.
 The CLI and GTK diagnostics now compare ALSA `Output Select` and `Input Source`
 with PipeWire's live Route parameters. Physical deliberately split
 Headphone/Line-Out and Microphone/Line-In states were detected with nonzero

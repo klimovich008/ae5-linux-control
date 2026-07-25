@@ -374,8 +374,13 @@ microphone tests measured the fixed route 18.84 dB above a Front-muted
 negative control, then measured an independent installed-CLI
 Speakers→Headphone cycle 10.88 dB above both its quiet and muted controls.
 Both restored the exact persistent mixer, route, and volume state. Repeated
-cold-boot/suspend acceptance remains. The Rust CLI and GTK diagnostics also
-read PipeWire's live Route parameters: deliberately recreated
+cold-boot/suspend acceptance remains. A silent, user-driven suspend probe now
+rejects any playback stage above 20%, non-Low headphone gain, open PCM, wrong
+route, unreadable evidence, changed mixer state, changed boot/kernel, or new
+audio warning; it never suspends or plays audio itself. Run its paired
+`--before-suspend campaign-01` and `--after-resume campaign-01` captures, then
+check progress with `--suspend-summary 20`. The Rust CLI and GTK diagnostics
+also read PipeWire's live Route parameters: deliberately recreated
 Headphone-versus-Line-Out and Microphone-versus-Line-In splits failed
 `route-status`, while the normal setters repaired both and restored the exact
 mixer hash. Evidence and transition matrices are documented in

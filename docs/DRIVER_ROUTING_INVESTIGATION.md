@@ -311,6 +311,57 @@ and is installed for the next boot. The earlier post-fix pair still proves its
 recorded output-selection, codec-pin, and desktop-port state, but is not
 silently promoted to the stronger acceptance gate.
 
+## Safe suspend/resume probe
+
+The same collector supports a user-driven, silent suspend campaign. It does
+not call `systemctl suspend`, write a mixer control, or play audio. The host
+exposes `deep` sleep, but the normal user cannot program its RTC wake alarm,
+so an unattended auto-waking cycle is not safe on this machine. Start each
+cycle with a unique campaign ID:
+
+```sh
+bash scripts/collect-routing-state.sh --before-suspend campaign-01
+```
+
+This command captures the complete route, both mixer fingerprints, every PCM
+substream state, PipeWire route and volume, and a fingerprint of relevant
+kernel warnings. It rejects the snapshot without appending it unless:
+
+- Master, Front, Surround, Center, LFE, PCM, and the AE-5 PipeWire sink are
+  each at or below 20%;
+- headphone gain is Low;
+- every AE-5 PCM is closed;
+- ALSA, codec pins, and PipeWire all select the card-specific headphone path;
+- the required fingerprints are readable.
+
+Do not suspend if that command exits nonzero. On success it explicitly reports
+that it did not suspend the system; use the desktop's normal suspend action
+and wake the machine manually. After WirePlumber has settled, capture the
+matching record:
+
+```sh
+bash scripts/collect-routing-state.sh --after-resume campaign-01
+```
+
+The post-resume command retains a failed snapshot for diagnosis and exits
+nonzero when the restored state is unsafe or invalid. Repeat with
+`campaign-02` through `campaign-20`, then summarize the private log:
+
+```sh
+bash scripts/collect-routing-state.sh --suspend-summary 20
+```
+
+A pair passes only when its records are ordered, use the same boot ID and
+kernel, satisfy the complete safe headphone-route checks, have exact matching
+raw and simple mixer hashes, leave every PCM closed, and add no relevant
+kernel warning. A missing, duplicate, or failed pair resets the trailing
+consecutive count. Synthetic valid, changed-state, and unsafe-volume cases run
+under `--self-test`.
+
+This gate proves silent state restoration. Audible output remains a separate
+physical check and must use the non-mutating playback preflight and an
+at-or-below-20% fixture and playback state.
+
 Before the next reboot campaign, save the normal profile, deliberately
 establish the documented at-or-below-20%/Low-gain test state, and leave that
 state persisted across the reboot. After boot, run the non-mutating PipeWire

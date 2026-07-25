@@ -186,6 +186,43 @@ implementation is committed. Super X-Fi remains outside Version 1 unless the
 live exact-product result and a legal Linux mechanism both justify
 reclassification.
 
+## Windows equalizer bass and treble reference
+
+The same installed Sound Blaster Command 3.5.10.0 tree was inspected offline
+to determine whether the AE-5 has separate bass and treble equalizer
+parameters. It does not. The AE-5 product EQ resource selects the framework's
+`BaseEQPageTemplate`. That template renders the ten-band graphic equalizer
+alongside Bass and Treble sliders, but the shared view model backs those two
+sliders with existing band models: Bass is band index 1 and Treble is band
+index 8 when the feature contains ten bands.
+
+The exact shipped AE-5 Flat preset independently fixes that ordering at 31,
+62, 125, 250, 500, 1000, 2000, 4000, 8000, and 16000 Hz. Command's Bass
+slider therefore edits the stored 62 Hz value and its Treble slider edits the
+stored 8000 Hz value. The preset schema contains only those ten bands and
+preamp; it has no separate bass or treble scalar. Generic bass/treble feature
+identifiers elsewhere in the multi-device bundle are not used by this AE-5 EQ
+page path.
+
+The native importer already maps those positions to `EQ Band1` and
+`EQ Band8`, respectively. The Linux UI intentionally keeps one control per
+underlying value instead of displaying duplicate aliases. This preserves the
+Windows setting exactly while avoiding two widgets that edit the same ALSA
+control.
+
+| Evidence | SHA-256 |
+|---|---|
+| AE-5 product UI assembly | `aacce22cbad477dd631bcdaa59f4798fbdf66c33bd559f45ab1ecbfcc82500c3` |
+| AE-5 EQ resource entry | `6c7ac5f7fe78aa9e51bf578a3b4ab7c1ced50a040122435050f5f01b299c2d2e` |
+| Shared UI framework | `06e7a61c95392fe76ec59d4a1ef1c5a8c465b07dd8c7d7b5256c2ce7ab109e3e` |
+| English framework resources | `149ce5265cc80f3d64adf680bb81c72edcddeb7b218fb1fc487538fd1e80b4aa` |
+| Base EQ resource entry | `acac94daae79d74cb5865475000402a40dbc7a9efbe70334ec92e273c298063c` |
+| AE-5 Flat preset | `8ca9c9a9f30185cf623e86974496c606b4fd7be28a1e282505159a940e3f5b1c` |
+
+No Windows code was executed. No Creative binary, BAML payload, decompiler
+output, private preset value, or copied implementation is committed; only the
+independent interoperability result and content hashes are retained.
+
 ## Firmware already distributed for Linux
 
 Fedora package `alsa-firmware-1.2.4-17.fc44` supplies the target system's

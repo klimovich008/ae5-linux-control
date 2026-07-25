@@ -100,6 +100,13 @@ approximate, and 8 unsupported mappings. Both profiles contained numeric
 values for all ten `EQ Band0` through `EQ Band9` controls and selected
 `FX: Equalizer Preset` Flat before those custom bands.
 
+Static inspection of the exact installed Command UI later established that
+its separate Bass and Treble equalizer sliders are aliases for band index 1
+(62 Hz) and band index 8 (8000 Hz), not additional persisted settings. Those
+values are therefore already preserved by `EQ Band1` and `EQ Band8`; no
+migration field is missing. The evidence boundary and binary hashes are
+recorded in [`SOURCE_INVENTORY.md`](SOURCE_INVENTORY.md).
+
 The isolated profile library then:
 
 1. discovered both imported profiles;

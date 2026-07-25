@@ -7,7 +7,7 @@ the host kernel. It cannot replace final cold-boot, suspend, and recovery tests
 on the host.
 
 The virtualization stack, session guest, and system guest were installed on
-2026-07-24. Three guarded managed-passthrough cycles have now completed; the
+2026-07-24. Six guarded managed-passthrough cycles have now completed; the
 hostdev was removed afterward and both guests are powered off.
 
 Run the read-only, fail-closed hardware check at any time:
@@ -347,9 +347,32 @@ remained. The fifth cycle also preserved the exact WirePlumber default-node
 and route files. Ambient captures were deleted after retaining fixture and
 capture hashes plus the derived measurements.
 
+The sixth cycle repeated the initialization and recovery gate on maintained
+Linux `6.18.40`. The exact LTS stack first passed KUnit and no-device boots in
+both guests. With the physical card, it reproduced the 72/46 control counts,
+Wedge `30`, Flat ten-band EQ vector, What U Hear PCM, hidden ineffective
+controls, one DSP initialization, and zero relevant warnings.
+
+The LTS cycle also tested the upstream routing pair absent from 6.18.40.
+Starting with HP/Speaker auto-detect on, a manual Headphone write turned
+auto-detect off and enabled only codec pin `0x11`; Speakers enabled `0x0b`,
+`0x0f`, and `0x10`. The exact packaged CLI safely changed Wedge to `20` and
+back to `30`, and its RPM installed and removed without changing the guest
+mixer hash.
+
+Clean shutdown returned the card to host `snd_hda_intel` in about two seconds.
+The host raw ALSA file, all 47 app profile controls, complete mixer hash,
+WirePlumber defaults/routes, default AE-5 sink, Fifine source, and packaged
+headphone port all returned without a fallback restore. The full evidence and
+reproduction series are in
+[`LTS_KERNEL_VALIDATION.md`](LTS_KERNEL_VALIDATION.md).
+
 The powered-off system volume passed `qemu-img check` after all five cycles
 and had SHA-256
 `d7ee6ed48b3ba5800e5c93576fdbbec76bbe0eb81d2708c59dd600058262a664`.
+The image is root-owned mode `0600`; the check could not be repeated after the
+sixth cycle without interactive host authorization. Libvirt completed the
+sixth shutdown without a storage error.
 The untouched standalone recovery image retained SHA-256
 `bfca0fdfa57cc7b9fab13c91a2a58584233c257638f636573b85a29c1d091637`.
 Voice Focus recording, speaker/line-out and digital playback, guest suspend,

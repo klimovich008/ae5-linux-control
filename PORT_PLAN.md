@@ -567,9 +567,10 @@ ALSA maintainer tree's verified 2026-07-25 `for-next` head. Together they
 compile with `W=1` and warnings as errors, pass all four DSP-image KUnit cases,
 and have completed guarded physical initialization, playback, loopback
 capture, control, reboot, route-stress, shutdown, and host-recovery checks.
-Analog-input behavior, suspend/resume, maintained-kernel repetition, and the
-contributor's personal DCO sign-off remain before this project treats the
-relevant series as fully accepted and submitted.
+The complete stack also passed strict builds, KUnit, two no-device boots, and
+one physical/recovery cycle on Linux 6.18.40 LTS. Analog-input behavior,
+suspend/resume, and the contributor's personal DCO sign-off remain before this
+project treats the relevant series as fully accepted and submitted.
 
 Exit criterion for each feature: the new interface has readback, validation,
 power-management coverage, clean kernel logs, and repeatable hardware results.
@@ -591,10 +592,10 @@ support claim prematurely.
 Current package status: pull-request CI builds a fresh Fedora 44 RPM and runs
 its real install, verification, command smoke tests, removal, file-cleanup,
 and profile/ALSA-state preservation checks in a disposable container. An exact
-RPM payload has also passed read-only tests on the physical AE-5. Authenticated
-host installation and desktop-menu launch, one approved write through the
-installed build, clean host removal, and repetition on a maintained LTS kernel
-remain before this phase is complete.
+RPM payload has also passed physical-card detection and a safe write/readback
+on Linux 6.18.40 LTS. Authenticated host installation and desktop-menu launch,
+one approved write as the desktop user, and clean host removal remain before
+this phase is complete.
 
 Exit criterion: a clean machine can install, detect, configure, uninstall, and
 return to standard ALSA behavior without manual cleanup.

@@ -311,6 +311,12 @@ The audited topology, package boundary, recovery rules, and per-kernel matrix
 are in [docs/VFIO_TEST_PLAN.md](docs/VFIO_TEST_PLAN.md). A guest cannot replace
 the final physical cold-boot and suspend tests.
 
+The complete patch stack now also builds, boots, and passes a guarded physical
+cycle on maintained Linux 6.18.40 LTS. That cycle covered the first-use/manual
+route fix, safe packaged control write, package install/removal, and exact host
+audio restoration. Reproduction commands and evidence are in
+[docs/LTS_KERNEL_VALIDATION.md](docs/LTS_KERNEL_VALIDATION.md).
+
 The named-headphone-tuning gap, why the packaged `ctspeq.bin` must not be
 loaded on the AE-5, and the bounded driver experiment sequence are documented
 in

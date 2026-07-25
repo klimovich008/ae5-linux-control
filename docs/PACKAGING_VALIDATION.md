@@ -180,15 +180,35 @@ This turns the clean Fedora build/install/remove result into a repeatable
 release gate. It does not emulate the physical AE-5, the host PipeWire
 session, or a desktop application menu.
 
+## Maintained-LTS hardware package cycle
+
+The same binary RPM, SHA-256
+`63c0d378607625593964fab95dba856d5109222a633119075adbff38cac6da3b`,
+was installed in the Fedora 44 system guest running
+`6.18.40-ae5-lts+` with the physical AE-5 attached through managed VFIO.
+
+The packaged CLI detected `1102:0012/1102:0051`, reported 46 simple controls,
+saved and validated a 46-control profile, changed Wedge Angle from `30` to
+`20`, read it back, and restored `30`. The complete guest mixer returned to
+SHA-256
+`c5d3a2673054ea6b71b562e3f12923c51c00af9c79af17137948e4474818de68`.
+
+The headless SSH guest had no desktop-login device ACL or user PipeWire
+session, so the CLI ran through guest `sudo` and desktop route writes were not
+claimed. Removing the RPM preserved the same mixer hash, Flat EQ, Wedge `30`,
+one DSP initialization, and zero failed guest units. Host shutdown/recovery
+then passed exactly as recorded in
+[`LTS_KERNEL_VALIDATION.md`](LTS_KERNEL_VALIDATION.md).
+
 ## Remaining release gate
 
 This proves clean Fedora dependency resolution and package ownership/removal,
-plus read-only operation of the exact payload on the target hardware. It does
-not claim a system-installed application on this host: `sudo` required an
-interactive password, so the host RPM database and `/usr` were deliberately
-not changed.
+physical-card operation of the exact payload, and a headless maintained-LTS
+package cycle. It does not claim a system-installed application on this host:
+`sudo` required an interactive password, so the host RPM database and `/usr`
+were deliberately not changed.
 
 Before calling Phase 5 complete, install the RPM through an authenticated host
 package transaction, launch it from the desktop application menu, exercise a
-user-approved control, uninstall it, and confirm the user profile library and
-ALSA state remain intact. Repeat on one maintained LTS kernel.
+user-approved control as the desktop user, uninstall it, and confirm the user
+profile library and ALSA state remain intact.

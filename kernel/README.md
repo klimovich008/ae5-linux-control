@@ -93,7 +93,8 @@ The integrated physical validation below now covers the What U Hear fixture,
 normal headphone playback, Front-muted negative control, three warm guest
 reboots, 50 speaker/headphone route transitions, clean shutdown, and exact
 guest/host restoration. Analog input controls, physical speaker/line-out and
-digital playback, suspend/resume, and maintained-kernel repetition remain.
+digital playback, and suspend/resume remain. The maintained-kernel repetition
+is recorded below.
 
 ## Wedge Angle default
 
@@ -447,6 +448,27 @@ fifth cycle, the powered-off qcow2 passed `qemu-img check` with SHA-256
 This evidence does not yet cover Voice Focus recording, analog input,
 speaker/line-out or digital playback, suspend/resume, or repeated cold-start
 acceptance.
+
+## Maintained Linux 6.18 LTS validation
+
+The same functional stack, plus upstream auto-detect commits `778031e1658d`
+and `6fd9f6e870ea`, was backported to Linux `6.18.40` stable commit
+`221fc2f4d0eda59d02af2e751a9282fa013a8e97`. The exact application order and
+the two-context DSP adapter are in
+[`backports/6.18/README.md`](backports/6.18/README.md).
+
+The resulting `6.18.40-ae5-lts+` kernel passed strict production/parser object
+builds, all four parser KUnit cases, and no-device boots in both libvirt
+guests. One managed physical cycle then reproduced the expected 72/46 control
+counts, Wedge `30`, Flat EQ vector, retained What U Hear PCM, hidden
+ineffective controls, and complete mixer hash.
+
+With auto-detect enabled, a manual Headphone selection disabled auto-detect
+and activated only pin `0x11`; Speakers activated `0x0b`, `0x0f`, and `0x10`.
+The packaged CLI also performed and restored a Wedge `20` write. Guest
+shutdown returned the card to host `snd_hda_intel` in about two seconds with
+byte-identical raw ALSA state and no relevant warning. Full evidence is in
+[`LTS_KERNEL_VALIDATION.md`](../docs/LTS_KERNEL_VALIDATION.md).
 
 ## Read-only SpeakerEQ address probe
 

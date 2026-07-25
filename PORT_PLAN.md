@@ -692,7 +692,8 @@ Run through direct ALSA and the normal PipeWire desktop path where applicable:
 
 Use `speaker-test` for channel identity and known WAV fixtures for playback.
 Use `arecord`/`pw-record` for capture. Tests must restore the starting mixer
-snapshot.
+snapshot. Generated playback fixtures must pass an independent peak scan at or
+below 20% full-scale amplitude before use.
 
 ### 6.3 Objective audio comparison
 

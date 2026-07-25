@@ -5,6 +5,7 @@ readonly sample_rate=${AE5_SAMPLE_RATE:-48000}
 readonly bit_depth=24
 readonly channels=2
 readonly sync_threshold=${AE5_SYNC_THRESHOLD:-1%}
+readonly maximum_fixture_peak_db=-14
 readonly -a frequencies=(31 62 125 250 500 1000 2000 4000 8000 16000)
 
 case $sample_rate in
@@ -59,10 +60,28 @@ make_tone() {
 		gain "$level" fade t 0.05 "$duration" 0.05
 }
 
+validate_fixture_peak() {
+	local input=$1 peak
+
+	peak=$(sox "$input" -n stats 2>&1 |
+		awk '$1 == "Pk" && $2 == "lev" && $3 == "dB" { print $4 }')
+	[[ -n $peak ]] || {
+		printf 'error: unable to measure fixture peak: %s\n' "$input" >&2
+		return 1
+	}
+	[[ $peak == -inf ]] && return
+	awk -v peak="$peak" -v maximum="$maximum_fixture_peak_db" \
+		'BEGIN { exit !(peak <= maximum) }' || {
+		printf 'error: fixture peak %s dBFS exceeds the %s dBFS safety ceiling: %s\n' \
+			"$peak" "$maximum_fixture_peak_db" "$input" >&2
+		return 1
+	}
+}
+
 make_marker_and_gap() {
 	local temporary_root=$1
 
-	make_tone 0.25 997 -6 "$temporary_root/marker.wav"
+	make_tone 0.25 997 -18 "$temporary_root/marker.wav"
 	make_silence 0.75 "$temporary_root/marker-gap.wav"
 }
 
@@ -106,7 +125,7 @@ generate_level_steps() {
 		"$temporary_root/marker-gap.wav"
 	)
 
-	for level in -36 -24 -12 -6; do
+	for level in -36 -30 -24 -18; do
 		make_tone 2 1000 "$level" \
 			"$temporary_root/level-${level#-}.wav"
 		make_silence 0.5 "$temporary_root/level-gap-${level#-}.wav"
@@ -142,6 +161,9 @@ generate() (
 	generate_level_steps \
 		"$temporary_root" "$output_root/parity-level-steps.wav"
 	make_silence 15 "$output_root/parity-silence.wav"
+	for output in "${outputs[@]:0:4}"; do
+		validate_fixture_peak "$output"
+	done
 
 	(
 		cd -- "$output_root"
@@ -347,7 +369,7 @@ compare_noise() {
 }
 
 self_test() (
-	local test_root before_hash after_hash mismatch wrong_rate
+	local test_root before_hash after_hash mismatch unsafe_fixture wrong_rate
 
 	test_root=$(mktemp -d "${TMPDIR:-/tmp}/ae5-audio-parity-test.XXXXXX")
 	trap 'rm -rf -- "$test_root"' EXIT
@@ -403,6 +425,13 @@ self_test() (
 		-r "$wrong_rate" "$test_root/wrong-rate.wav"
 	if analyze_tones "$test_root/wrong-rate.wav" >/dev/null 2>&1; then
 		printf 'self-test: wrong-rate capture unexpectedly passed\n' >&2
+		return 1
+	fi
+
+	unsafe_fixture="$test_root/unsafe.wav"
+	make_tone 0.25 997 -6 "$unsafe_fixture"
+	if validate_fixture_peak "$unsafe_fixture" >/dev/null 2>&1; then
+		printf 'self-test: unsafe fixture peak unexpectedly passed\n' >&2
 		return 1
 	fi
 

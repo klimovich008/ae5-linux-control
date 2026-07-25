@@ -42,8 +42,16 @@ silence files plus `SHA256SUMS`. It refuses to overwrite any existing fixture.
 Copy these exact generated files to Windows and verify their hashes there; do
 not generate a second set.
 
-The tone and sweep fixtures begin with a loud 997 Hz synchronization marker.
-The analyzer removes leading capture latency from that marker before measuring.
+The tone, sweep, and level-step fixtures never exceed `-18 dBFS`, approximately
+12.6% of full-scale sample amplitude. They begin with a 997 Hz synchronization
+marker at that ceiling. The generator independently measures every completed
+file and refuses any peak above `-14 dBFS`, which is just below 20% amplitude.
+The analyzer removes leading capture latency from the marker before measuring.
+
+Older reference sets may contain a `-6 dBFS` marker from before this safety
+gate. Do not play those sets through headphones. Generate a new set in a new
+directory with the current script; its `SHA256SUMS` file distinguishes it from
+the retired fixtures.
 
 For a Linux-only native-rate comparison, generate separate directories and
 pass the same rate to the analyzer:
@@ -62,8 +70,10 @@ deliberately collected at another rate.
 
 ## Capture matrix
 
-Start with all output DSP processing disabled or flat, a fixed safe output
-level, and a fixed capture gain. Record at 48 kHz, 24-bit stereo:
+Start with all output DSP processing disabled or flat, Low headphone gain, a
+fixed capture gain, and every hardware and software playback-volume control at
+or below 20%. Keep headphones unworn or physically clear during unattended
+playback. Record at 48 kHz, 24-bit stereo:
 
 1. Windows playback through the Creative driver.
 2. Linux direct ALSA `hw:` playback.

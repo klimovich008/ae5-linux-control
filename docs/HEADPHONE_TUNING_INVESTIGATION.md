@@ -275,3 +275,9 @@ The next safe action is objective Windows/Linux response measurement, followed
 by an approximate Rust-side preset only if the measurements support one. A
 future kernel experiment requires new source-backed evidence and the same
 alternate-kernel and recovery gates.
+
+For that measurement, the Windows partition now contains the exact safe
+fixtures, a hash-verified portable recorder, and a step-by-step capture
+checklist under
+`C:\Users\Max\Documents\AE5-parity-capture`. Preparing this handoff required no
+audio playback and does not relax the 20% ceiling.

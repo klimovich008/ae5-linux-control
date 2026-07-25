@@ -87,7 +87,10 @@ immediately before opening its direct-ALSA or PipeWire stream.
 Start with all output DSP processing disabled or flat, Low headphone gain, a
 fixed capture gain, and every hardware and software playback-volume control at
 or below 20%. Keep headphones unworn or physically clear during unattended
-playback. Record at 48 kHz, 24-bit stereo:
+playback. Record at 48 kHz, 24-bit stereo for an electrical capture. A
+single-channel microphone capture is accepted for preliminary acoustic
+screening when the same microphone channel count is used on both operating
+systems:
 
 1. Windows playback through the Creative driver.
 2. Linux direct ALSA `hw:` playback.
@@ -127,6 +130,46 @@ interface and are deliberately not automated yet. Opening the wrong ALSA
 device or using an unsafe analog connection should remain an explicit human
 decision.
 
+## Prepared Windows dual-boot handoff
+
+The current test machine has a ready-to-use bundle at
+`C:\Users\Max\Documents\AE5-parity-capture`. It contains:
+
+- the exact hash-verified `fixtures-48000` reference set;
+- the official portable Audacity 3.7.7 64-bit archive and its published
+  SHA-256;
+- [`README-FIRST.md`](windows-capture/README-FIRST.md), a Windows capture
+  checklist;
+- [`VERIFY-SHA256.ps1`](windows-capture/VERIFY-SHA256.ps1), which verifies all
+  five fixtures and Audacity before use;
+- a `captures` directory containing the settings-notes template.
+
+Run the verifier from PowerShell before extraction:
+
+```powershell
+cd "$HOME\Documents\AE5-parity-capture"
+powershell -NoProfile -ExecutionPolicy Bypass -File .\VERIFY-SHA256.ps1
+```
+
+The FiFine microphone and headphones placed in a fixed jig can provide a
+useful neutral-versus-tuning acoustic A/B screen. This path is mono when that
+is all the microphone exposes, and it is sensitive to placement and room
+noise. It must not be reported as final analog parity. Do not play the
+six-channel identity fixture through this headphone/microphone setup.
+
+For the Windows screen, keep the headphones unworn, select Low gain, and keep
+Windows master volume, the player session volume, and every Creative playback
+volume at or below 20%. Use the same fixed positions and capture gain for:
+
+1. `windows-neutral-tones.wav`, with all processing disabled;
+2. `windows-neutral-silence.wav`, while playing the exact silence fixture;
+3. `windows-tuning-tones.wav`, with only the named headphone tuning enabled.
+
+Start recording at least half a second before playback and stop at least half
+a second afterward. Export 48 kHz, 24-bit PCM WAV without normalization,
+resampling, trimming, fades, denoising, or effects. Record every setting in
+`captures\WINDOWS-NOTES.txt`.
+
 ## Analyze and compare
 
 Inspect one tone capture:
@@ -164,6 +207,9 @@ AE5_SYNC_THRESHOLD=0.3% \
 ```
 
 Do not normalize, denoise, resample, or encode the captures before comparison.
+The analyzer accepts mono or stereo captures and rejects a comparison when
+their channel counts differ. Mono is only for the preliminary acoustic screen;
+use stereo for the final electrical measurement.
 If direct ALSA matches Windows but PipeWire does not, investigate PipeWire
 format/rate policy before touching the kernel. If both Linux paths diverge in
 the same way, compare DSP state and CA0132 initialization next.

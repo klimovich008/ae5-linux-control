@@ -416,9 +416,21 @@ validate_capture() {
 			"$sample_rate" "$rate" "$input" >&2
 		return 1
 	}
-	[[ $channel_count == "$channels" ]] || {
-		printf 'error: expected %s channels, got %s: %s\n' \
-			"$channels" "$channel_count" "$input" >&2
+	[[ $channel_count == 1 || $channel_count == "$channels" ]] || {
+		printf 'error: expected mono or stereo, got %s channels: %s\n' \
+			"$channel_count" "$input" >&2
+		return 1
+	}
+}
+
+validate_matching_capture_channels() {
+	local first=$1 second=$2 first_channels second_channels
+
+	first_channels=$(soxi -c "$first") || return
+	second_channels=$(soxi -c "$second") || return
+	[[ $first_channels == "$second_channels" ]] || {
+		printf 'error: capture channel counts differ (%s versus %s): %s, %s\n' \
+			"$first_channels" "$second_channels" "$first" "$second" >&2
 		return 1
 	}
 }
@@ -451,6 +463,11 @@ tone_levels() (
 		stats=$(sox "$aligned" -n trim "$start" 1 stats 2>&1) || return
 		awk -v frequency="$frequency" '
 			$1 == "RMS" && $2 == "lev" && $3 == "dB" {
+				if (NF == 4) {
+					printf "%s\t%s\t%s\tn/a\n",
+						frequency, $4, $4
+					next
+				}
 				printf "%s\t%s\t%s\t%s\n",
 					frequency, $4, $5, $6
 			}
@@ -472,10 +489,11 @@ analyze_tones() {
 	printf 'sample_rate=%s\nchannels=%s\n' \
 		"$(soxi -r "$input")" "$(soxi -c "$input")"
 	printf 'sync_threshold=%s\n' "$sync_threshold"
-	printf 'frequency_hz\trms_dbfs\tleft_dbfs\tright_dbfs\trelative_to_1khz_db\n'
+	printf 'frequency_hz\trms_dbfs\tchannel_1_dbfs\tchannel_2_dbfs\trelative_to_1khz_db\n'
 	awk -F '\t' -v reference="$reference" '{
-		printf "%s\t%.2f\t%.2f\t%.2f\t%+.2f\n",
-			$1, $2, $3, $4, $2 - reference
+		channel_2 = $4 == "n/a" ? "n/a" : sprintf("%.2f", $4)
+		printf "%s\t%.2f\t%.2f\t%s\t%+.2f\n",
+			$1, $2, $3, channel_2, $2 - reference
 	}' <<< "$levels"
 }
 
@@ -483,6 +501,7 @@ compare_tones() (
 	local windows=$1 linux=$2 temporary_root
 	local windows_levels linux_levels windows_reference linux_reference
 
+	validate_matching_capture_channels "$windows" "$linux" || return
 	temporary_root=$(mktemp -d "${TMPDIR:-/tmp}/ae5-audio-parity.XXXXXX")
 	trap 'rm -rf -- "$temporary_root"' EXIT
 	windows_levels="$temporary_root/windows.tsv"
@@ -535,6 +554,10 @@ noise_level() {
 	stats=$(sox "$input" -n stats 2>&1) || return
 	awk '
 		$1 == "RMS" && $2 == "lev" && $3 == "dB" {
+			if (NF == 4) {
+				printf "%s\t%s\tn/a\n", $4, $4
+				next
+			}
 			printf "%s\t%s\t%s\n", $4, $5, $6
 		}
 	' <<< "$stats"
@@ -545,13 +568,14 @@ analyze_noise() {
 
 	levels=$(noise_level "$input") || return
 	printf 'capture=%s\n' "$input"
-	printf 'rms_dbfs\tleft_dbfs\tright_dbfs\n'
+	printf 'rms_dbfs\tchannel_1_dbfs\tchannel_2_dbfs\n'
 	printf '%s\n' "$levels"
 }
 
 compare_noise() {
 	local windows=$1 linux=$2 windows_level linux_level
 
+	validate_matching_capture_channels "$windows" "$linux" || return
 	windows_level=$(noise_level "$windows" | cut -f1) || return
 	linux_level=$(noise_level "$linux" | cut -f1) || return
 	if [[ $windows_level == -inf && $linux_level == -inf ]]; then
@@ -586,7 +610,7 @@ compare_noise() {
 }
 
 self_test() (
-	local test_root before_hash after_hash mismatch unsafe_fixture wrong_rate
+	local test_root before_hash after_hash mismatch mono unsafe_fixture wrong_rate
 	local invalid_channels
 
 	test_root=$(mktemp -d "${TMPDIR:-/tmp}/ae5-audio-parity-test.XXXXXX")
@@ -604,6 +628,15 @@ self_test() (
 	compare_noise \
 		"$test_root/fixtures/parity-silence.wav" \
 		"$test_root/fixtures/parity-silence.wav" >/dev/null
+	mono="$test_root/mono.wav"
+	sox "$test_root/fixtures/parity-tones.wav" "$mono" remix -
+	analyze_tones "$mono" | grep -q $'^31\t-21.01\t-21.01\tn/a\t+0.00$'
+	compare_tones "$mono" "$mono" | grep -q '^parity_result=pass$'
+	if compare_tones "$mono" \
+		"$test_root/fixtures/parity-tones.wav" >/dev/null 2>&1; then
+		printf 'self-test: mismatched capture channels unexpectedly passed\n' >&2
+		return 1
+	fi
 	validate_channel_identity \
 		"$test_root/fixtures/parity-channel-id-6ch.wav"
 	invalid_channels="$test_root/invalid-channels.wav"

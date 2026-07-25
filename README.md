@@ -47,15 +47,21 @@ default through WirePlumber:
 ```sh
 cargo run -- output-status
 cargo run -- route-status
+cargo run -- route-repair
 cargo run -- set-default-output
 cargo run -- input-status
 cargo run -- set-default-input
 ```
 
 `route-status` is read-only and exits nonzero when the ALSA `Output Select` or
-`Input Source` choice disagrees with PipeWire's active hardware routes. The
-default-device actions invoke `wpctl` directly without a shell and verify the
-new default. They do not change the card's ALSA mixer controls.
+`Input Source` choice disagrees with PipeWire's active hardware routes, or
+when normal-mode Headphone output has a muted or unreadable `Front` playback
+switch. `route-repair` is an explicit action: it re-applies only the currently
+selected routes and may unmute `Front` when Headphone output requires it. The
+GTK Device page offers the same action only after its read-only health check
+finds a problem. Nothing repairs or unmutes a route automatically at login.
+The default-device actions invoke `wpctl` directly without a shell and verify
+the new default. They do not change the card's ALSA mixer controls.
 
 The optional native-rate configuration lets PipeWire switch the global graph
 between 44.1, 48, and 96 kHz after its next restart:
@@ -407,8 +413,13 @@ Headphone-versus-Line-Out and Microphone-versus-Line-In splits failed
 `route-status`, while the normal setters repaired both and restored the exact
 mixer hash. Route health also rejects normal-mode Headphone output when the
 shared Front DAC is muted or unreadable, so the original silent state cannot
-be reported as healthy merely because the route names agree. A later silent
-real-card matrix synchronized 2.0, 2.1, 4.0, 4.1, and 5.1 with
+be reported as healthy merely because the route names agree. Reapplying the
+already-selected Headphone value deliberately preserves a muted Front switch,
+so the CLI `route-repair` command and the conditional GTK action provide the
+separate, explicit recovery path. Both repaired a guarded real-card negative
+test, returned the raw mixer to its exact starting hash, kept PipeWire at the
+20% ceiling, and opened no PCM. A later silent real-card matrix synchronized
+2.0, 2.1, 4.0, 4.1, and 5.1 with
 `analog-stereo`, `analog-surround-21`,
 `analog-surround-40`, `analog-surround-41`, and `analog-surround-51`,
 preserving the duplex input profile and every hardware gain. It also exposed

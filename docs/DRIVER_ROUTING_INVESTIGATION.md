@@ -181,6 +181,26 @@ and the simple-control snapshot to
 Every playback PCM remained closed and no audio was played. A generated
 diagnostic report then recorded the restored route as healthy.
 
+The ordinary `set-choice "Output Select" Headphone` transaction is not a
+repair for this case. A second guarded test began with the same healthy
+baseline, muted only Front, and reapplied that already-selected value. The
+transaction correctly preserved Front as muted because route-sensitive mixer
+state is part of its rollback-safe contract.
+
+The application therefore exposes a separate, user-invoked `ae5ctl
+route-repair` command and a **Repair current route** button only when the GTK
+health card is unhealthy. Both use one shared repair plan, keep detection
+read-only, and never run at login. The plan fails before writing if a required
+route control is unavailable, re-applies only mismatched current routes, and
+explicitly unmutes Front only for normal-mode Headphone output.
+
+On the same physical card, the healthy CLI action made no changes. Starting
+from Front muted, the CLI action then unmuted it and restored the complete raw
+mixer hash above. An independent AT-SPI test invoked the native GTK button
+from the same negative state and proved that the button, rather than its test
+cleanup guard, restored Front. Both tests kept PipeWire at `0.20`, left every
+PCM closed, and played no audio.
+
 On the physical host, a controlled negative test selected PipeWire's
 `analog-output-lineout;output-speaker` route and then changed only raw ALSA
 back to Headphone. `route-status` printed both sides of the split and exited

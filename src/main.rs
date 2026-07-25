@@ -46,6 +46,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         [command] if command == "profile-library" => print_profile_library(),
         [command] if command == "output-status" => print_output_status(),
         [command] if command == "route-status" => print_route_status(),
+        [command] if command == "route-repair" => repair_route(),
         [command] if command == "set-default-output" => set_default_output(),
         [command] if command == "input-status" => print_input_status(),
         [command] if command == "set-default-input" => set_default_input(),
@@ -288,6 +289,19 @@ fn print_route_status() -> Result<(), Box<dyn Error>> {
         .or_else(|| state.input_issue(input_choice))
     {
         return Err(io::Error::other(issue).into());
+    }
+    Ok(())
+}
+
+fn repair_route() -> Result<(), Box<dyn Error>> {
+    let changes = mixer()?.repair_routes()?;
+    if changes.is_empty() {
+        println!("AE-5 desktop routes are already healthy; no changes made");
+    } else {
+        println!("AE-5 desktop route repaired");
+        for change in changes {
+            println!("  {change}");
+        }
     }
     Ok(())
 }
@@ -846,6 +860,7 @@ fn print_help() {
          \x20           Show evidence-tracked Sound Blaster Command compatibility\n\
          \x20 output-status       Show the AE-5 PipeWire playback target\n\
          \x20 route-status        Verify ALSA and PipeWire hardware routes agree\n\
+         \x20 route-repair        Explicitly repair the current ALSA/PipeWire routes\n\
          \x20 set-default-output  Make the AE-5 the PipeWire default playback target\n\
          \x20 input-status        Show the AE-5 PipeWire recording target\n\
          \x20 set-default-input   Make the AE-5 the PipeWire default recording target\n\

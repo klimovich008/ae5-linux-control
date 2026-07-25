@@ -47,6 +47,7 @@ for command in ae5-control ae5ctl ae5-collect-report; do
 done
 ae5ctl help | grep -Fq 'sbcommand-import-active'
 ae5ctl help | grep -Fq 'lighting-restore'
+ae5ctl help | grep -Fq 'route-repair'
 ae5ctl help | grep -Fq 'features [verified|substituted|deferred|unsupported]'
 ae5ctl features unsupported | grep -Fq 'Device · Super X-Fi'
 ae5-collect-report --self-test

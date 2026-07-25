@@ -396,10 +396,42 @@ fn device_page(
     });
     let route_actions = gtk::Box::new(gtk::Orientation::Vertical, 0);
     route_actions.append(&route_health);
+    if !route_healthy {
+        let repair = gtk::Button::with_label("Repair current route");
+        repair.set_halign(gtk::Align::Start);
+        repair.set_tooltip_text(Some(
+            "Explicitly reapplies the current ALSA/PipeWire routes and may unmute the Front DAC.",
+        ));
+        route_actions.append(&repair);
+
+        let card_index = device.card_index;
+        let status = status.clone();
+        let window = window.clone();
+        repair.connect_clicked(move |button| {
+            button.set_sensitive(false);
+            let result = Ae5Mixer::open(card_index)
+                .map_err(ControlError::from)
+                .and_then(|mixer| mixer.repair_routes());
+            match result {
+                Ok(changes) => {
+                    let message = if changes.is_empty() {
+                        "Desktop routes were already healthy; no changes made.".to_owned()
+                    } else {
+                        format!("Desktop route repaired: {}.", changes.join(", "))
+                    };
+                    let _ = refresh_window(&window, Some(&message));
+                }
+                Err(error) => {
+                    set_status(&status, false, &format!("Route repair failed: {error}"));
+                    button.set_sensitive(true);
+                }
+            }
+        });
+    }
     page.append(&profile_card(
         "03",
         "Desktop route health",
-        "The ALSA output choice and PipeWire route must agree. This check is read-only.",
+        "The check is read-only. The repair action is explicit and may unmute Front when Headphone output requires it.",
         &route_actions,
     ));
 

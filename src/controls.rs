@@ -1,5 +1,6 @@
 use crate::pipewire::{
-    restore_ae5_output_profile, set_ae5_control_route, set_ae5_output_profile, suspend_ae5_output,
+    PipeWireRouteState, ae5_route_state, restore_ae5_output_profile, set_ae5_control_route,
+    set_ae5_output_profile, suspend_ae5_output,
 };
 use alsa::mixer::{Mixer, Selem, SelemChannelId};
 use std::error::Error;
@@ -29,7 +30,7 @@ const DIRECT_MODE_DSP_BLOCK: &str = "Direct Mode bypasses the CA0132 DSP, so thi
 const INEFFECTIVE_WHAT_U_HEAR_CONTROL: &str = "The AE-5 DSP loopback bypasses this advertised \
     HDA gain and mute control. Use the recording application's stream-level volume or mute.";
 const MUTED_HEADPHONE_PLAYBACK: &str = "ALSA selects Headphone, but Front playback is muted; \
-    reapply the Headphone output choice";
+    use the explicit route repair action";
 const UNVERIFIED_HEADPHONE_PLAYBACK: &str =
     "ALSA selects Headphone, but the Front playback switch is unavailable";
 
@@ -72,6 +73,13 @@ pub struct ControlSnapshot {
 pub struct Ae5Mixer {
     mixer: Mixer,
     card_index: i32,
+}
+
+#[derive(Debug, Default, Eq, PartialEq)]
+struct RouteRepairPlan {
+    output: Option<String>,
+    input: Option<String>,
+    unmute_front: bool,
 }
 
 pub fn snapshot_controls(card_index: i32) -> alsa::Result<Vec<ControlSnapshot>> {
@@ -242,6 +250,45 @@ impl Ae5Mixer {
             .collect::<alsa::Result<Vec<_>>>()?;
         controls.sort_unstable_by(|left, right| left.name.cmp(&right.name));
         Ok(controls)
+    }
+
+    pub fn repair_routes(&self) -> Result<Vec<String>, ControlError> {
+        let controls = self.snapshots()?;
+        let state = ae5_route_state(self.card_index)?;
+        let plan = route_repair_plan(&controls, &state)?;
+        if plan == RouteRepairPlan::default() {
+            return Ok(Vec::new());
+        }
+        let mut changes = Vec::new();
+
+        if let Some(output) = &plan.output {
+            self.set_choice("Output Select", output)?;
+            changes.push(format!("reapplied {output} output"));
+        }
+        if let Some(input) = &plan.input {
+            self.set_choice("Input Source", input)?;
+            changes.push(format!("reapplied {input} input"));
+        }
+        if plan.unmute_front {
+            let suspended = suspend_ae5_output(self.card_index)?;
+            let result = self.set_playback_switch("Front", true);
+            let resumed = suspended.resume().map_err(ControlError::from);
+            match (result, resumed) {
+                (Ok(_), Ok(())) => changes.push("unmuted Front playback".to_owned()),
+                (Err(error), _) => return Err(error),
+                (Ok(_), Err(error)) => return Err(error),
+            }
+        }
+
+        let controls = self.snapshots()?;
+        let state = ae5_route_state(self.card_index)?;
+        let remaining = route_repair_plan(&controls, &state)?;
+        if remaining != RouteRepairPlan::default() {
+            return Err(ControlError::Verification(format!(
+                "route repair did not converge: {remaining:?}"
+            )));
+        }
+        Ok(changes)
     }
 
     pub fn wait_for_event(&self, timeout: Duration) -> alsa::Result<bool> {
@@ -625,6 +672,37 @@ fn selected_choice<'a>(
         .find(|control| control.name == name)
         .and_then(|control| control.selected.as_deref())
         .ok_or_else(|| ControlError::Missing(name.to_owned()))
+}
+
+fn route_repair_plan(
+    controls: &[ControlSnapshot],
+    state: &PipeWireRouteState,
+) -> Result<RouteRepairPlan, ControlError> {
+    let output = selected_choice(controls, "Output Select")?;
+    let layout = selected_choice(controls, "Surround Channel Config")?;
+    let input = selected_choice(controls, "Input Source")?;
+    let direct_mode = controls.iter().any(|control| {
+        control.name == DIRECT_MODE_CONTROL && control.playback_switch == Some(true)
+    });
+    let unmute_front = if output == "Headphone" && !direct_mode {
+        match controls
+            .iter()
+            .find(|control| control.name == "Front")
+            .and_then(|control| control.playback_switch)
+        {
+            Some(enabled) => !enabled,
+            None => return Err(ControlError::Missing("Front playback switch".to_owned())),
+        }
+    } else {
+        false
+    };
+    Ok(RouteRepairPlan {
+        output: state
+            .output_issue(output, layout)
+            .map(|_| output.to_owned()),
+        input: state.input_issue(input).map(|_| input.to_owned()),
+        unmute_front,
+    })
 }
 
 fn read_control(element: Selem<'_>) -> alsa::Result<ControlSnapshot> {
@@ -1154,5 +1232,62 @@ mod tests {
         controls.push(playback_switch("Front", false));
         controls.push(playback_switch(DIRECT_MODE_CONTROL, true));
         assert_eq!(headphone_playback_issue(&controls), None);
+    }
+
+    #[test]
+    fn plans_only_the_required_route_repairs() {
+        let mut controls = vec![
+            selected_choice("Output Select", "Headphone"),
+            selected_choice("Surround Channel Config", "2.0"),
+            selected_choice("Input Source", "Microphone"),
+            playback_switch("Front", true),
+        ];
+        let mut state = PipeWireRouteState {
+            profile_set: Some("sound-blaster-ae5.conf".to_owned()),
+            soft_mixer: Some(true),
+            active_profile: Some("output:analog-stereo+input:analog-stereo".to_owned()),
+            input_route: Some("sound-blaster-ae5-input-microphone".to_owned()),
+            output_route: Some("sound-blaster-ae5-output-headphones;output-headphones".to_owned()),
+        };
+        assert_eq!(
+            route_repair_plan(&controls, &state).unwrap(),
+            RouteRepairPlan::default()
+        );
+
+        state.output_route = Some("analog-output-lineout;output-speaker".to_owned());
+        state.input_route = Some("sound-blaster-ae5-input-line-in".to_owned());
+        assert_eq!(
+            route_repair_plan(&controls, &state).unwrap(),
+            RouteRepairPlan {
+                output: Some("Headphone".to_owned()),
+                input: Some("Microphone".to_owned()),
+                unmute_front: false,
+            }
+        );
+
+        state.output_route =
+            Some("sound-blaster-ae5-output-headphones;output-headphones".to_owned());
+        state.input_route = Some("sound-blaster-ae5-input-microphone".to_owned());
+        controls[3].playback_switch = Some(false);
+        assert_eq!(
+            route_repair_plan(&controls, &state).unwrap(),
+            RouteRepairPlan {
+                unmute_front: true,
+                ..RouteRepairPlan::default()
+            }
+        );
+
+        controls.push(playback_switch(DIRECT_MODE_CONTROL, true));
+        assert_eq!(
+            route_repair_plan(&controls, &state).unwrap(),
+            RouteRepairPlan::default()
+        );
+
+        controls.pop();
+        controls.pop();
+        assert!(matches!(
+            route_repair_plan(&controls, &state),
+            Err(ControlError::Missing(name)) if name == "Front playback switch"
+        ));
     }
 }

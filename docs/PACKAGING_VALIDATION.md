@@ -503,14 +503,20 @@ hardware-independent unsupported-feature report worked, and removed all 19
 package-owned files while preserving profile and ALSA-state sentinels
 byte-for-byte.
 
-## Muted-headphone route diagnostics
+## Muted-headphone route diagnostics and explicit repair
 
 The shared CLI and GTK route-health path now rejects normal-mode Headphone
 output when the required Front DAC is muted or unreadable. The private
 diagnostics report runs the same read-only check. Direct Mode skips that
 normal-DSP-path requirement.
 
-The release passed all 74 Rust/GTK tests, strict Clippy and formatting,
+Reapplying the already-selected Headphone value preserves Front's prior mute
+state, so recovery is deliberately separate from the ordinary output setter.
+`ae5ctl route-repair` and the GTK Device page's conditional **Repair current
+route** button use the same explicit repair plan. There is no automatic or
+login-time unmute.
+
+The release passed all 75 Rust/GTK tests, strict Clippy and formatting,
 feature-matrix validation, diagnostics self-test, the complete transactional
 rootless lifecycle, and ShellCheck with only the standard external
 `/etc/os-release` source excluded.
@@ -525,18 +531,31 @@ and simple-control SHA-256
 `b58ff5fa3cc6ae9271b45720ecd7f66edbdb13b455ba9ea72e1c47e165f49b9b`.
 A generated report then recorded the restored route as healthy.
 
+The healthy CLI repair path was a verified no-op. From the guarded
+Front-muted fixture, the CLI repair restored Front and the exact raw mixer
+hash above. A separate native GTK test found the repair button by the
+application's AT-SPI process ID, invoked its accessible action, and observed
+Front return before the cleanup guard ran. Both paths kept PipeWire at
+`0.20`, opened no PCM, and played no audio.
+
 The real rootless installation was upgraded transactionally. Its installed
 payload is byte-identical to the release inputs:
 
 - GUI SHA-256:
-  `fc19dac7ed96461bd3745330e19ce13f7eb4fb02706e5762efb43f3a5a095c6d`
+  `35ab0fdcdfa50d602d4f5b21550f3023c4d75dc4deb79ed672d247623f7b7f1d`
 - CLI SHA-256:
-  `0ceaed2c19ae3aa71fa8eef0373c2954299b902513691178a9c0ae74244c5cb8`
+  `87009883ce4be4e4209b29c5e7a1a03e5ad595612b74e9cc5d99d87d6de55412`
 
 The upgrade preserved the raw mixer hash above, exact route-health output,
 PipeWire volume `0.20`, and routing-file aggregate SHA-256
 `809526b30f188f8f02e501cfbf9b397b471f121ff14369be7905d313bb9e0b9d`.
 Every playback PCM remained closed throughout, and no audio was played.
+
+The Fedora 44 RPM was also rebuilt from the milestone worktree. Its `%check`
+stage repeated all 75 tests plus ACP, diagnostics, desktop, AppStream, and
+udev validation. A clean disposable-container lifecycle found
+`route-repair` in the installed CLI, removed all 19 package-owned files, and
+preserved the profile and ALSA-state sentinels byte-for-byte.
 
 ## Remaining release gate
 

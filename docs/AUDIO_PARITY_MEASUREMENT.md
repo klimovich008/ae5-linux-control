@@ -38,15 +38,16 @@ bash scripts/audio-parity.sh generate /path/to/ae5-reference
 ```
 
 The command creates 48 kHz, 24-bit stereo tone, sweep, level-step, and digital
-silence files plus `SHA256SUMS`. It refuses to overwrite any existing fixture.
-Copy these exact generated files to Windows and verify their hashes there; do
-not generate a second set.
+silence files, a six-channel identification file, and `SHA256SUMS`. It refuses
+to overwrite any existing fixture. Copy these exact generated files to
+Windows and verify their hashes there; do not generate a second set.
 
-The tone, sweep, and level-step fixtures never exceed `-18 dBFS`, approximately
-12.6% of full-scale sample amplitude. They begin with a 997 Hz synchronization
-marker at that ceiling. The generator independently measures every completed
-file and refuses any peak above `-14 dBFS`, which is just below 20% amplitude.
-The analyzer removes leading capture latency from the marker before measuring.
+The tone, sweep, level-step, and channel-identification fixtures never exceed
+`-18 dBFS`, approximately 12.6% of full-scale sample amplitude. The stereo
+measurement files begin with a 997 Hz synchronization marker at that ceiling.
+The generator independently measures every completed file and refuses any peak
+above `-14 dBFS`, which is just below 20% amplitude. The analyzer removes
+leading capture latency from the marker before measuring.
 
 Older reference sets may contain a `-6 dBFS` marker from before this safety
 gate. Do not play those sets through headphones. Generate a new set in a new
@@ -67,6 +68,19 @@ AE5_SAMPLE_RATE=96000 bash scripts/audio-parity.sh compare-tones \
 Only 44.1, 48, and 96 kHz are accepted. The 48 kHz reference set remains the
 required Windows/Linux comparison unless matching Windows captures are
 deliberately collected at another rate.
+
+## Six-channel identity
+
+`parity-channel-id-6ch.wav` sequentially excites Front Left, Front Right,
+Front Center, LFE, Rear Left, and Rear Right for one second each, with a
+half-second silent gap after every channel. Full-range channels use 997 Hz;
+LFE uses 80 Hz so a receiver's crossover does not discard the test. The
+generator verifies six channels, nine-second duration, complete channel
+isolation, both tone frequencies, peak, and hash.
+
+Use this known file instead of `speaker-test`, whose generated signal cannot
+pass the fixture peak scanner. Run `playback-preflight` against this exact WAV
+immediately before opening its direct-ALSA or PipeWire stream.
 
 ## Capture matrix
 

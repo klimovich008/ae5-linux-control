@@ -123,9 +123,11 @@ separation. The complete mixer state returned exactly and the kernel log
 remained clean. Three warm guest boots then loaded the exact signed module and
 each completed Direct and normal PCM with an unchanged safe mixer hash. All
 playback fixtures were at approximately 5% digital amplitude; future tests are
-capped at 20%. A post-Direct What U Hear capture and final VFIO shutdown then
-returned the exact guest and host mixer hashes, host default nodes, profile,
-routes, services, PCI driver, and inactive VM configuration.
+capped at 20% and must pass the repository's non-mutating
+`playback-preflight` against the exact fixture first. A post-Direct What U Hear
+capture and final VFIO shutdown then returned the exact guest and host mixer
+hashes, host default nodes, profile, routes, services, PCI driver, and inactive
+VM configuration.
 
 The full independent evidence, application sequencing, supported-format
 boundary, passed gates, and remaining power/boot/line-out matrix are in

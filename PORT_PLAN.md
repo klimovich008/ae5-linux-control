@@ -278,7 +278,8 @@ For every reported ALSA control:
 
 1. Read its type, valid range, enum labels, channel count, and current value.
 2. Save the original value.
-3. Apply safe low/middle values while playing or recording a known fixture.
+3. Run the shared fail-closed playback preflight against the exact fixture,
+   then apply safe low/middle values while playing or recording it.
 4. Read the value back.
 5. Verify the audible or measurable hardware change.
 6. Restore the original value.
@@ -690,10 +691,11 @@ Run through direct ALSA and the normal PipeWire desktop path where applicable:
 | Lifecycle | cold boot, warm reboot, suspend/resume, app restart, driver reload in a controlled test |
 | Concurrency | change settings during playback, recording, and full-duplex use |
 
-Use `speaker-test` for channel identity and known WAV fixtures for playback.
-Use `arecord`/`pw-record` for capture. Tests must restore the starting mixer
-snapshot. Generated playback fixtures must pass an independent peak scan at or
-below 20% full-scale amplitude before use.
+Use the generated, hash-verified `parity-channel-id-6ch.wav` for channel
+identity; do not use `speaker-test`, whose generated signal cannot be scanned
+first. Use `arecord`/`pw-record` for capture. Tests must restore the starting
+mixer snapshot. Immediately before every non-silent stream, run
+`scripts/audio-parity.sh playback-preflight` against the exact fixture.
 
 ### 6.3 Objective audio comparison
 

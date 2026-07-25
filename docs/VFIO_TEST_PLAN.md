@@ -495,7 +495,9 @@ kernel:
    warnings.
 3. Select Speakers, Line Out, and Headphones in turn; verify the codec route,
    `Output Select`, Front switch, and audible output.
-4. For Headphones, play a low-level 997 Hz fixture. Record a short baseline,
+4. For Headphones, run the guest's
+   `scripts/audio-parity.sh playback-preflight direct` against the exact
+   hash-verified 997 Hz fixture. Only after it passes, record a short baseline,
    playback sample, and Front-muted negative control through the host's Fifine
    microphone. Retain derived measurements, not ambient recordings.
 5. Exercise stop/start, guest reboot, and guest suspend/resume where supported.
@@ -508,6 +510,10 @@ kernel:
 For each run, retain kernel version, boot journal excerpts, PCI driver, ALSA
 control snapshots, PipeWire route, fixture hash, derived acoustic result, and
 whether host reattachment passed.
+
+The same preflight is mandatory before the host-recovery playback in step 6
+and before every other non-silent guest or host stream. A failed preflight is a
+stop condition, not an instruction to lower values automatically.
 
 ## Stop conditions
 

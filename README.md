@@ -466,7 +466,9 @@ Objective Windows/Linux level, frequency-response, and noise comparison is
 documented in
 [docs/AUDIO_PARITY_MEASUREMENT.md](docs/AUDIO_PARITY_MEASUREMENT.md). The
 SoX-based harness generates one hash-verified reference set and compares
-unaltered 48 kHz/24-bit stereo captures without changing mixer controls.
-Physical digital-loopback measurements for isolated output effects and all ten
-EQ bands, plus every factory EQ preset, are in
+unaltered 48 kHz/24-bit stereo captures without changing mixer controls. The
+same set includes a peak-checked six-channel identification WAV for speaker
+layout tests; generated `speaker-test` signals are not used. Physical
+digital-loopback measurements for isolated output effects and all ten EQ
+bands, plus every factory EQ preset, are in
 [docs/DSP_EFFECT_MEASUREMENT.md](docs/DSP_EFFECT_MEASUREMENT.md).

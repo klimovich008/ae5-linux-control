@@ -306,8 +306,13 @@ The updated probe is installed for the next boot. The earlier post-fix pair
 still proves its recorded output-selection, codec-pin, and desktop-port state,
 but is not silently promoted to the stronger acceptance gate.
 
-After the next reboot, test sound before opening AE-5 Control or manually
-toggling an output. If sound is broken, capture one more snapshot:
+Before the next reboot campaign, save the normal profile, deliberately
+establish the documented at-or-below-20%/Low-gain test state, and leave that
+state persisted across the reboot. After boot, run the non-mutating PipeWire
+`playback-preflight` from
+[`AUDIO_PARITY_MEASUREMENT.md`](AUDIO_PARITY_MEASUREMENT.md) against the exact
+safe fixture. Only after it passes, test sound before opening the GUI or
+manually toggling an output. If sound is broken, capture one more snapshot:
 
 ```sh
 bash scripts/collect-routing-state.sh before-toggle --append

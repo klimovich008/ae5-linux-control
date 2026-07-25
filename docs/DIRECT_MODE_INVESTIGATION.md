@@ -223,5 +223,8 @@ Direct Mode stays deferred until all of these complete:
 3. A connected physical line-out or speaker receiver proving signal on the
    Speakers route, not only headphone suppression.
 
+Every non-silent stream in these remaining gates must first pass the shared
+`scripts/audio-parity.sh playback-preflight` against its exact fixture.
+
 Only after those gates pass should any additional Direct rate be investigated.
 Static Windows acceptance alone is not a Linux support claim.

@@ -50,16 +50,17 @@ new_output() {
 }
 
 make_silence() {
-	local duration=$1 output=$2
+	local duration=$1 output=$2 channel_count=${3:-$channels}
 
-	sox -n -r "$sample_rate" -b "$bit_depth" -c "$channels" \
+	sox -n -r "$sample_rate" -b "$bit_depth" -c "$channel_count" \
 		"$output" trim 0 "$duration"
 }
 
 make_tone() {
 	local duration=$1 frequency=$2 level=$3 output=$4
+	local channel_count=${5:-$channels}
 
-	sox -n -r "$sample_rate" -b "$bit_depth" -c "$channels" \
+	sox -n -r "$sample_rate" -b "$bit_depth" -c "$channel_count" \
 		"$output" synth "$duration" sine "$frequency" \
 		gain "$level" fade t 0.05 "$duration" 0.05
 }
@@ -271,6 +272,84 @@ generate_level_steps() {
 	sox "${segments[@]}" "$output"
 }
 
+generate_channel_identity() {
+	local temporary_root=$1 output=$2 active channel
+	local -a inputs segments=()
+
+	make_tone 1 997 -18 "$temporary_root/channel-tone.wav" 1
+	make_tone 1 80 -18 "$temporary_root/channel-lfe.wav" 1
+	make_silence 1 "$temporary_root/channel-silence.wav" 1
+	make_silence 0.5 "$temporary_root/channel-gap.wav" 6
+	for ((active = 0; active < 6; active++)); do
+		inputs=()
+		for ((channel = 0; channel < 6; channel++)); do
+			if ((channel == active)); then
+				if ((active == 3)); then
+					inputs+=("$temporary_root/channel-lfe.wav")
+				else
+					inputs+=("$temporary_root/channel-tone.wav")
+				fi
+			else
+				inputs+=("$temporary_root/channel-silence.wav")
+			fi
+		done
+		sox -M "${inputs[@]}" "$temporary_root/channel-$active.wav"
+		segments+=(
+			"$temporary_root/channel-$active.wav"
+			"$temporary_root/channel-gap.wav"
+		)
+	done
+	sox "${segments[@]}" "$output"
+}
+
+channel_peak() {
+	local input=$1 start=$2 channel=$3
+
+	sox "$input" -n trim "$start" 0.8 remix "$channel" stats 2>&1 |
+		awk '$1 == "Pk" && $2 == "lev" && $3 == "dB" { print $4 }'
+}
+
+channel_frequency() {
+	local input=$1 start=$2 channel=$3
+
+	sox "$input" -n trim "$start" 0.8 remix "$channel" stat 2>&1 |
+		awk -F: '/^Rough *frequency:/ { gsub(/ /, "", $2); print $2 }'
+}
+
+validate_channel_identity() {
+	local input=$1 channel_count duration active channel start peak expected
+
+	channel_count=$(soxi -c "$input")
+	duration=$(soxi -D "$input")
+	[[ $channel_count == 6 ]] || {
+		printf 'error: channel fixture must have 6 channels: %s\n' "$input" >&2
+		return 1
+	}
+	awk -v duration="$duration" 'BEGIN { exit !(duration == 9) }' || {
+		printf 'error: channel fixture must be 9 seconds: %s\n' "$input" >&2
+		return 1
+	}
+	for ((active = 1; active <= 6; active++)); do
+		start=$(awk -v active="$active" \
+			'BEGIN { print ((active - 1) * 1.5) + 0.1 }')
+		for ((channel = 1; channel <= 6; channel++)); do
+			peak=$(channel_peak "$input" "$start" "$channel")
+			expected=-inf
+			((channel == active)) && expected=-18.00
+			[[ $peak == "$expected" ]] || {
+				printf 'error: channel fixture routing sequence is invalid: %s\n' \
+					"$input" >&2
+				return 1
+			}
+		done
+	done
+	[[ $(channel_frequency "$input" 0.1 1) == 996 &&
+		$(channel_frequency "$input" 4.6 4) == 79 ]] || {
+		printf 'error: channel fixture tone frequencies are invalid: %s\n' "$input" >&2
+		return 1
+	}
+}
+
 generate() (
 	local output_root=$1 temporary_root
 	local -a outputs=(
@@ -278,6 +357,7 @@ generate() (
 		"$output_root/parity-sweep.wav"
 		"$output_root/parity-level-steps.wav"
 		"$output_root/parity-silence.wav"
+		"$output_root/parity-channel-id-6ch.wav"
 		"$output_root/SHA256SUMS"
 	)
 
@@ -294,9 +374,12 @@ generate() (
 	generate_level_steps \
 		"$temporary_root" "$output_root/parity-level-steps.wav"
 	make_silence 15 "$output_root/parity-silence.wav"
-	for output in "${outputs[@]:0:4}"; do
+	generate_channel_identity \
+		"$temporary_root" "$output_root/parity-channel-id-6ch.wav"
+	for output in "${outputs[@]:0:5}"; do
 		validate_fixture_peak "$output"
 	done
+	validate_channel_identity "$output_root/parity-channel-id-6ch.wav"
 
 	(
 		cd -- "$output_root"
@@ -304,10 +387,11 @@ generate() (
 			parity-tones.wav \
 			parity-sweep.wav \
 			parity-level-steps.wav \
-			parity-silence.wav > SHA256SUMS
+			parity-silence.wav \
+			parity-channel-id-6ch.wav > SHA256SUMS
 	)
 
-	printf 'generated %s Hz, 24-bit stereo fixtures in %s\n' \
+	printf 'generated %s Hz, 24-bit stereo and six-channel fixtures in %s\n' \
 		"$sample_rate" "$output_root"
 	printf 'copy these exact files to Windows; do not regenerate them there\n'
 )
@@ -503,6 +587,7 @@ compare_noise() {
 
 self_test() (
 	local test_root before_hash after_hash mismatch unsafe_fixture wrong_rate
+	local invalid_channels
 
 	test_root=$(mktemp -d "${TMPDIR:-/tmp}/ae5-audio-parity-test.XXXXXX")
 	trap 'rm -rf -- "$test_root"' EXIT
@@ -519,6 +604,15 @@ self_test() (
 	compare_noise \
 		"$test_root/fixtures/parity-silence.wav" \
 		"$test_root/fixtures/parity-silence.wav" >/dev/null
+	validate_channel_identity \
+		"$test_root/fixtures/parity-channel-id-6ch.wav"
+	invalid_channels="$test_root/invalid-channels.wav"
+	sox "$test_root/fixtures/parity-channel-id-6ch.wav" \
+		"$invalid_channels" remix 1 1 3 4 5 6
+	if validate_channel_identity "$invalid_channels" >/dev/null 2>&1; then
+		printf 'self-test: invalid channel isolation unexpectedly passed\n' >&2
+		return 1
+	fi
 
 	make_silence 0.75 "$test_root/leading-silence.wav"
 	sox \

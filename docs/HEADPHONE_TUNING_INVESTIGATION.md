@@ -100,7 +100,10 @@ reference through:
 
 Record output, gain range, DAC filter, sample rate, channel mode, mixer values,
 and analog capture chain. Compare level, frequency response, noise floor, and
-channel balance. Do not infer a DSP defect from a volume mismatch.
+channel balance. Before every Linux stream, run the shared
+`playback-preflight` against the exact fixture. On Windows, independently
+verify the fixture peak, every hardware/software playback volume at or below
+20%, and Low gain. Do not infer a DSP defect from a volume mismatch.
 
 Stop if the Windows/Linux neutral captures match within the measurement
 tolerance. In that case the remaining difference is a preset translation

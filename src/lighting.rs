@@ -204,15 +204,23 @@ impl Ae5Lighting {
     }
 
     pub fn set_colors(&self, colors: [RgbColor; ONBOARD_LED_COUNT]) -> io::Result<()> {
+        self.set_colors_with(colors, write_color)
+    }
+
+    fn set_colors_with(
+        &self,
+        colors: [RgbColor; ONBOARD_LED_COUNT],
+        mut write: impl FnMut(&Path, RgbColor) -> io::Result<()>,
+    ) -> io::Result<()> {
         let before = self.colors()?;
         for (path, color) in self.leds.iter().zip(colors) {
-            if let Err(error) = write_color(path, color) {
+            if let Err(error) = write(path, color) {
                 let mut rollback = None;
                 for (path, color) in self.leds.iter().zip(before) {
                     match read_color(path) {
                         Ok(actual) if actual == color => {}
                         Ok(_) => {
-                            if let Err(error) = write_color(path, color) {
+                            if let Err(error) = write(path, color) {
                                 rollback.get_or_insert(error);
                             }
                         }
@@ -352,7 +360,6 @@ fn invalid_data(error: impl fmt::Display) -> io::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::os::unix::fs::PermissionsExt;
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static NEXT_DIRECTORY: AtomicU64 = AtomicU64::new(0);
@@ -383,13 +390,23 @@ mod tests {
         assert_eq!(lighting.colors().unwrap(), colors);
 
         let blocked = root.join("hdaudioC0D1:rgb:ae5-3");
-        for attribute in ["brightness", "multi_intensity"] {
-            fs::set_permissions(blocked.join(attribute), fs::Permissions::from_mode(0o444))
-                .unwrap();
-        }
+        let mut blocked_once = false;
         let error = lighting
-            .set_colors([RgbColor::new(1, 2, 3); ONBOARD_LED_COUNT])
+            .set_colors_with(
+                [RgbColor::new(1, 2, 3); ONBOARD_LED_COUNT],
+                |path, color| {
+                    if path == blocked && !blocked_once {
+                        blocked_once = true;
+                        return Err(io::Error::new(
+                            io::ErrorKind::PermissionDenied,
+                            "injected LED write failure",
+                        ));
+                    }
+                    write_color(path, color)
+                },
+            )
             .unwrap_err();
+        assert!(blocked_once);
         assert!(!error.to_string().contains("rollback failed"));
         assert_eq!(lighting.colors().unwrap(), colors);
 

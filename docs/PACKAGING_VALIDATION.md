@@ -592,6 +592,27 @@ Fedora 44 container resolved its full dependency set, installed and verified
 the binary RPM, removed all 19 package-owned files, and preserved the profile
 and ALSA-state sentinels byte-for-byte.
 
+## Equalizer-evidence user upgrade
+
+The release build after the exact Windows SoundCore equalizer trace passed all
+75 Rust/GTK tests, strict Clippy and formatting, the 54-row feature-matrix
+validator, and the complete transactional rootless lifecycle. The real user
+installation was then upgraded without restarting WirePlumber.
+
+The installed payload is byte-identical to the release inputs:
+
+- GUI SHA-256:
+  `cc798139e56a3bd018aa0d17be2de9924afe7ad84ac90b0968a5496318ea7cf6`
+- CLI SHA-256:
+  `8cf30a3e22d728a8f92faf8b20648b4e5657ab772c4f9b7a8f216a2b8e75b182`
+
+The installed compatibility report contains the new evidence that Command's
+UI, profile, indexed-parameter, key, and repository layers pass all ten EQ dB
+floats without edge compensation. The upgrade preserved raw mixer SHA-256
+`5f72b79126e713debcc4f975e86cc9ac1bfe1ed39cd4760e4f5f44a5766656bf`,
+the complete route-health output, PipeWire volume `0.20`, and Low headphone
+gain. Every playback PCM remained closed and no audio was played.
+
 ## Remaining release gate
 
 This proves clean Fedora dependency resolution and package ownership/removal,

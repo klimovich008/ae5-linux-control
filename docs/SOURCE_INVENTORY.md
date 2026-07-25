@@ -158,11 +158,21 @@ and does not change the firmware licence boundary.
 |---|---|---|
 | [`Conmanx360/ca0132-tools`](https://github.com/Conmanx360/ca0132-tools) | [`6c1563c6ec07a18e9aa0a51a0a697c7a61de242d`](https://github.com/Conmanx360/ca0132-tools/commit/6c1563c6ec07a18e9aa0a51a0a697c7a61de242d) | No explicit licence was found. Do not copy, vendor, modify, or redistribute its code without permission. Its README warns that unsafe commands can lock the DSP/8051 and that its disassembler must not be used on DSP firmware. |
 | [`Conmanx360/QemuHDADump`](https://github.com/Conmanx360/QemuHDADump) | [`82aa13e45c63ad2a0d1c411923b27f6ccbb48686`](https://github.com/Conmanx360/QemuHDADump/commit/82aa13e45c63ad2a0d1c411923b27f6ccbb48686) | No explicit licence was found. Treat it as a description of a possible HDA-verb observation technique; do not integrate or redistribute its code without permission. A VM trace does not replace physical AE-5 testing. |
-| [OpenRGB AE-5 merge request `!2997`](https://gitlab.com/CalcProgrammer1/OpenRGB/-/merge_requests/2997) | Squash commit [`587a706f2873e7632ff835f9d8fda98d70e4d957`](https://gitlab.com/CalcProgrammer1/OpenRGB/-/commit/587a706f2873e7632ff835f9d8fda98d70e4d957) | `GPL-2.0-only`. Documents Windows-only AE-5/AE-5 Plus RGB discovery and commands. It is useful for a later RGB workstream, not audio routing or quality. |
+| [OpenRGB AE-5 merge request `!2997`](https://gitlab.com/CalcProgrammer1/OpenRGB/-/merge_requests/2997) | Squash commit [`587a706f2873e7632ff835f9d8fda98d70e4d957`](https://gitlab.com/CalcProgrammer1/OpenRGB/-/commit/587a706f2873e7632ff835f9d8fda98d70e4d957); Linux prototype removal [`c75f0f6e502e07fae7c693a05f098077e1298a1d`](https://gitlab.com/CalcProgrammer1/OpenRGB/-/commit/c75f0f6e502e07fae7c693a05f098077e1298a1d) | `GPL-2.0-only`. The merged implementation uses a private Windows driver command. The removed prototype documents the five onboard APA102-compatible LEDs and their CA0113 GPIO data/clock pins. |
 
-OpenRGB's merged implementation is explicitly Windows-only. Linux RGB still
-needs a narrow kernel-managed interface; unrestricted `/dev/mem` or userspace
-MMIO is out of scope.
+OpenRGB's removed Linux prototype mapped PCI region 2 through `/dev/mem` and
+bit-banged offset `0x320`. That access model is intentionally not reused.
+Offset `0x320` and GPIO pins 2 and 3 are already owned by the in-tree CA0132
+driver through `ca0113_mmio_gpio_set()`, so the separate
+[`ca0132-ae5-onboard-leds.patch`](../kernel/ca0132-ae5-onboard-leds.patch)
+implements the public five-LED frame inside the kernel and exposes only
+validated multicolor LED-class values.
+
+The final OpenRGB implementation remains useful evidence for Windows device
+matching and the existence of separate onboard and external-light commands,
+but it does not disclose a Linux-safe external WS2812 strip protocol. The
+external strip therefore remains deferred. No Creative binary, firmware, or
+decompiler output was used for the onboard candidate.
 
 ## Proprietary Windows package boundary
 

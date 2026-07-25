@@ -1,0 +1,233 @@
+diff --git a/sound/hda/codecs/Kconfig b/sound/hda/codecs/Kconfig
+index dcf340e5a..419738124 100644
+--- a/sound/hda/codecs/Kconfig
++++ b/sound/hda/codecs/Kconfig
+@@ -70,6 +70,9 @@ comment "Set to Y if you want auto-loading the codec driver"
+ config SND_HDA_CODEC_CA0132
+ 	tristate "Build Creative CA0132 codec support"
+ 	select SND_HDA_GENERIC
++	select NEW_LEDS
++	select LEDS_CLASS
++	select LEDS_CLASS_MULTICOLOR
+ 	help
+ 	  Say Y or M here to include Creative CA0132 codec support in
+ 	  snd-hda-intel driver.
+diff --git a/sound/hda/codecs/ca0132.c b/sound/hda/codecs/ca0132.c
+index 3fe11983d..422624f63 100644
+--- a/sound/hda/codecs/ca0132.c
++++ b/sound/hda/codecs/ca0132.c
+@@ -15,6 +15,7 @@
+ #include <linux/module.h>
+ #include <linux/firmware.h>
+ #include <linux/kernel.h>
++#include <linux/led-class-multicolor.h>
+ #include <linux/types.h>
+ #include <linux/io.h>
+ #include <linux/pci.h>
+@@ -1050,6 +1051,20 @@ enum dsp_download_state {
+ 	DSP_DOWNLOADED      = 2
+ };
+ 
++#define AE5_INTERNAL_LED_COUNT	5
++#define AE5_LED_COLOR_COUNT	3
++#define AE5_LED_NAME_SIZE	64
++
++struct ca0132_spec;
++
++struct ca0132_ae5_led {
++	struct led_classdev_mc mcdev;
++	struct mc_subled subleds[AE5_LED_COLOR_COUNT];
++	struct ca0132_spec *spec;
++	unsigned int index;
++	char name[AE5_LED_NAME_SIZE];
++};
++
+ /* retrieve parameters from hda format */
+ #define get_hdafmt_chs(fmt)	(fmt & 0xf)
+ #define get_hdafmt_bits(fmt)	((fmt >> 4) & 0x7)
+@@ -1132,6 +1147,10 @@ struct ca0132_spec {
+ 	/* AE-5 Control values */
+ 	unsigned char ae5_headphone_gain_val;
+ 	unsigned char ae5_filter_val;
++	struct ca0132_ae5_led ae5_leds[AE5_INTERNAL_LED_COUNT];
++	unsigned int ae5_leds_registered;
++	bool ae5_led_cache_valid;
++	u8 ae5_led_colors[AE5_INTERNAL_LED_COUNT][AE5_LED_COLOR_COUNT];
+ 	/* ZxR Control Values */
+ 	unsigned char zxr_gain_set;
+ 
+@@ -3659,6 +3678,139 @@ static void ca0113_mmio_gpio_set(struct hda_codec *codec, unsigned int gpio_pin,
+ 	writew(gpio_data, spec->mem_base + 0x320);
+ }
+ 
++static void ae5_led_write_bit(struct hda_codec *codec, bool bit)
++{
++	ca0113_mmio_gpio_set(codec, 2, bit);
++	ca0113_mmio_gpio_set(codec, 3, true);
++	ca0113_mmio_gpio_set(codec, 3, false);
++}
++
++static void ae5_led_write_byte(struct hda_codec *codec, u8 value)
++{
++	int bit;
++
++	for (bit = 7; bit >= 0; bit--)
++		ae5_led_write_bit(codec, value & BIT(bit));
++}
++
++static void ae5_led_write_colors(struct hda_codec *codec)
++{
++	struct ca0132_spec *spec = codec->spec;
++	unsigned int i;
++
++	for (i = 0; i < 4; i++)
++		ae5_led_write_byte(codec, 0);
++
++	for (i = 0; i < AE5_INTERNAL_LED_COUNT; i++) {
++		ae5_led_write_byte(codec, 0xff);
++		ae5_led_write_byte(codec, spec->ae5_led_colors[i][2]);
++		ae5_led_write_byte(codec, spec->ae5_led_colors[i][1]);
++		ae5_led_write_byte(codec, spec->ae5_led_colors[i][0]);
++	}
++
++	for (i = 0; i < 4; i++)
++		ae5_led_write_byte(codec, 0xff);
++}
++
++static int ae5_led_set_brightness(struct led_classdev *cdev,
++				  enum led_brightness brightness)
++{
++	struct led_classdev_mc *mcdev = lcdev_to_mccdev(cdev);
++	struct ca0132_ae5_led *led =
++		container_of(mcdev, struct ca0132_ae5_led, mcdev);
++	struct ca0132_spec *spec = led->spec;
++	u8 color[AE5_LED_COLOR_COUNT];
++	unsigned int i;
++	int err;
++
++	err = led_mc_calc_color_components(mcdev, brightness);
++	if (err < 0)
++		return err;
++
++	for (i = 0; i < AE5_LED_COLOR_COUNT; i++)
++		color[i] = mcdev->subled_info[i].brightness;
++
++	snd_hda_power_up(spec->codec);
++	scoped_guard(mutex, &spec->chipio_mutex) {
++		if (!spec->ae5_led_cache_valid) {
++			for (i = 0; i < AE5_INTERNAL_LED_COUNT; i++)
++				memcpy(spec->ae5_led_colors[i], color,
++				       sizeof(color));
++			spec->ae5_led_cache_valid = true;
++		} else {
++			memcpy(spec->ae5_led_colors[led->index], color,
++			       sizeof(color));
++		}
++
++		ae5_led_write_colors(spec->codec);
++	}
++	snd_hda_power_down(spec->codec);
++
++	return 0;
++}
++
++static int ae5_register_leds(struct hda_codec *codec)
++{
++	struct ca0132_spec *spec = codec->spec;
++	struct device *dev = &codec->core.dev;
++	struct led_classdev *cdev;
++	struct ca0132_ae5_led *led;
++	unsigned int i;
++	int err;
++
++	if (spec->ae5_leds_registered)
++		return 0;
++
++	for (i = 0; i < AE5_INTERNAL_LED_COUNT; i++) {
++		led = &spec->ae5_leds[i];
++		led->spec = spec;
++		led->index = i;
++		led->subleds[0].color_index = LED_COLOR_ID_RED;
++		led->subleds[1].color_index = LED_COLOR_ID_GREEN;
++		led->subleds[2].color_index = LED_COLOR_ID_BLUE;
++		led->subleds[0].intensity = 255;
++		led->subleds[1].intensity = 255;
++		led->subleds[2].intensity = 255;
++		led->mcdev.num_colors = AE5_LED_COLOR_COUNT;
++		led->mcdev.subled_info = led->subleds;
++
++		cdev = &led->mcdev.led_cdev;
++		snprintf(led->name, sizeof(led->name), "%s:rgb:ae5-%u",
++			 dev_name(dev), i + 1);
++		cdev->name = led->name;
++		cdev->color = LED_COLOR_ID_RGB;
++		cdev->brightness = 255;
++		cdev->max_brightness = 255;
++		cdev->brightness_set_blocking = ae5_led_set_brightness;
++
++		err = led_classdev_multicolor_register(dev, &led->mcdev);
++		if (err < 0)
++			goto error;
++		spec->ae5_leds_registered++;
++	}
++
++	return 0;
++
++error:
++	while (spec->ae5_leds_registered) {
++		spec->ae5_leds_registered--;
++		led = &spec->ae5_leds[spec->ae5_leds_registered];
++		led_classdev_multicolor_unregister(&led->mcdev);
++	}
++	return err;
++}
++
++static void ae5_unregister_leds(struct ca0132_spec *spec)
++{
++	struct ca0132_ae5_led *led;
++
++	while (spec->ae5_leds_registered) {
++		spec->ae5_leds_registered--;
++		led = &spec->ae5_leds[spec->ae5_leds_registered];
++		led_classdev_multicolor_unregister(&led->mcdev);
++	}
++}
++
+ /*
+  * Special pci region2 commands that are only used by the AE-5. They follow
+  * a set format, and require reads at certain points to seemingly 'clear'
+@@ -7193,6 +7345,12 @@ static int ca0132_build_controls(struct hda_codec *codec)
+ 	if (ca0132_use_alt_functions(spec))
+ 		ca0132_alt_add_chmap_ctls(codec);
+ 
++	if (ca0132_quirk(spec) == QUIRK_AE5) {
++		err = ae5_register_leds(codec);
++		if (err < 0)
++			return err;
++	}
++
+ 	return 0;
+ }
+ 
+@@ -9577,6 +9735,12 @@ static int ca0132_init(struct hda_codec *codec)
+ 		ca0132_pe_switch_set(codec);
+ 	}
+ 
++	if (ca0132_quirk(spec) == QUIRK_AE5 && spec->ae5_led_cache_valid) {
++		guard(mutex)(&spec->chipio_mutex);
++
++		ae5_led_write_colors(codec);
++	}
++
+ 	return 0;
+ }
+ 
+@@ -9600,6 +9764,8 @@ static void ca0132_free(struct hda_codec *codec)
+ 	struct ca0132_spec *spec = codec->spec;
+ 
+ 	cancel_delayed_work_sync(&spec->unsol_hp_work);
++	if (ca0132_quirk(spec) == QUIRK_AE5)
++		ae5_unregister_leds(spec);
+ 	snd_hda_power_up(codec);
+ 	switch (ca0132_quirk(spec)) {
+ 	case QUIRK_SBZ:

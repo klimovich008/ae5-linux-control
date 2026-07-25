@@ -317,6 +317,16 @@ route fix, safe packaged control write, package install/removal, and exact host
 audio restoration. Reproduction commands and evidence are in
 [docs/LTS_KERNEL_VALIDATION.md](docs/LTS_KERNEL_VALIDATION.md).
 
+An additional upstream-based candidate now exposes the AE-5's five onboard
+RGB LEDs through Linux's standard multicolor LED class without `/dev/mem` or
+userspace MMIO. It passed strict source/build checks, a card-less boot, and a
+managed physical cycle covering solid RGB frames, independent per-LED values,
+brightness off/on, unchanged audio controls, and exact host recovery. Visual
+color confirmation and a least-privilege GUI path remain before the feature is
+complete; the external strip is not yet supported. The patch and evidence are
+in [kernel/README.md](kernel/README.md) and
+[docs/LTS_KERNEL_VALIDATION.md](docs/LTS_KERNEL_VALIDATION.md).
+
 The named-headphone-tuning gap, why the packaged `ctspeq.bin` must not be
 loaded on the AE-5, and the bounded driver experiment sequence are documented
 in

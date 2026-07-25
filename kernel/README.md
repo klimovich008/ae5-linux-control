@@ -1,19 +1,21 @@
 # CA0132 kernel patches
 
 These patches are independent, reviewable Linux changes and diagnostic
-experiments. The four functional patches were loaded together on the target
-AE-5 in a guarded KVM guest. The diagnostic SpeakerEQ probe was subsequently
-loaded in two guarded cycles and produced the bounded negative result described
-below. None changes the running host kernel merely by being present in this
-repository.
+experiments. The original four functional patches were loaded together on the
+target AE-5 in a guarded KVM guest. The onboard-LED candidate was then added to
+that same validated stack and exercised in a separate guarded cycle. The
+diagnostic SpeakerEQ probe was loaded separately in two earlier cycles and
+produced the bounded negative result described below. None changes the running
+host kernel merely by being present in this repository.
 
 ## Current upstream validation
 
 On 2026-07-25, a direct `git ls-remote` check confirmed that the ALSA
 maintainer tree's `for-next` head remained
-`61471f29f3157f33a61194bf82b4a289cc03e1f1`. In a separate clean worktree at
-that exact commit, all four functional patches applied both independently and
-as one series, and the combined tree passed `git diff --check`.
+`61471f29f3157f33a61194bf82b4a289cc03e1f1`. In separate clean worktrees at
+that exact commit, the original four functional patches and the onboard-LED
+candidate applied independently and in their tested series, and each resulting
+tree passed `git diff --check`.
 
 Strict `checkpatch.pl` reported no errors, warnings, or checks for the Wedge,
 factory-EQ, and What U Hear patches. The DSP-image patch reported only the
@@ -23,13 +25,67 @@ so no narrower MAINTAINERS entry is needed.
 
 The combined production `ca0132.o` and parser-test object rebuilt with `W=1`
 and warnings treated as errors. The `ca0132-dsp-image` KUnit suite then passed
-all four cases under x86-64 KVM in 58.419 seconds. No patch content needed
+all four cases under x86-64 KVM in 58.419 seconds. The LED-only upstream tree
+also built `ca0132.o` with the same warning gate, and strict `checkpatch.pl`
+reported zero findings for its 217 changed lines. No patch content needed
 rebasing or correction.
 
 External submission has not been performed. Each submitting contributor must
 personally add the Developer Certificate of Origin `Signed-off-by` line before
 sending a patch to the maintainer recipients reported by
 `scripts/get_maintainer.pl`.
+
+## AE-5 onboard multicolor LEDs
+
+[`ca0132-ae5-onboard-leds.patch`](ca0132-ae5-onboard-leds.patch) exposes the
+five onboard AE-5 LEDs through Linux's standard multicolor LED class. It does
+not use `/dev/mem`, map PCI resources into userspace, or implement the separate
+external-strip protocol.
+
+The public GPL OpenRGB history documents five internal APA102-compatible LEDs
+clocked through the AE-5's existing GPIO data and clock pins. The CA0132 driver
+already owns and maps the required PCI region and already provides
+`ca0113_mmio_gpio_set()` for those pins. The patch therefore keeps the complete
+transaction in the driver:
+
+- five devices named `hdaudioC*D*:rgb:ae5-1` through `ae5-5`;
+- standard `brightness`, `multi_index`, and `multi_intensity` attributes;
+- complete five-LED frames, with the existing `chipio_mutex` serializing MMIO;
+- HDA power references around userspace writes;
+- a full color cache restored when the codec is reinitialized;
+- LED unregistration before the PCI region is unmapped.
+
+The first write initializes every cached LED to the selected color. This
+prevents a partial update from transmitting uninitialized colors; later writes
+can address each LED independently.
+
+### Validation
+
+The exact patch is based on ALSA `for-next`
+`61471f29f3157f33a61194bf82b4a289cc03e1f1`. It passes `git diff --check`,
+strict `checkpatch.pl` with zero findings, and a `W=1 KCFLAGS=-Werror`
+`sound/hda/codecs/ca0132.o` build.
+
+It was also backported onto the physically validated Linux `6.18.40` stack.
+The complete `6.18.40-ae5-lts-rgb+` image and modules built successfully, and
+a card-less one-shot VM boot loaded both `snd-hda-codec-ca0132` and
+`led-class-multicolor` with no failed unit.
+
+A managed physical passthrough boot then:
+
+- received the exact `1102:0012/1102:0051` device and initialized the DSP once;
+- registered exactly five RGB devices with `red green blue` channel order;
+- accepted solid red, green, and blue frames, five independent RGB values, and
+  an individual brightness off/on cycle;
+- retained the exact 72-control guest mixer SHA-256 throughout;
+- produced no CA0132, HDA, timeout, lockup, or kernel warning.
+
+Visible color confirmation is still required before calling the protocol
+fully accepted. The sysfs attributes are root-owned and mode `0644`; app
+integration must add a narrowly scoped permission mechanism rather than
+running the GUI as root. The external WS2812 strip remains unsupported because
+the verified public implementation reaches it only through a private Windows
+driver command.
 
 ## AE-5 What U Hear mixer controls
 

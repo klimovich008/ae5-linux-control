@@ -150,10 +150,60 @@ again produced byte-identical host ALSA state, identical application controls,
 the expected WirePlumber/default-device state, the known host mixer hash, and a
 clean VFIO preflight.
 
+## Onboard RGB follow-up
+
+The separate
+[`ca0132-ae5-onboard-leds.patch`](../kernel/ca0132-ae5-onboard-leds.patch)
+was added to the same production LTS stack; the diagnostic SpeakerEQ probe was
+excluded. The resulting kernel reported `6.18.40-ae5-lts-rgb+`.
+
+The production CA0132 object and DSP parser-test object passed `W=1` with
+warnings as errors. The full `bzImage modules` build completed, the x86
+instruction decoder checked 7,889,417 real instructions, and the randomized
+instruction test completed 1,000,000 cases with no error. Important SHA-256
+values were:
+
+| Artifact | SHA-256 |
+|---|---|
+| `arch/x86/boot/bzImage` | `d4f11b32742a8a13ed40199a4857c87c585aabd8485822a0f36398c9a2b9673c` |
+| `vmlinux` | `733e30dfd30155119babb22e2e6ffa4bfdfc7463c553aa49a7349ffecd66eff8` |
+| `System.map` | `14fb38af2bced8982aa24462d498dd58a8c29d71bb8ef9daa04348994d1a4787` |
+| `snd-hda-codec-ca0132.ko` | `f39b0e3a37d384d9d4f1e1e0dcef01e847c2e8e8b56732f820f97523617d1eda` |
+| `led-class-multicolor.ko` | `574cbf4c44857daa48036390d2e01e57d6c3621dd11821954d7efc74207d69ea` |
+
+The candidate was installed as an additional BLS entry with the late-probe
+kernel retained as the saved fallback. A one-shot card-less boot loaded both
+modules, reported no AE-5 LED as expected, and had zero failed units.
+
+The managed physical cycle then received `1102:0012/1102:0051` at
+`0000:07:00.0`, bound it to `snd_hda_intel`, and initialized the CA0132 DSP
+exactly once. It exposed five devices named
+`hdaudioC0D1:rgb:ae5-1` through `ae5-5`. Each reported:
+
+- `multi_index` as `red green blue`;
+- `brightness` and `max_brightness` as `255`;
+- `multi_intensity` as three independently writable channel values.
+
+Root-owned writes exercised solid red, green, and blue, a five-color
+per-LED pattern, and one LED's brightness off/on path. Every value read back
+through the LED class. The complete 72-control guest mixer hash remained
+`c5d3a2673054ea6b71b562e3f12923c51c00af9c79af17137948e4474818de68`,
+no PCM was open, the DSP initialized only once, no unit failed, and no
+CA0132/HDA timeout, lockup, or warning appeared.
+
+Visible color confirmation remains an acceptance gate. After clean shutdown,
+the host recovered without a fallback restore: raw ALSA state and all 47 app
+controls were byte-identical, the mixer hash returned to
+`3e595532348efe1e2e9c066039131e97505cb9b71bc6bfd8fa8a59301091e802`,
+all three WirePlumber state files were byte-identical, the AE-5 and Fifine
+defaults returned, the hostdev was absent, and VFIO preflight passed.
+
 ## Remaining limits
 
 This maintained-LTS cycle proves buildability, parser safety, bootability,
 physical initialization, control defaults, manual-route behavior, one safe
-app write, package install/removal, and host recovery. It does not replace the
-remaining bare-metal cold-boot, suspend/resume, speaker/line-out/digital,
-analog-input, long-duration stability, and Windows analog-parity gates.
+app write, onboard-LED class registration/writes, package install/removal, and
+host recovery. It does not replace visible LED confirmation, a least-privilege
+GUI path, the external-strip protocol, or the remaining bare-metal cold-boot,
+suspend/resume, speaker/line-out/digital, analog-input, long-duration
+stability, and Windows analog-parity gates.

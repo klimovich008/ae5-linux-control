@@ -7,7 +7,7 @@ the host kernel. It cannot replace final cold-boot, suspend, and recovery tests
 on the host.
 
 The virtualization stack, session guest, and system guest were installed on
-2026-07-24. Six guarded managed-passthrough cycles have now completed; the
+2026-07-24. Nine guarded managed-passthrough cycles have now completed; the
 hostdev was removed afterward and both guests are powered off.
 
 Run the read-only, fail-closed hardware check at any time:
@@ -397,11 +397,27 @@ remained, and VFIO preflight passed. Because the query failed, its three-boot
 address-stability and 50-switch success gates were not applicable; the
 non-probe kernels retain their separate routing and 50-switch evidence.
 
+The ninth cycle added the five-onboard-LED candidate to the maintained
+`6.18.40` production stack, without the diagnostic SpeakerEQ probe. A
+card-less boot first verified the new CA0132 and multicolor LED module
+dependency. The physical boot then registered exactly five standard
+multicolor devices and accepted solid red, green, and blue frames, independent
+per-LED values, and an individual brightness off/on transition. The DSP
+initialized once, the complete guest mixer hash stayed unchanged, no PCM was
+open, and no relevant warning appeared. Visible color confirmation remains
+required.
+
+That shutdown again returned the exact raw ALSA and 47-control app state,
+complete mixer hash, all three WirePlumber files, AE-5/Fifine defaults,
+`snd_hda_intel` binding, clean inactive domain XML, and ready VFIO preflight.
+The kernel artifacts and detailed LED-class evidence are recorded in
+[`LTS_KERNEL_VALIDATION.md`](LTS_KERNEL_VALIDATION.md).
+
 The powered-off system volume passed `qemu-img check` after all five cycles
 and had SHA-256
 `d7ee6ed48b3ba5800e5c93576fdbbec76bbe0eb81d2708c59dd600058262a664`.
 The image is root-owned mode `0600`; the check could not be repeated after the
-sixth through eighth cycles without interactive host authorization. Libvirt
+sixth through ninth cycles without interactive host authorization. Libvirt
 completed each shutdown without a storage error.
 The untouched standalone recovery image retained SHA-256
 `bfca0fdfa57cc7b9fab13c91a2a58584233c257638f636573b85a29c1d091637`.

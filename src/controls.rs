@@ -1,4 +1,4 @@
-use crate::pipewire::set_ae5_control_route;
+use crate::pipewire::{set_ae5_control_route, suspend_ae5_output};
 use alsa::mixer::{Mixer, Selem, SelemChannelId};
 use std::error::Error;
 use std::fmt;
@@ -18,8 +18,11 @@ const CHANNELS: &[SelemChannelId] = &[
 ];
 
 pub(crate) const EQUALIZER_PRESET_CONTROL: &str = "FX: Equalizer Preset";
+pub const DIRECT_MODE_CONTROL: &str = "AE-5: Direct Mode";
 const EQUALIZER_BAND_EDIT_BLOCK: &str = "Factory EQ presets use DSP values that the individual \
     1 dB controls cannot represent reliably. Select Flat before editing custom bands.";
+const DIRECT_MODE_DSP_BLOCK: &str = "Direct Mode bypasses the CA0132 DSP, so this control has no \
+    effect. Disable Direct Mode first.";
 const INEFFECTIVE_WHAT_U_HEAR_CONTROL: &str = "The AE-5 DSP loopback bypasses this advertised \
     HDA gain and mute control. Use the recording application's stream-level volume or mute.";
 
@@ -76,6 +79,9 @@ pub fn playback_switch_block_reason(
     if !enabled {
         return None;
     }
+    if let Some(reason) = direct_mode_block_reason(name, controls) {
+        return Some(reason);
+    }
     let speakers_selected = controls.iter().any(|control| {
         control.name == "Output Select" && control.selected.as_deref() == Some("Speakers")
     });
@@ -113,12 +119,25 @@ pub fn equalizer_band_block_reason(
     if !is_equalizer_band(name) {
         return None;
     }
+    if let Some(reason) = direct_mode_block_reason(name, controls) {
+        return Some(reason);
+    }
     controls
         .iter()
         .find(|control| control.name == EQUALIZER_PRESET_CONTROL)
         .and_then(|control| control.selected.as_deref())
         .filter(|preset| !preset.eq_ignore_ascii_case("Flat"))
         .map(|_| EQUALIZER_BAND_EDIT_BLOCK)
+}
+
+pub fn direct_mode_block_reason(name: &str, controls: &[ControlSnapshot]) -> Option<&'static str> {
+    if name == DIRECT_MODE_CONTROL || !is_direct_mode_bypassed_control(name, controls) {
+        return None;
+    }
+    controls
+        .iter()
+        .any(|control| control.name == DIRECT_MODE_CONTROL && control.playback_switch == Some(true))
+        .then_some(DIRECT_MODE_DSP_BLOCK)
 }
 
 pub fn capture_control_block_reason(name: &str) -> Option<&'static str> {
@@ -128,6 +147,34 @@ pub fn capture_control_block_reason(name: &str) -> Option<&'static str> {
 pub(crate) fn is_equalizer_band(name: &str) -> bool {
     name.strip_prefix("EQ Band")
         .is_some_and(|band| band.parse::<u8>().is_ok_and(|band| band < 10))
+}
+
+fn is_direct_mode_bypassed_control(name: &str, controls: &[ControlSnapshot]) -> bool {
+    let is_playback_effect = controls.iter().any(|control| {
+        control.name == name
+            && name.starts_with("FX:")
+            && (control.playback_switch.is_some() || control.playback_level.is_some())
+    });
+
+    name == "Enable OutFX"
+        || is_playback_effect
+        || name.starts_with("EQ Band")
+        || matches!(
+            name,
+            "FX: Equalizer Preset"
+                | "FX: Smart Volume Setting"
+                | "FX: X-Bass Crossover"
+                | "Bass Redirection"
+                | "Bass Redirection Crossover"
+                | "Surround Channel Config"
+                | "Full-Range Front Speakers"
+                | "Full-Range Rear Speakers"
+                | "Front"
+                | "Surround"
+                | "Center"
+                | "LFE"
+                | "Master"
+        )
 }
 
 pub(crate) fn invalid_bass_state_reason(controls: &[ControlSnapshot]) -> Option<&'static str> {
@@ -255,10 +302,30 @@ impl Ae5Mixer {
         {
             return Err(ControlError::Invalid(reason.to_owned()));
         }
-        element.set_playback_switch_all(i32::from(enabled))?;
-        let actual = read_control(element)?;
-        verify(name, "playback switch", enabled, actual.playback_switch)?;
-        Ok(actual)
+        if name == DIRECT_MODE_CONTROL {
+            let current = self.snapshot(name)?;
+            if current.playback_switch == Some(enabled) {
+                return Ok(current);
+            }
+        }
+        let set_and_verify = || {
+            element.set_playback_switch_all(i32::from(enabled))?;
+            let actual = read_control(element)?;
+            verify(name, "playback switch", enabled, actual.playback_switch)?;
+            Ok(actual)
+        };
+        if name != DIRECT_MODE_CONTROL {
+            return set_and_verify();
+        }
+
+        let suspended = suspend_ae5_output(self.card_index)?;
+        let result = set_and_verify();
+        let resumed = suspended.resume().map_err(ControlError::from);
+        match (result, resumed) {
+            (Ok(actual), Ok(())) => Ok(actual),
+            (Err(error), _) => Err(error),
+            (Ok(_), Err(error)) => Err(error),
+        }
     }
 
     pub fn set_capture_switch(
@@ -592,7 +659,7 @@ impl fmt::Display for ControlError {
     fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Alsa(error) => write!(output, "{error}"),
-            Self::DesktopRoute(error) => write!(output, "desktop route failed: {error}"),
+            Self::DesktopRoute(error) => write!(output, "desktop audio operation failed: {error}"),
             Self::Missing(name) => write!(output, "ALSA control '{name}' is unavailable"),
             Self::Invalid(message) | Self::Verification(message) => output.write_str(message),
         }
@@ -688,6 +755,20 @@ mod tests {
             choices: Vec::new(),
             playback_switch: Some(enabled),
             capture_switch: None,
+            playback_level: None,
+            capture_level: None,
+            playback_channels: Vec::new(),
+            capture_channels: Vec::new(),
+        }
+    }
+
+    fn capture_switch(name: &str, enabled: bool) -> ControlSnapshot {
+        ControlSnapshot {
+            name: name.to_owned(),
+            selected: None,
+            choices: Vec::new(),
+            playback_switch: None,
+            capture_switch: Some(enabled),
             playback_level: None,
             capture_level: None,
             playback_channels: Vec::new(),
@@ -813,6 +894,53 @@ mod tests {
 
         controls[0].selected = Some("Flat".to_owned());
         assert_eq!(equalizer_band_block_reason("EQ Band9", &controls), None);
+    }
+
+    #[test]
+    fn marks_only_dsp_playback_controls_unavailable_in_direct_mode() {
+        let controls = vec![
+            playback_switch(DIRECT_MODE_CONTROL, true),
+            playback_switch("FX: Surround", false),
+            capture_switch("FX: Noise Reduction", true),
+        ];
+
+        assert_eq!(
+            direct_mode_block_reason("FX: Surround", &controls),
+            Some(DIRECT_MODE_DSP_BLOCK)
+        );
+        assert_eq!(
+            playback_switch_block_reason("FX: Surround", true, &controls),
+            Some(DIRECT_MODE_DSP_BLOCK)
+        );
+        assert_eq!(
+            playback_switch_block_reason("FX: Surround", false, &controls),
+            None
+        );
+        assert_eq!(
+            equalizer_band_block_reason("EQ Band0", &controls),
+            Some(DIRECT_MODE_DSP_BLOCK)
+        );
+        assert_eq!(
+            direct_mode_block_reason("Surround Channel Config", &controls),
+            Some(DIRECT_MODE_DSP_BLOCK)
+        );
+        assert_eq!(
+            direct_mode_block_reason("FX: Noise Reduction", &controls),
+            None
+        );
+        assert_eq!(direct_mode_block_reason("VoiceFX", &controls), None);
+        assert_eq!(
+            direct_mode_block_reason("AE-5: Sound Filter", &controls),
+            None
+        );
+        assert_eq!(
+            direct_mode_block_reason("AE-5: Headphone Gain", &controls),
+            None
+        );
+        assert_eq!(
+            direct_mode_block_reason(DIRECT_MODE_CONTROL, &controls),
+            None
+        );
     }
 
     #[test]

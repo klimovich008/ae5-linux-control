@@ -27,7 +27,9 @@ This is more promising than starting a driver from scratch:
   line-out, surround, and digital output when it was submitted upstream.
 - RGB, true Direct Mode, some speaker calibration functions, Scout Mode, and
   licensed Dolby/DTS encoding are not equivalent to ordinary ALSA mixer
-  controls and require separate, capability-specific interfaces.
+  controls and require separate, capability-specific interfaces. The first
+  AE-5 Direct Mode interface is now implemented as a kernel candidate but
+  remains outside the support claim until physical validation.
 
 Therefore the project has two tracks:
 
@@ -72,7 +74,8 @@ tested against a Windows reference and on real Linux hardware.
 
 ### Investigate after Version 1
 
-- A genuine DSP-bypass Direct Mode and its supported sample formats.
+- Higher Direct Mode rates, but only after the candidate's existing stereo
+  formats are proven on physical Linux hardware.
 - Per-channel speaker level and delay calibration.
 - Reliable desktop echo cancellation.
 - External-strip RGB control.
@@ -110,7 +113,7 @@ what the installed kernel actually exposes on the user's card.
 | Noise reduction/Mic SVM/VoiceFX | Exposed by driver | Wrap controls and presets |
 | Echo cancellation | Code exists, but is deliberately skipped on desktop cards because it is known to break them | Keep disabled until a driver fix is proven |
 | What U Hear | Exposed as capture PCM/mixer controls | Test and expose if present |
-| True Direct Mode | No clear public ALSA control | Driver research gate |
+| True Direct Mode | AE-5-only ALSA switch candidate with safe open-PCM exclusion and normal-route restoration | Run the physical acceptance matrix before enabling the support claim |
 | Speaker distance calibration | Hardware requests are known internally but not offered as a stable public control | Driver or PipeWire research gate |
 | Onboard RGB/Aurora | Five-device multicolor LED-class candidate, normal-user backend, and native GTK dialog are validated | Visibly confirm one GUI-selected color on the physical card |
 | External-strip RGB | No current `ca0132` interface | Continue as a separate kernel/OpenRGB workstream |
@@ -367,9 +370,9 @@ Isolation order:
    relevant ALSA control and driver default.
 4. Compare DSP-disabled stereo, DSP-enabled flat, each DAC filter, each
    headphone gain, and representative SBX settings separately.
-5. Investigate known upstream gaps as hypotheses: true Direct Mode is not
-   exposed, the driver comments that `ctspeq.bin` speaker/headphone EQ data is
-   unused, and output selection currently clears
+5. Investigate known upstream gaps as hypotheses: the Direct Mode candidate is
+   not yet physically proven, the driver comments that `ctspeq.bin`
+   speaker/headphone EQ data is unused, and output selection currently clears
    `SPEAKER_TUNING_USE_SPEAKER_EQ`.
 6. Reproduce the Windows register/DSP sequence for the first divergent mode,
    implement only the understood missing step in `ca0132`, and rerun the full
@@ -578,8 +581,10 @@ Each feature is a separate investigation and patch series:
 
 Candidate order:
 
-1. Remaining measured Windows-parity gap from Phase 1A.
-2. True Direct Mode and supported high-resolution formats.
+1. Physically validate the implemented Direct Mode transition and its existing
+   stereo formats.
+2. Add higher Direct Mode rates only if converter and output measurements
+   prove them.
 3. Speaker level/delay calibration.
 4. Desktop echo cancellation, only if it can be made reliable.
 5. External-strip RGB, extending the now-validated onboard kernel LED
@@ -611,6 +616,11 @@ a no-device boot, root LED-class exercise, and a normal-user package cycle on
 the physical card. The native GTK dialog path passed separately in a real
 desktop session with an isolated LED-class fixture; visible color confirmation
 on the card remains open.
+The AE-5 Direct Mode candidate reconstructs the known normal route, excludes
+open-PCM transitions, and passes strict kernel style/object builds plus all 59
+Rust/GTK tests. It has not been loaded; audible bypass, format, stress,
+suspend/resume, and reboot gates are tracked in
+`docs/DIRECT_MODE_INVESTIGATION.md`.
 
 Exit criterion for each feature: the new interface has readback, validation,
 power-management coverage, clean kernel logs, and repeatable hardware results.
@@ -817,8 +827,8 @@ heard once.”
 If the stock controls behave as the upstream source indicates, a useful audio
 control MVP should be much smaller than a full driver project. Full
 Sound Blaster Command parity remains an open-ended reverse-engineering project,
-mainly because of Direct Mode, external-strip RGB, Scout features, and licensed
-encoding.
+mainly because Direct Mode still needs physical acceptance, while
+external-strip RGB, Scout features, and licensed encoding remain unresolved.
 
 ## 10. Primary references
 

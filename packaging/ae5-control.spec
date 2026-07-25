@@ -19,6 +19,7 @@ BuildRequires:  systemd-udev
 Requires:       hicolor-icon-theme
 Requires:       pipewire-libs
 Requires:       pipewire-utils
+Requires:       pulseaudio-utils
 Requires:       systemd-udev
 Requires:       wireplumber
 
@@ -29,7 +30,8 @@ AE-5 Control provides native GTK and command-line interfaces for the verified
 ALSA controls exposed by Linux for the Creative Sound BlasterX AE-5. It
 supports hardware routing, DSP effects, equalizer settings, native profiles,
 onboard lighting through the kernel LED class, and conversion of compatible
-Sound Blaster Command JSON profiles.
+Sound Blaster Command JSON profiles. On kernels carrying the optional AE-5
+Direct Mode interface, it safely coordinates route transitions with PipeWire.
 
 %prep
 %autosetup

@@ -1,14 +1,15 @@
 use ae5_control::{
     Ae5Device, Ae5Lighting, Ae5Mixer, ChannelLevel, ControlError, ControlSnapshot,
-    LINUX_DRIVER_DEFAULTS_PRESERVED, Level, NativeRatesConfig, ONBOARD_LED_COUNT, PipeWireNode,
-    PipeWireRouteState, Profile, ProfileControl, RgbColor, SbCommandImport, SbCommandTarget,
-    ae5_input, ae5_output, ae5_route_state, apply_linux_driver_defaults,
-    capture_control_block_reason, discover_sbcommand_installation, equalizer_band_block_reason,
-    export_library_profile, import_discovered_sbcommand_profile_with_report,
-    import_sbcommand_profile_with_report, library_profile, linux_driver_defaults_for,
-    native_rates_config, playback_switch_block_reason, profile_library, profile_library_directory,
-    rename_library_profile, set_ae5_default_input, set_ae5_default_output,
-    set_native_rates_enabled, set_saved_led, set_saved_lighting, snapshot_controls,
+    DIRECT_MODE_CONTROL, LINUX_DRIVER_DEFAULTS_PRESERVED, Level, NativeRatesConfig,
+    ONBOARD_LED_COUNT, PipeWireNode, PipeWireRouteState, Profile, ProfileControl, RgbColor,
+    SbCommandImport, SbCommandTarget, ae5_input, ae5_output, ae5_route_state,
+    apply_linux_driver_defaults, capture_control_block_reason, direct_mode_block_reason,
+    discover_sbcommand_installation, equalizer_band_block_reason, export_library_profile,
+    import_discovered_sbcommand_profile_with_report, import_sbcommand_profile_with_report,
+    library_profile, linux_driver_defaults_for, native_rates_config, playback_switch_block_reason,
+    profile_library, profile_library_directory, rename_library_profile, set_ae5_default_input,
+    set_ae5_default_output, set_native_rates_enabled, set_saved_led, set_saved_lighting,
+    snapshot_controls,
 };
 use gtk::prelude::*;
 use gtk::{gdk::Display, gio};
@@ -27,6 +28,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 const APP_ID: &str = "io.github.klimovich008.ae5control";
 const MAIN_STACK_NAME: &str = "main-navigation";
 const PERFORMANCE_PROBE: &str = "AE5_CONTROL_PERFORMANCE_PROBE";
+const DIRECT_MODE_DESCRIPTION: &str = "Bypasses CA0132 DSP processing for a stereo hardware path. \
+    AE-5 Control briefly suspends PipeWire while switching; use stream or software volume because \
+    the card's DSP effects and hardware playback levels are bypassed.";
 
 fn main() -> gtk::glib::ExitCode {
     if std::env::var_os("GSK_RENDERER").is_none() {
@@ -1844,14 +1848,15 @@ fn control_page<'a>(
         let playback_switch_block = (control.playback_switch == Some(false))
             .then(|| playback_switch_block_reason(&control.name, true, all_controls))
             .flatten();
-        let level_block = equalizer_band_block_reason(&control.name, all_controls);
+        let edit_block = direct_mode_block_reason(&control.name, all_controls)
+            .or_else(|| equalizer_band_block_reason(&control.name, all_controls));
         let capture_block = capture_control_block_reason(&control.name);
         list.append(&control_row(
             card_index,
             status,
             control,
             playback_switch_block,
-            level_block,
+            edit_block,
             capture_block,
         ));
     }
@@ -1874,7 +1879,7 @@ fn control_row(
     status: &gtk::Label,
     control: &ControlSnapshot,
     playback_switch_block: Option<&str>,
-    level_block: Option<&str>,
+    edit_block: Option<&str>,
     capture_block: Option<&str>,
 ) -> gtk::ListBoxRow {
     let row = gtk::Box::new(gtk::Orientation::Horizontal, 24);
@@ -1886,7 +1891,12 @@ fn control_row(
     name.set_xalign(0.0);
     name.set_wrap(true);
     labels.append(&name);
-    if let Some(message) = playback_switch_block.or(level_block).or(capture_block) {
+    let explanation = (control.name == DIRECT_MODE_CONTROL)
+        .then_some(DIRECT_MODE_DESCRIPTION)
+        .or(playback_switch_block)
+        .or(edit_block)
+        .or(capture_block);
+    if let Some(message) = explanation {
         let explanation = gtk::Label::new(Some(message));
         explanation.set_xalign(0.0);
         explanation.set_wrap(true);
@@ -1913,11 +1923,16 @@ fn control_row(
             status,
             control,
             high_gain_permission,
+            edit_block,
         ));
     }
     if let Some(enabled) = control.playback_switch {
         editors.append(&labelled(
-            "Playback",
+            if control.name == DIRECT_MODE_CONTROL {
+                "Enabled"
+            } else {
+                "Playback"
+            },
             &switch_editor(
                 card_index,
                 status,
@@ -1936,7 +1951,7 @@ fn control_row(
             level,
             &control.playback_channels,
             false,
-            level_block,
+            edit_block,
         ));
     }
     if let Some(enabled) = control.capture_switch {
@@ -1970,10 +1985,7 @@ fn control_row(
         .selectable(false)
         .child(&row)
         .build();
-    let description = control_row_description(
-        control,
-        playback_switch_block.or(level_block).or(capture_block),
-    );
+    let description = control_row_description(control, explanation);
     list_row.update_property(&[
         gtk::accessible::Property::Label(&control.name),
         gtk::accessible::Property::Description(&description),
@@ -1998,6 +2010,7 @@ fn choice_editor(
     status: &gtk::Label,
     control: &ControlSnapshot,
     high_gain_permission: Option<gtk::CheckButton>,
+    block_reason: Option<&str>,
 ) -> gtk::DropDown {
     let choices = control
         .choices
@@ -2016,6 +2029,10 @@ fn choice_editor(
         .unwrap_or_default() as u32;
     dropdown.set_selected(selected);
     dropdown.set_tooltip_text(Some("Changes are written and read back immediately."));
+    if let Some(reason) = block_reason {
+        dropdown.set_sensitive(false);
+        dropdown.set_tooltip_text(Some(reason));
+    }
 
     let verified = Rc::new(Cell::new(selected));
     let updating = Rc::new(Cell::new(false));

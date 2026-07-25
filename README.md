@@ -359,6 +359,17 @@ The exact Nobara/upstream driver source, public research references, firmware
 licence boundary, and pinned revisions are recorded in
 [docs/SOURCE_INVENTORY.md](docs/SOURCE_INVENTORY.md).
 
+A later AE-5-only Direct Mode candidate now exposes a standard ALSA playback
+switch, refuses to reroute an open PCM, restricts direct playback to stereo,
+and reconstructs the normal DSP route when disabled. The Rust CLI and GTK app
+detect it only when the patched kernel supplies it; they briefly suspend the
+AE-5 PipeWire sink to make the transition safely and explain which DSP
+controls are bypassed. Strict kernel style checking, object compilation, all
+59 Rust/GTK tests, and Clippy pass, but no live hardware write has been made,
+so Direct Mode remains deferred. The independent driver comparison, patch, and
+physical acceptance matrix are in
+[docs/DIRECT_MODE_INVESTIGATION.md](docs/DIRECT_MODE_INVESTIGATION.md).
+
 The target host can safely isolate the AE-5 for Linux-guest kernel A/B tests.
 Before any passthrough setup, run the non-mutating gate:
 

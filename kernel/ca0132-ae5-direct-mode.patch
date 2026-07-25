@@ -1,0 +1,232 @@
+diff --git a/sound/hda/codecs/ca0132.c b/sound/hda/codecs/ca0132.c
+index 3fe11983d..73b4f0bed 100644
+--- a/sound/hda/codecs/ca0132.c
++++ b/sound/hda/codecs/ca0132.c
+@@ -1129,6 +1129,10 @@ struct ca0132_spec {
+ 	long eq_preset_val;
+ 	unsigned int tlv[4];
+ 	struct hda_vmaster_mute_hook vmaster_mute;
++	/* AE-5 Direct Mode state */
++	struct mutex ae5_direct_mutex;
++	bool ae5_direct_mode;
++	bool ae5_playback_open;
+ 	/* AE-5 Control values */
+ 	unsigned char ae5_headphone_gain_val;
+ 	unsigned char ae5_filter_val;
+@@ -3894,6 +3898,48 @@ static int ca0132_playback_pcm_prepare(struct hda_pcm_stream *hinfo,
+ 	return 0;
+ }
+ 
++static int ca0132_playback_pcm_open(struct hda_pcm_stream *hinfo,
++				    struct hda_codec *codec,
++				    struct snd_pcm_substream *substream)
++{
++	struct ca0132_spec *spec = codec->spec;
++	int err;
++
++	if (ca0132_quirk(spec) != QUIRK_AE5)
++		return 0;
++
++	guard(mutex)(&spec->ae5_direct_mutex);
++
++	if (spec->ae5_playback_open)
++		return -EBUSY;
++
++	if (spec->ae5_direct_mode) {
++		err = snd_pcm_hw_constraint_minmax(substream->runtime,
++						   SNDRV_PCM_HW_PARAM_CHANNELS,
++						   2, 2);
++		if (err < 0)
++			return err;
++	}
++
++	spec->ae5_playback_open = true;
++	return 0;
++}
++
++static int ca0132_playback_pcm_close(struct hda_pcm_stream *hinfo,
++				     struct hda_codec *codec,
++				     struct snd_pcm_substream *substream)
++{
++	struct ca0132_spec *spec = codec->spec;
++
++	if (ca0132_quirk(spec) == QUIRK_AE5) {
++		guard(mutex)(&spec->ae5_direct_mutex);
++
++		spec->ae5_playback_open = false;
++	}
++
++	return 0;
++}
++
+ static int ca0132_playback_pcm_cleanup(struct hda_pcm_stream *hinfo,
+ 			struct hda_codec *codec,
+ 			struct snd_pcm_substream *substream)
+@@ -3905,7 +3951,8 @@ static int ca0132_playback_pcm_cleanup(struct hda_pcm_stream *hinfo,
+ 
+ 	/*If Playback effects are on, allow stream some time to flush
+ 	 *effects tail*/
+-	if (spec->effects_switch[PLAY_ENHANCEMENT - EFFECT_START_NID])
++	if (!spec->ae5_direct_mode &&
++	    spec->effects_switch[PLAY_ENHANCEMENT - EFFECT_START_NID])
+ 		msleep(50);
+ 
+ 	snd_hda_codec_cleanup_stream(codec, spec->dacs[0]);
+@@ -3924,6 +3971,9 @@ static unsigned int ca0132_playback_pcm_delay(struct hda_pcm_stream *info,
+ 	if (spec->dsp_state != DSP_DOWNLOADED)
+ 		return 0;
+ 
++	if (spec->ae5_direct_mode)
++		return 0;
++
+ 	/* Add latency if playback enhancement and either effect is enabled. */
+ 	if (spec->effects_switch[PLAY_ENHANCEMENT - EFFECT_START_NID]) {
+ 		if ((spec->effects_switch[SURROUND - EFFECT_START_NID]) ||
+@@ -5932,6 +5982,84 @@ static int ae5_sound_filter_put(struct snd_kcontrol *kcontrol,
+ 	return 1;
+ }
+ 
++/*
++ * Direct Mode bypasses the CA0132 DSP playback path. The AE-5 Windows driver
++ * stops stream 0x18 when enabling it and reconstructs the normal 96 kHz ASI
++ * path when disabling it.
++ */
++static int ae5_direct_mode_set(struct hda_codec *codec, bool enable)
++{
++	struct ca0132_spec *spec = codec->spec;
++	unsigned int stream_enabled;
++
++	guard(mutex)(&spec->chipio_mutex);
++
++	if (enable) {
++		chipio_set_stream_control(codec, 0x18, 0);
++	} else {
++		chipio_set_stream_source_dest(codec, 0x05, 0x43, 0x00);
++		chipio_set_stream_source_dest(codec, 0x18, 0x09, 0xd0);
++		chipio_set_conn_rate_no_mutex(codec, 0xd0, SR_96_000);
++		chipio_set_stream_channels(codec, 0x18, 6);
++		chipio_set_stream_control(codec, 0x18, 1);
++		chipio_set_control_param_no_mutex(codec, CONTROL_PARAM_ASI, 7);
++	}
++
++	chipio_get_stream_control(codec, 0x18, &stream_enabled);
++	if (!!stream_enabled != !enable) {
++		codec_err(codec,
++			  "AE-5 Direct Mode: stream 0x18 transition failed\n");
++		return -EIO;
++	}
++
++	return 0;
++}
++
++static int ae5_direct_mode_get(struct snd_kcontrol *kcontrol,
++			       struct snd_ctl_elem_value *ucontrol)
++{
++	struct hda_codec *codec = snd_kcontrol_chip(kcontrol);
++	struct ca0132_spec *spec = codec->spec;
++
++	guard(mutex)(&spec->ae5_direct_mutex);
++
++	ucontrol->value.integer.value[0] = spec->ae5_direct_mode;
++	return 0;
++}
++
++static int ae5_direct_mode_put(struct snd_kcontrol *kcontrol,
++			       struct snd_ctl_elem_value *ucontrol)
++{
++	struct hda_codec *codec = snd_kcontrol_chip(kcontrol);
++	struct ca0132_spec *spec = codec->spec;
++	bool enable = !!ucontrol->value.integer.value[0];
++	int err;
++
++	scoped_guard(mutex, &spec->ae5_direct_mutex) {
++		if (spec->ae5_playback_open)
++			return -EBUSY;
++		if (spec->ae5_direct_mode == enable)
++			return 0;
++	}
++
++	CLASS(snd_hda_power_pm, pm)(codec);
++	guard(mutex)(&spec->ae5_direct_mutex);
++
++	if (spec->ae5_playback_open)
++		return -EBUSY;
++	if (spec->ae5_direct_mode == enable)
++		return 0;
++	if (spec->dsp_state != DSP_DOWNLOADED)
++		return -EIO;
++
++	err = ae5_direct_mode_set(codec, enable);
++	if (err < 0)
++		return err;
++
++	spec->ae5_direct_mode = enable;
++	return 1;
++}
++
+ /*
+  * Input Select Control for alternative ca0132 codecs. This exists because
+  * front microphone has no auto-detect, and we need a way to set the rear
+@@ -6879,6 +7007,19 @@ static int ae5_add_sound_filter_enum(struct hda_codec *codec)
+ 				snd_ctl_new1(&knew, codec));
+ }
+ 
++static int ae5_add_direct_mode_switch(struct hda_codec *codec)
++{
++	static const struct snd_kcontrol_new knew = {
++		.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
++		.name = "AE-5: Direct Mode Playback Switch",
++		.info = snd_ctl_boolean_mono_info,
++		.get = ae5_direct_mode_get,
++		.put = ae5_direct_mode_put,
++	};
++
++	return snd_hda_ctl_add(codec, 0, snd_ctl_new1(&knew, codec));
++}
++
+ static int zxr_add_headphone_gain_switch(struct hda_codec *codec)
+ {
+ 	struct snd_kcontrol_new knew =
+@@ -7148,6 +7289,10 @@ static int ca0132_build_controls(struct hda_codec *codec)
+ 
+ 	switch (ca0132_quirk(spec)) {
+ 	case QUIRK_AE5:
++		err = ae5_add_direct_mode_switch(codec);
++		if (err < 0)
++			return err;
++		fallthrough;
+ 	case QUIRK_AE7:
+ 		err = ae5_add_headphone_gain_enum(codec);
+ 		if (err < 0)
+@@ -7225,6 +7370,8 @@ static const struct hda_pcm_stream ca0132_pcm_analog_playback = {
+ 	.channels_min = 2,
+ 	.channels_max = 6,
+ 	.ops = {
++		.open = ca0132_playback_pcm_open,
++		.close = ca0132_playback_pcm_close,
+ 		.prepare = ca0132_playback_pcm_prepare,
+ 		.cleanup = ca0132_playback_pcm_cleanup,
+ 		.get_delay = ca0132_playback_pcm_delay,
+@@ -8746,6 +8893,7 @@ static void ca0132_init_chip(struct hda_codec *codec)
+ 	unsigned int on;
+ 
+ 	mutex_init(&spec->chipio_mutex);
++	mutex_init(&spec->ae5_direct_mutex);
+ 
+ 	/*
+ 	 * The Windows driver always does this upon startup, which seems to
+@@ -9525,6 +9673,14 @@ static int ca0132_init(struct hda_codec *codec)
+ 		break;
+ 	case QUIRK_AE5:
+ 		ae5_setup_defaults(codec);
++		scoped_guard(mutex, &spec->ae5_direct_mutex) {
++			if (spec->ae5_direct_mode &&
++			    ae5_direct_mode_set(codec, true) < 0) {
++				codec_warn(codec,
++					   "failed to restore AE-5 Direct Mode\n");
++				spec->ae5_direct_mode = false;
++			}
++		}
+ 		break;
+ 	case QUIRK_AE7:
+ 		ae7_setup_defaults(codec);

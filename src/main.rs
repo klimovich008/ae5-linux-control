@@ -1,7 +1,7 @@
 use ae5_control::{
-    Ae5Device, Ae5Lighting, Ae5Mixer, LINUX_DRIVER_DEFAULTS_PRESERVED, ONBOARD_LED_COUNT,
-    PipeWireNode, PipeWireRouteState, Profile, RgbColor, SbCommandImportReport, SbCommandTarget,
-    ae5_input, ae5_output, ae5_route_state, apply_linux_driver_defaults,
+    Ae5Device, Ae5Lighting, Ae5Mixer, DIRECT_MODE_CONTROL, LINUX_DRIVER_DEFAULTS_PRESERVED,
+    ONBOARD_LED_COUNT, PipeWireNode, PipeWireRouteState, Profile, RgbColor, SbCommandImportReport,
+    SbCommandTarget, ae5_input, ae5_output, ae5_route_state, apply_linux_driver_defaults,
     discover_sbcommand_installation, export_library_profile,
     import_active_sbcommand_profile_with_report, import_discovered_sbcommand_profile_with_report,
     import_sbcommand_profile_with_report, lighting_config_path, linux_driver_defaults,
@@ -19,6 +19,7 @@ const IMPORTANT_CONTROLS: &[&str] = &[
     "HP/Speaker Auto Detect",
     "AE-5: Headphone Gain",
     "AE-5: Sound Filter",
+    DIRECT_MODE_CONTROL,
     "Surround Channel Config",
     "Input Source",
     "Enable OutFX",

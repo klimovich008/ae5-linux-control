@@ -25,7 +25,9 @@ shared Front DAC. The same profile exposes exact Microphone, Front Microphone,
 and Line In routes for the card's `Input Source` enum. It also installs the
 exact onboard-LED udev rule and hidden desktop autostart entry used to restore
 saved colors. `pipewire-utils` supplies the native `pw-dump` JSON used by the
-read-only ALSA/PipeWire route-health check. Install it with:
+read-only ALSA/PipeWire route-health check. `pulseaudio-utils` supplies the
+PipeWire-compatible `pactl` command used to suspend only the AE-5 sink during
+an optional patched-kernel Direct Mode transition. Install it with:
 
 ```sh
 sudo dnf install ./dist/ae5-control-0.1.0-1.*.x86_64.rpm

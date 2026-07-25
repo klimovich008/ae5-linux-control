@@ -3,6 +3,8 @@ use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::thread;
+use std::time::Duration;
 
 const NATIVE_RATES_CONFIG: &str = "\
 # Managed by AE-5 Control.
@@ -26,6 +28,29 @@ pub struct PipeWireRouteState {
     pub active_profile: Option<String>,
     pub input_route: Option<String>,
     pub output_route: Option<String>,
+}
+
+pub(crate) struct SuspendedAe5Output {
+    node_name: Option<String>,
+}
+
+impl SuspendedAe5Output {
+    pub(crate) fn resume(mut self) -> io::Result<()> {
+        let Some(node_name) = self.node_name.as_deref() else {
+            return Ok(());
+        };
+        run_pactl(&["suspend-sink", node_name, "0"])?;
+        self.node_name = None;
+        Ok(())
+    }
+}
+
+impl Drop for SuspendedAe5Output {
+    fn drop(&mut self) {
+        if let Some(node_name) = self.node_name.take() {
+            let _ = run_pactl(&["suspend-sink", &node_name, "0"]);
+        }
+    }
 }
 
 impl PipeWireRouteState {
@@ -104,6 +129,23 @@ pub fn set_ae5_default_output(card_index: i32) -> io::Result<PipeWireNode> {
 
 pub fn set_ae5_default_input(card_index: i32) -> io::Result<PipeWireNode> {
     set_ae5_default_node(card_index, "sources", "recording input")
+}
+
+pub(crate) fn suspend_ae5_output(card_index: i32) -> io::Result<SuspendedAe5Output> {
+    let Some(node) = ae5_output(card_index)? else {
+        return Ok(SuspendedAe5Output { node_name: None });
+    };
+    if pactl_sink_is_suspended(&node.node_name)? {
+        wait_for_alsa_playback_closed(card_index)?;
+        return Ok(SuspendedAe5Output { node_name: None });
+    }
+
+    run_pactl(&["suspend-sink", &node.node_name, "1"])?;
+    let suspended = SuspendedAe5Output {
+        node_name: Some(node.node_name),
+    };
+    wait_for_alsa_playback_closed(card_index)?;
+    Ok(suspended)
 }
 
 pub fn ae5_route_state(card_index: i32) -> io::Result<PipeWireRouteState> {
@@ -408,6 +450,87 @@ fn run_pw_dump(device_id: &str) -> io::Result<String> {
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
+fn run_pactl(arguments: &[&str]) -> io::Result<String> {
+    let output = Command::new("pactl")
+        .args(arguments)
+        .output()
+        .map_err(|error| {
+            if error.kind() == io::ErrorKind::NotFound {
+                io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "pactl is unavailable; install PipeWire PulseAudio utilities",
+                )
+            } else {
+                error
+            }
+        })?;
+    if !output.status.success() {
+        let detail = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+        return Err(io::Error::other(if detail.is_empty() {
+            format!("pactl {} failed", arguments.join(" "))
+        } else {
+            detail
+        }));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+fn pactl_sink_is_suspended(node_name: &str) -> io::Result<bool> {
+    let output = run_pactl(&["--format=json", "list", "sinks"])?;
+    parse_pactl_sink_suspended(&output, node_name)
+}
+
+fn parse_pactl_sink_suspended(output: &str, node_name: &str) -> io::Result<bool> {
+    let sinks = serde_json::from_str::<serde_json::Value>(output)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    let sinks = sinks.as_array().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "pactl did not return a sink array",
+        )
+    })?;
+    let mut matches = sinks
+        .iter()
+        .filter(|sink| sink["name"].as_str() == Some(node_name));
+    let sink = matches.next().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("pactl has no AE-5 sink named '{node_name}'"),
+        )
+    })?;
+    if matches.next().is_some() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("pactl returned duplicate sinks named '{node_name}'"),
+        ));
+    }
+    sink["state"]
+        .as_str()
+        .map(|state| state.eq_ignore_ascii_case("SUSPENDED"))
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("pactl sink '{node_name}' has no state"),
+            )
+        })
+}
+
+fn wait_for_alsa_playback_closed(card_index: i32) -> io::Result<()> {
+    let path = PathBuf::from(format!("/proc/asound/card{card_index}/pcm0p/sub0/status"));
+    for _ in 0..40 {
+        match fs::read_to_string(&path) {
+            Ok(status) if status.trim() == "closed" => return Ok(()),
+            Ok(_) => thread::sleep(Duration::from_millis(25)),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(error),
+        }
+    }
+    Err(io::Error::new(
+        io::ErrorKind::TimedOut,
+        format!("ALSA card {card_index} analog playback remained open after suspending PipeWire"),
+    ))
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct NodeListing {
     id: u32,
@@ -473,6 +596,32 @@ id 58, type PipeWire:Interface:Node
         assert_eq!(
             property(details, "node.name").as_deref(),
             Some("alsa_output.pci-ae5.analog-stereo")
+        );
+    }
+
+    #[test]
+    fn parses_the_exact_pactl_sink_state_without_ambiguity() {
+        let sinks = r#"[
+          {"name":"alsa_output.pci-ae5.analog-stereo","state":"SUSPENDED"},
+          {"name":"alsa_output.usb-other.analog-stereo","state":"RUNNING"}
+        ]"#;
+        assert!(parse_pactl_sink_suspended(sinks, "alsa_output.pci-ae5.analog-stereo").unwrap());
+        assert_eq!(
+            parse_pactl_sink_suspended(sinks, "missing")
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::NotFound
+        );
+
+        let duplicate = r#"[
+          {"name":"duplicate","state":"SUSPENDED"},
+          {"name":"duplicate","state":"RUNNING"}
+        ]"#;
+        assert_eq!(
+            parse_pactl_sink_suspended(duplicate, "duplicate")
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::InvalidData
         );
     }
 

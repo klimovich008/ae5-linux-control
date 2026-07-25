@@ -121,6 +121,41 @@ errors against both running and current upstream source. It retains the What U
 Hear PCM. No proprietary binary, firmware disassembly, or decompiler output
 was used.
 
+## Windows Direct Mode interoperability reference
+
+After the user explicitly requested an installed-driver comparison, three
+locally owned `CtxHda.sys` versions were analyzed offline. The files remain
+outside this repository:
+
+| Version | Role | SHA-256 |
+|---|---|---|
+| `6.0.105.0065` | Active Windows driver | `4be35390a2de694041cd20317ed5a148d4852e46f201945a346a8b2a2c79dccf` |
+| `6.0.105.0064` | Previous DriverStore package | `3e250aa313f15d960d9717ca93a37783ccada108d02c5f8cb6de9a453367b79c` |
+| `6.0.105.0055` | Older comparison package | `9273eb1c873224cc99de7fd8398924c4e8e86fa0a9f81639a0970dd2c730f201` |
+
+Official Ghidra `12.1.2` was used from an archive with SHA-256
+`b62e81a0390618466c019c60d8c2f796ced2509c4c1aea4a37644a77272cf99d`.
+Its projects, scripts, and reports are private local analysis material and are
+not redistributed.
+
+Only an independent behavior specification was carried into the project:
+
+- the AE-5 backend is selected for subsystem `1102:0051`;
+- Direct Mode stops ChipIO stream `0x18`;
+- normal mode restores streams `0x05` and `0x18`, connection point `0xd0` at
+  96 kHz, six stream channels, stream enable, and ASI value `7`;
+- the newer transition quiesces the endpoint before changing route state;
+- direct formats are stereo and DSP volume is bypassed.
+
+The stream routes, `0xd0` rate, channel count, and enable state independently
+match the GPL Linux AE-5 startup path. Linux startup currently writes ASI value
+`4`, whereas the Windows Direct-to-normal transition writes `7`; the candidate
+uses that transition-specific value and leaves it behind a physical acceptance
+gate. No decompiled function, copied control flow, binary, or report is
+committed. The resulting candidate and physical acceptance boundary are
+documented in
+[`DIRECT_MODE_INVESTIGATION.md`](DIRECT_MODE_INVESTIGATION.md).
+
 ## Firmware already distributed for Linux
 
 Fedora package `alsa-firmware-1.2.4-17.fc44` supplies the target system's
@@ -181,7 +216,11 @@ Creative publishes Sound Blaster Command installers, but the
 restricts decompilation, disassembly, memory dumps, and reverse engineering
 except where the agreement or applicable law expressly permits it. It directs
 users seeking interoperability information to request it from Creative. No
-Creative installer or driver was downloaded or decompiled during this audit.
+installer was downloaded for this work. The later Direct Mode comparison used
+only driver files already present in the user's Windows installation, kept all
+analysis private, and retained only the independent device behavior listed
+above. This project does not claim that the analysis changes Creative's licence
+terms or supply legal advice.
 
 The permitted evidence order for this project is:
 
@@ -190,8 +229,9 @@ The permitted evidence order for this project is:
 3. normal hardware controls, logs, audio measurements, and one-setting-at-a-time
    observation on hardware the user owns;
 4. public GPL implementations such as OpenRGB within their actual scope;
-5. a narrowly scoped Windows trace or static analysis only after the user
-   confirms a lawful basis and the applicable licence has been reviewed.
+5. a narrowly scoped Windows trace or static analysis only on user-provided or
+   locally owned files, with no redistribution and only an independent
+   interoperability specification retained.
 
 Any cleared Windows analysis must produce an independent behavior
 specification—inputs, outputs, HDA verbs, parameter identifiers, ordering, and

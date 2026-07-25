@@ -197,10 +197,19 @@ Btrfs reflink. No password, Windows image, Creative binary, setting file,
 profile identifier, or private manifest is stored in this repository.
 
 This session guest remains only the safe installation environment.
-`qemu:///session` cannot detach the host's AE-5. An authenticated transaction
-must define or import the final `qemu:///system` guest before managed
-passthrough can be tested. The final definition must pass the same XML review
-and `scripts/check-vfio-host.sh --require-tools` gate before the card is added.
+`qemu:///session` cannot detach the host's AE-5. The exact powered-off
+Command/settings milestone has been uploaded to the system `default` storage
+pool as `ae5-windows-compare-system.qcow2`. A streamed download matched
+SHA-256
+`a3a3f3caddacc55ad47ab1b9905ee4ed9258a751fe4a43bd4ef6c3ca2ece1183`
+and passed `qemu-img check`.
+
+Defining the corresponding `qemu:///system` domain was denied by the current
+host policy before any domain was created. The verified system-pool volume
+was retained, powered off and unused, so only domain definition remains after
+authorization is available. The final definition must pass the same XML
+review and `scripts/check-vfio-host.sh --require-tools` gate before the card
+is added.
 
 ### Candidate kernel smoke test
 

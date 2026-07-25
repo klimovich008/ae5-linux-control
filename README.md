@@ -343,6 +343,15 @@ route fix, safe packaged control write, package install/removal, and exact host
 audio restoration. Reproduction commands and evidence are in
 [docs/LTS_KERNEL_VALIDATION.md](docs/LTS_KERNEL_VALIDATION.md).
 
+The same maintained RGB kernel later passed an external headphone
+level/mute/gain matrix. Two five-step Master changes tracked their advertised
+gain within `0.66 dB`, Master mute reached the quiet baseline, a confirmed
+Front mute suppressed the fixture by more than 34 dB, and Low, Medium, and
+attenuated High gain produced distinct repeatable levels. The microphone path
+did not have enough 18 kHz signal-to-noise ratio to compare DAC filters, so
+that gate remains assigned to an attenuated electrical capture. Guest and host
+state restored exactly after the cycle.
+
 An additional upstream-based candidate now exposes the AE-5's five onboard
 RGB LEDs through Linux's standard multicolor LED class without `/dev/mem` or
 userspace MMIO. It passed strict source/build checks, a card-less boot, and a

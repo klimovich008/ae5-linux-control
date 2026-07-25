@@ -90,6 +90,16 @@ hash remained unchanged. The external WS2812 strip remains unsupported because
 the verified public implementation reaches it only through a private Windows
 driver command.
 
+A third physical cycle on the same production RGB kernel exercised only the
+existing audio path. External microphone captures tracked two advertised
+five-step Master changes within `0.66 dB`, Master mute reached the quiet
+baseline, a confirmed Front mute suppressed the fixture by more than 34 dB,
+and all three guarded headphone-gain choices produced distinct external
+levels. The guest mixer restored exactly, the DSP initialized once, and the
+kernel remained warning-free. An 18 kHz microphone probe was below a useful
+signal-to-noise ratio, so DAC-filter validation still requires an attenuated
+electrical capture rather than a driver change based on acoustic noise.
+
 ## AE-5 What U Hear mixer controls
 
 [`ca0132-ae5-hide-ineffective-wuh-controls.patch`](ca0132-ae5-hide-ineffective-wuh-controls.patch)

@@ -240,14 +240,55 @@ stream-properties objects were semantically identical and their saved byte
 ordering was restored. The AE-5/Fifine defaults, `snd_hda_intel` binding,
 inactive domain without a hostdev, and ready VFIO preflight all returned.
 
+### Analog headphone output cycle
+
+An additional managed cycle booted the same `6.18.40-ae5-lts-rgb+` kernel,
+without the diagnostic SpeakerEQ probe, and used direct ALSA playback plus the
+host's Fifine microphone to measure the physical headphone output. The guest
+selected Headphone, Low gain, 2.0 channels, disabled output processing, kept
+Front at 0 dB, and used a two-second 997 Hz signed-32-bit fixture at
+`-18 dBFS`.
+
+Two captures at each Master value measured:
+
+- raw 55: `-91.85 dBFS` mean, `0.24 dB` repeat spread;
+- raw 60: `-86.64 dBFS` mean, `0.18 dB` repeat spread;
+- raw 65: `-82.30 dBFS` mean, `0.58 dB` repeat spread.
+
+The measured `+5.21 dB` and `+4.34 dB` changes follow the two advertised
+`+5.00 dB` steps within `0.66 dB`. Master mute reached `-105.96 dBFS`, within
+`0.88 dB` of the quiet baseline, and a confirmed Front-muted repeat suppressed
+the tone by more than 34 dB. At Master 55, Medium gain measured `+1.28 dB` and
+High measured `+7.04 dB` relative to Low; High was exercised only at that
+attenuated level and the headphones were not worn.
+
+A bounded 18 kHz attempt also documented what this acoustic setup cannot
+prove. Slow and Fast were only 1.33 and 5.10 dB above the quiet 18 kHz
+baseline, while Minimum Phase differed by 14.44 dB between repeats. The
+roll-off filters therefore remain unverified pending an attenuated electrical
+capture or analyzer with adequate high-frequency signal-to-noise ratio.
+
+Restoring the guest ALSA snapshot reproduced mixer SHA-256
+`c5d3a2673054ea6b71b562e3f12923c51c00af9c79af17137948e4474818de68`.
+The DSP initialized once, all PCMs were closed, five LED devices remained
+registered, no unit failed, and no relevant warning appeared. Clean shutdown
+returned the card to host `snd_hda_intel`; all 46 current application-profile
+controls and all three WirePlumber files matched exactly, the no-stream host
+mixer hash returned to
+`3e595532348efe1e2e9c066039131e97505cb9b71bc6bfd8fa8a59301091e802`,
+the AE-5/Fifine defaults returned, the inactive domain contained no hostdev,
+and VFIO preflight was ready. Raw microphone recordings were deleted after
+deriving the documented values.
+
 ## Remaining limits
 
 This maintained-LTS cycle proves buildability, parser safety, bootability,
 physical initialization, control defaults, manual-route behavior, one safe
 app write, onboard-LED class registration/writes, package install/removal, and
 host recovery. It now also proves the scoped normal-user lighting backend,
-persistence, rollback, and permission cleanup. It does not replace visible
-LED confirmation, a GTK color-dialog action in a real desktop session, the
-external-strip protocol, or the remaining bare-metal cold-boot,
-suspend/resume, speaker/line-out/digital, analog-input, long-duration
+persistence, rollback, permission cleanup, and external headphone
+level/mute/gain behavior. It does not replace visible LED confirmation, a GTK
+color-dialog action in a real desktop session, the external-strip protocol,
+or the remaining bare-metal cold-boot, suspend/resume,
+speaker/line-out/digital, analog-input, electrical filter, long-duration
 stability, and Windows analog-parity gates.

@@ -373,6 +373,14 @@ sample-rate conversion, and noise/THD results within 3 dB or the repeatability
 limit of the measurement setup. Any larger remaining difference must have an
 identified cause and documented limitation.
 
+Current Linux analog evidence now includes a guarded external headphone
+matrix. Two advertised five-step Master changes measured within `0.66 dB`,
+Master mute reached the acoustic baseline, and Low, Medium, and attenuated High
+gain produced distinct repeatable levels. The same setup could not resolve the
+18 kHz DAC filters above its noise floor, so that comparison moves to a safely
+attenuated electrical capture instead of increasing near-ultrasonic headphone
+level or inventing a compensating map.
+
 Exit criterion: headphone startup is reliable, and the Windows/Linux
 measurement report either meets the parity targets or identifies a specific
 remaining hardware/firmware feature rather than a generic subjective mismatch.

@@ -7,7 +7,7 @@ the host kernel. It cannot replace final cold-boot, suspend, and recovery tests
 on the host.
 
 The virtualization stack, session guest, and system guest were installed on
-2026-07-24. Ten guarded managed-passthrough cycles have now completed; the
+2026-07-24. Eleven guarded managed-passthrough cycles have now completed; the
 hostdev was removed afterward and both guests are powered off.
 
 Run the read-only, fail-closed hardware check at any time:
@@ -427,11 +427,30 @@ difference was the expected read-only PCM channel map changing from the active
 pre-test stereo stream to no stream. The hostdev was removed, the guest was
 off, and VFIO preflight passed.
 
+The eleventh cycle used the production RGB kernel for an external headphone
+level, mute, and gain matrix. With output effects off and Low gain, repeated
+997 Hz captures at Master raw 55, 60, and 65 measured `+5.21 dB` and
+`+4.34 dB` for the two advertised `+5.00 dB` steps, with repeat spreads from
+`0.18` to `0.58 dB`. Master mute matched the quiet baseline within `0.88 dB`;
+a confirmed Front-muted repeat suppressed the tone by more than 34 dB. At the
+attenuated Master 55 setting, Medium and High gain measured `+1.28 dB` and
+`+7.04 dB` relative to Low.
+
+The same guarded cycle intentionally stopped short of claiming filter
+validation: at 18 kHz the microphone path put Slow and Fast only 1.33 and
+5.10 dB above its baseline, and Minimum Phase varied by 14.44 dB between
+repeats. An attenuated electrical capture is required. Guest restoration
+returned the exact known mixer hash, one DSP initialization, zero failed
+units, and no relevant warning. Shutdown returned all current host profile
+controls and all three WirePlumber files exactly, restored the known
+no-stream mixer hash and AE-5/Fifine defaults, removed the hostdev, and left
+VFIO preflight ready. Raw ambient recordings were deleted after reduction.
+
 The powered-off system volume passed `qemu-img check` after all five cycles
 and had SHA-256
 `d7ee6ed48b3ba5800e5c93576fdbbec76bbe0eb81d2708c59dd600058262a664`.
 The image is root-owned mode `0600`; the check could not be repeated after the
-sixth through tenth cycles without interactive host authorization. Libvirt
+sixth through eleventh cycles without interactive host authorization. Libvirt
 completed each shutdown without a storage error.
 The untouched standalone recovery image retained SHA-256
 `bfca0fdfa57cc7b9fab13c91a2a58584233c257638f636573b85a29c1d091637`.

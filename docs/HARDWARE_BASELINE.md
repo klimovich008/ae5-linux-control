@@ -158,6 +158,50 @@ does not claim that Master, Front, Surround, Center, or LFE produce their
 advertised analog dB changes. That remaining gate requires a safely attenuated
 physical output-to-line-input capture; IEC958 requires an optical receiver.
 
+### External headphone level, mute, and gain
+
+A later guarded Linux `6.18.40-ae5-lts-rgb+` cycle measured the physical
+headphone output through the host's Fifine microphone. The headphones were not
+worn. Direct ALSA played a two-second 997 Hz signed-32-bit stereo fixture at
+`-18 dBFS`; output processing was off, Front was at its 0 dB value, and the
+headphone gain started at Low. Each reported result is a Hann-windowed
+tone-specific RMS measurement over the same 1.5-second capture interval.
+
+| Master raw value | Reported dB | Mean 997 Hz RMS | Repeat spread |
+|---:|---:|---:|---:|
+| 55 | -44.00 dB | -91.85 dBFS | 0.24 dB |
+| 60 | -39.00 dB | -86.64 dBFS | 0.18 dB |
+| 65 | -34.00 dB | -82.30 dBFS | 0.58 dB |
+
+The two five-step changes measured `+5.21 dB` and `+4.34 dB`, within `0.66 dB`
+of the advertised `+5.00 dB`. At Master 65, muting Master reduced the tone to
+`-105.96 dBFS`, within `0.88 dB` of the quiet baseline at `-106.84 dBFS`.
+A separately repeated Front-muted negative control kept both Front switches
+off before and after playback and reduced the tone by more than 34 dB.
+
+At the more attenuated Master 55 setting, the three guarded gain choices were
+also externally distinguishable:
+
+| Headphone gain | Mean 997 Hz RMS | Delta from Low | Repeat spread |
+|---|---:|---:|---:|
+| Low | -91.85 dBFS | 0.00 dB | 0.24 dB |
+| Medium | -90.57 dBFS | +1.28 dB | 0.14 dB |
+| High | -84.81 dBFS | +7.04 dB | 0.93 dB |
+
+An 18 kHz acoustic probe did not validate the DAC filters. The quiet baseline
+was `-131.24 dBFS`; Slow and Fast averaged only 1.33 and 5.10 dB above it, and
+the two Minimum Phase samples differed by 14.44 dB. That path is below a
+useful signal-to-noise ratio for filter comparison. The filter gate therefore
+requires an attenuated electrical capture or analyzer rather than a louder
+near-ultrasonic headphone test.
+
+The guest mixer returned to its exact known SHA-256, with one DSP
+initialization, no open PCM, no failed unit, and no relevant kernel warning.
+After shutdown, all host application controls and all three WirePlumber files
+matched their saved state, the no-stream host mixer hash returned, the
+AE-5/Fifine defaults returned, and the raw recordings were deleted after their
+hashes and derived measurements were retained privately.
+
 ## Isolated output effects
 
 Separate physical What U Hear captures verified repeatable DSP changes from

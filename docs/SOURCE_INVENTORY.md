@@ -5,7 +5,7 @@ begins. Public source and observable hardware behavior are preferred over
 proprietary binary analysis. No Creative executable, driver binary, firmware,
 decompiler output, or private Windows data belongs in this repository.
 
-The inventory was last verified on 2026-07-25.
+The inventory was last verified on 2026-07-26.
 
 ## Exact source for the running Nobara driver
 
@@ -80,18 +80,24 @@ as
 its implementation and validation record is in
 [`kernel/README.md`](../kernel/README.md).
 
-At the same verification time, `sound.git` `master` was
+At the earlier verification time, `sound.git` `master` was
 `f5657cb8480cd4b38589bf50cd8eae07e183b53e` and contained the same CA0132
-file. The factory-EQ cache candidate therefore applies to the exact running
+file. On 2026-07-26, `master` had advanced to
+`a9bde483214af0b667e282131fd4aebe50695f02`, while its `ca0132.c` remained
+byte-identical with SHA-256
+`95a23cdef3504d67762b35d3e0fcedf31651233f08477c4dcf56bd436c2552cb`.
+The factory-EQ cache candidate therefore still applies to the exact running
 `v7.1.4` source and all three recorded upstream snapshots without rebasing.
 
-A direct remote-head check on 2026-07-25 found both `for-next` and `master`
-still at those exact commits. All four functional patches then applied
-independently and together in a clean `for-next` worktree. The combined
-production and KUnit objects rebuilt with warnings as errors, and all four
-DSP-image KUnit cases passed. The patches therefore have no outstanding source
-rebase delta as of that check; external submission still requires the
-contributor's own DCO sign-off.
+A direct remote-head check on 2026-07-26 found `for-next` still at
+`61471f29f3157f33a61194bf82b4a289cc03e1f1`. All four functional patches and
+the onboard-LED candidate apply independently and in their production series
+in a clean worktree. The Direct Mode patch was regenerated from that pristine
+base to remove an accidental LED-context dependency; it now applies both
+standalone and after the production/RGB stack on `for-next` and Linux 6.18.40.
+Standalone and combined objects rebuilt with warnings as errors. The patches
+therefore have no outstanding source rebase delta as of that check; external
+submission still requires the contributor's own DCO sign-off.
 
 ## What U Hear control history
 

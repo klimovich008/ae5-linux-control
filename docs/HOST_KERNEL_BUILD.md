@@ -43,7 +43,7 @@ git apply /path/to/ae5-linux-control/kernel/ca0132-ae5-direct-mode.patch
 git diff --check
 ```
 
-The repository patch SHA-256 values are:
+The exact patch SHA-256 values used for this historical host-kernel build are:
 
 | Patch | SHA-256 |
 |---|---|
@@ -53,6 +53,14 @@ The repository patch SHA-256 values are:
 | 6.18 DSP-image bounds | `2e53dc7d759ddf7ed8d59a1016f5ff25f44f6dceedd3eb08b4d6f071616870fe` |
 | 6.18 onboard LEDs | `05cbcb09a12c5b3a46491ff0d1192f2c36c6fe7766ae1343168be300be4900e4` |
 | Direct Mode | `c05d55c3c827dc035c36614d0c67bd59c14943942d4a9b670dd2c720c65e3257` |
+
+The repository's current Direct Mode patch was regenerated on 2026-07-26 to
+remove an accidental LED-context dependency. Its SHA-256 is
+`49e571c51b035d4feb453ccabb9c42e8b28b699ca1b00ebac9dc34e7d6cbf23a`;
+it applies both to clean Linux 6.18.40 and after this production/RGB sequence.
+Its only full-stack source difference from the built artifact is the location
+of a private preprocessor array-size definition. Reproducing the exact RPM
+hashes below still requires the historical patch hash recorded in the table.
 
 ## Host configuration and build
 

@@ -20,7 +20,7 @@ artifact hashes, rollback path, and hard 20% first-boot gate are in
 
 ## Current upstream validation
 
-On 2026-07-25, a direct `git ls-remote` check confirmed that the ALSA
+On 2026-07-26, a direct `git ls-remote` check confirmed that the ALSA
 maintainer tree's `for-next` head remained
 `61471f29f3157f33a61194bf82b4a289cc03e1f1`. In separate clean worktrees at
 that exact commit, the original four functional patches and the onboard-LED
@@ -40,15 +40,20 @@ also built `ca0132.o` with the same warning gate, and strict `checkpatch.pl`
 reported zero findings for its 217 changed lines. No patch content needed
 rebasing or correction.
 
-The regenerated Direct Mode patch also applies to that exact `for-next` base.
-Strict `checkpatch.pl` reported zero findings across 643 checked lines. It
-applies cleanly after the five production patches and to the maintained
-6.18.40 backport trees. Applying it to the production-plus-RGB baseline
-reproduced the physically tested source byte for byte. The complete module set
-rebuilt in a fresh out-of-tree x86-64 build with `W=1` and warnings treated as
-errors. Physical playback, transition, routing, and busy gates pass;
-three warm boots also pass; bare-metal power-management, host cold-boot, and
-connected line-out gates remain open.
+The Direct Mode raw diff was regenerated on 2026-07-26 after a clean-tree
+check found that its first context hunk unnecessarily depended on constants
+added by the separate LED patch. The current patch applies directly to the
+exact `for-next` base, after all five production/RGB patches, to clean Linux
+6.18.40, and after the maintained 6.18.40 production/RGB stack. Strict
+`checkpatch.pl` reported zero findings across 642 checked lines. Standalone
+Direct Mode and complete production/RGB/Direct `ca0132.o` builds passed with
+`W=1 KCFLAGS=-Werror`; the complete stack's DSP-image parser-test object did
+too. Compared with the physically tested full-stack source, the only source
+delta is relocation of the private
+`AE5_DIRECT_MAX_ROUTER_ENTRIES` preprocessor definition; no executable C
+statement changed. Physical playback, transition, routing, and busy gates
+pass; three warm boots also pass; bare-metal power-management, host cold-boot,
+and connected line-out gates remain open.
 
 External submission has not been performed. Each submitting contributor must
 personally add the Developer Certificate of Origin `Signed-off-by` line before
@@ -120,8 +125,14 @@ The submitting contributor must add their own Developer Certificate of Origin
 
 The exact patch is based on `sound.git` `for-next`
 `61471f29f3157f33a61194bf82b4a289cc03e1f1`. It passes `git diff --check`,
-strict `checkpatch.pl` with no findings across 643 checked lines, exact
-patch-reproduction comparison, and a complete warnings-as-errors module build.
+strict `checkpatch.pl` with no findings across 642 checked lines, direct
+application to the pristine base, composition after the production/RGB stack,
+and standalone plus complete-stack warnings-as-errors object builds. The
+current patch SHA-256 is
+`49e571c51b035d4feb453ccabb9c42e8b28b699ca1b00ebac9dc34e7d6cbf23a`.
+The physical test used the predecessor raw diff whose only source-level
+difference placed the same private array-size definition beside the LED
+constants.
 The physical AE-5 passed exact 48/96 kHz stereo negotiation, S16/S32 playback,
 open-PCM rejection, DSP-bypass comparison, normal restoration, ten repeated
 cycles, and Headphone/Speakers routing with at least 35.5 dB acoustic

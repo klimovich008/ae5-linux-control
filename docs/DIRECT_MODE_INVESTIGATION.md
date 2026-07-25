@@ -121,7 +121,7 @@ patched kernel exposes it.
 
 ## Static validation
 
-On 2026-07-25:
+On 2026-07-25, for the physically tested patch:
 
 - the kernel patch passed `git diff --check`;
 - strict `scripts/checkpatch.pl` reported zero errors, warnings, or checks
@@ -139,8 +139,25 @@ On 2026-07-25:
 - `cargo clippy --all-targets --all-features -- -D warnings` passed;
 - an isolated Fedora 44 RPM build passed its release tests and metadata checks,
   and the package requires the `pulseaudio-utils` provider of `pactl`;
-- the repository patch SHA-256 is
+- the physically tested patch SHA-256 was
   `c05d55c3c827dc035c36614d0c67bd59c14943942d4a9b670dd2c720c65e3257`.
+
+On 2026-07-26, the raw diff was regenerated from pristine ALSA `for-next`
+after an independent apply check found that its first context hunk
+unnecessarily assumed the LED patch was already present. The current patch:
+
+- applies standalone to `for-next` at `61471f29f315`, after the complete
+  production/RGB stack, to clean Linux 6.18.40, and after its maintained
+  production/RGB backport stack;
+- passes `git diff --check` and strict `checkpatch.pl` with zero findings
+  across 642 checked lines;
+- compiles standalone and in the complete stack with
+  `W=1 KCFLAGS=-Werror`, including the DSP-image parser-test object;
+- differs from the physically tested full-stack source only by relocating the
+  private `AE5_DIRECT_MAX_ROUTER_ENTRIES` definition, with no executable C
+  statement changed;
+- has SHA-256
+  `49e571c51b035d4feb453ccabb9c42e8b28b699ca1b00ebac9dc34e7d6cbf23a`.
 
 ## Physical validation
 

@@ -1,16 +1,15 @@
 diff --git a/sound/hda/codecs/ca0132.c b/sound/hda/codecs/ca0132.c
-index b00529a..95e3284 100644
+index 3fe11983d..073af9803 100644
 --- a/sound/hda/codecs/ca0132.c
 +++ b/sound/hda/codecs/ca0132.c
-@@ -1066,6 +1066,7 @@ enum dsp_download_state {
- #define AE5_INTERNAL_LED_COUNT	5
- #define AE5_LED_COLOR_COUNT	3
- #define AE5_LED_NAME_SIZE	64
+@@ -1060,4 +1060,6 @@ enum dsp_download_state {
+  * CA0132 specific
+  */
+ 
 +#define AE5_DIRECT_MAX_ROUTER_ENTRIES	4
- 
- struct ca0132_spec;
- 
-@@ -1154,6 +1155,15 @@ struct ca0132_spec {
++
+ struct ca0132_spec {
+@@ -1129,6 +1131,15 @@ struct ca0132_spec {
  	long eq_preset_val;
  	unsigned int tlv[4];
  	struct hda_vmaster_mute_hook vmaster_mute;
@@ -26,7 +25,7 @@ index b00529a..95e3284 100644
  	/* AE-5 Control values */
  	unsigned char ae5_headphone_gain_val;
  	unsigned char ae5_filter_val;
-@@ -1770,18 +1780,14 @@ static int chipio_write_multiple(struct hda_codec *codec,
+@@ -1758,18 +1769,14 @@ static int chipio_write_multiple(struct hda_codec *codec,
  }
  
  /*
@@ -49,7 +48,7 @@ index b00529a..95e3284 100644
  	err = chipio_write_address(codec, chip_addx);
  	if (err < 0)
  		return err;
-@@ -1789,6 +1795,19 @@ static int chipio_read(struct hda_codec *codec,
+@@ -1777,6 +1784,19 @@ static int chipio_read(struct hda_codec *codec,
  	return chipio_read_data(codec, data);
  }
  
@@ -69,7 +68,7 @@ index b00529a..95e3284 100644
  /*
   * Set chip control flags through the chip I/O widget.
   */
-@@ -4007,6 +4026,270 @@ static void r3di_gpio_dsp_status_set(struct hda_codec *codec,
+@@ -3878,6 +3898,270 @@ static void r3di_gpio_dsp_status_set(struct hda_codec *codec,
  			    AC_VERB_SET_GPIO_DATA, cur_gpio);
  }
  
@@ -340,7 +339,7 @@ index b00529a..95e3284 100644
  /*
   * PCM callbacks
   */
-@@ -4017,9 +4300,100 @@ static int ca0132_playback_pcm_prepare(struct hda_pcm_stream *hinfo,
+@@ -3888,9 +4172,100 @@ static int ca0132_playback_pcm_prepare(struct hda_pcm_stream *hinfo,
  			struct snd_pcm_substream *substream)
  {
  	struct ca0132_spec *spec = codec->spec;
@@ -441,7 +440,7 @@ index b00529a..95e3284 100644
  	return 0;
  }
  
-@@ -4028,18 +4402,47 @@ static int ca0132_playback_pcm_cleanup(struct hda_pcm_stream *hinfo,
+@@ -3899,18 +4274,47 @@ static int ca0132_playback_pcm_cleanup(struct hda_pcm_stream *hinfo,
  			struct snd_pcm_substream *substream)
  {
  	struct ca0132_spec *spec = codec->spec;
@@ -491,7 +490,7 @@ index b00529a..95e3284 100644
  }
  
  static unsigned int ca0132_playback_pcm_delay(struct hda_pcm_stream *info,
-@@ -4053,6 +4456,9 @@ static unsigned int ca0132_playback_pcm_delay(struct hda_pcm_stream *info,
+@@ -3924,6 +4328,9 @@ static unsigned int ca0132_playback_pcm_delay(struct hda_pcm_stream *info,
  	if (spec->dsp_state != DSP_DOWNLOADED)
  		return 0;
  
@@ -501,7 +500,7 @@ index b00529a..95e3284 100644
  	/* Add latency if playback enhancement and either effect is enabled. */
  	if (spec->effects_switch[PLAY_ENHANCEMENT - EFFECT_START_NID]) {
  		if ((spec->effects_switch[SURROUND - EFFECT_START_NID]) ||
-@@ -6061,6 +6467,93 @@ static int ae5_sound_filter_put(struct snd_kcontrol *kcontrol,
+@@ -5932,6 +6339,93 @@ static int ae5_sound_filter_put(struct snd_kcontrol *kcontrol,
  	return 1;
  }
  
@@ -595,7 +594,7 @@ index b00529a..95e3284 100644
  /*
   * Input Select Control for alternative ca0132 codecs. This exists because
   * front microphone has no auto-detect, and we need a way to set the rear
-@@ -7035,6 +7528,19 @@ static int ae5_add_sound_filter_enum(struct hda_codec *codec)
+@@ -6879,6 +7373,19 @@ static int ae5_add_sound_filter_enum(struct hda_codec *codec)
  				snd_ctl_new1(&knew, codec));
  }
  
@@ -615,7 +614,7 @@ index b00529a..95e3284 100644
  static int zxr_add_headphone_gain_switch(struct hda_codec *codec)
  {
  	struct snd_kcontrol_new knew =
-@@ -7324,6 +7830,10 @@ static int ca0132_build_controls(struct hda_codec *codec)
+@@ -7148,6 +7655,10 @@ static int ca0132_build_controls(struct hda_codec *codec)
  
  	switch (ca0132_quirk(spec)) {
  	case QUIRK_AE5:
@@ -626,7 +625,7 @@ index b00529a..95e3284 100644
  	case QUIRK_AE7:
  		err = ae5_add_headphone_gain_enum(codec);
  		if (err < 0)
-@@ -7407,6 +7917,8 @@ static const struct hda_pcm_stream ca0132_pcm_analog_playback = {
+@@ -7225,6 +7736,8 @@ static const struct hda_pcm_stream ca0132_pcm_analog_playback = {
  	.channels_min = 2,
  	.channels_max = 6,
  	.ops = {
@@ -635,7 +634,7 @@ index b00529a..95e3284 100644
  		.prepare = ca0132_playback_pcm_prepare,
  		.cleanup = ca0132_playback_pcm_cleanup,
  		.get_delay = ca0132_playback_pcm_delay,
-@@ -8928,6 +9440,7 @@ static void ca0132_init_chip(struct hda_codec *codec)
+@@ -8746,6 +9259,7 @@ static void ca0132_init_chip(struct hda_codec *codec)
  	unsigned int on;
  
  	mutex_init(&spec->chipio_mutex);
@@ -643,7 +642,7 @@ index b00529a..95e3284 100644
  
  	/*
  	 * The Windows driver always does this upon startup, which seems to
-@@ -9707,6 +10220,15 @@ static int ca0132_init(struct hda_codec *codec)
+@@ -9525,6 +10039,15 @@ static int ca0132_init(struct hda_codec *codec)
  		break;
  	case QUIRK_AE5:
  		ae5_setup_defaults(codec);

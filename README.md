@@ -262,9 +262,10 @@ values. The desktop app therefore keeps their mode and enable controls active
 but disables the ineffective level slider until Normal is selected. Saved and
 imported profiles still retain that value for a later return to Normal. A
 separate kernel candidate now restores the cached Smart Volume level and mode
-after a real DSP-losing resume; it has passed static and cardless build
-validation but still needs the guarded physical suspend test documented in
-[`kernel/README.md`](kernel/README.md).
+after a real DSP-losing resume. Its complete host RPM has passed non-installing
+verification, a no-audio QEMU smoke boot, and a cardless full-root boot with
+automatic fallback, but still needs the guarded physical suspend test
+documented in [`kernel/README.md`](kernel/README.md).
 
 ## Native desktop application
 

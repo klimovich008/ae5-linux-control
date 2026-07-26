@@ -638,11 +638,15 @@ the physical card. The native GTK dialog path passed separately in a real
 desktop session with an isolated LED-class fixture; visible color confirmation
 on the card remains open.
 The AE-5 Direct Mode candidate reconstructs the known normal route, excludes
-open-PCM transitions, and passes strict kernel style/object builds, all 61
+open-PCM transitions, and passes strict kernel style/object builds, all 78
 Rust/GTK tests, guarded physical bypass/format/routing/stress checks, and three
-warm guest boots. A host-configured side-by-side kernel RPM also passed
-non-installing verification and a no-audio QEMU smoke boot. Bare-metal cold
-boot, suspend/resume, and connected line-out gates are tracked in
+warm guest boots. The host-configured side-by-side kernel RPM now also includes
+the Smart Volume resume fix. Its 6,326-module tree passed non-installing
+verification, the exact image passed a no-audio QEMU smoke boot, and a
+one-shot cardless full-root boot loaded matching signed CA0132/RGB modules
+with zero taint, zero failed units, clean relevant logs, and automatic fallback
+to the saved guest kernel. Bare-metal cold boot, suspend/resume, Smart Volume
+capture, and connected line-out gates are tracked in
 `docs/DIRECT_MODE_INVESTIGATION.md` and `docs/HOST_KERNEL_BUILD.md`.
 
 Exit criterion for each feature: the new interface has readback, validation,

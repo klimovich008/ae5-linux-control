@@ -661,6 +661,29 @@ mode and complete mixer SHA-256
 Headphone/Microphone routes remained matched, PipeWire remained at `0.20`,
 every PCM was closed, and no audio was played.
 
+## Kernel-candidate evidence upgrade
+
+After the complete Smart Volume kernel candidate passed package and cardless
+boot validation, the same transactional rootless installer upgraded the
+embedded Compatibility matrix without restarting WirePlumber. The installed
+binaries are byte-identical to the new release inputs:
+
+- GUI SHA-256:
+  `dc3d3515c9ec32d18a56f4edb1497bec7ff68ca93acd84817378feced2a3b14d`
+- CLI SHA-256:
+  `0d15545362016e3591618e5e5eed713bab58594afde215bef31243f1e9aaf4a5`
+
+The installed CLI reported the exact 6,326-module RPM, no-audio smoke boot,
+cardless full-root boot, signed-module, zero-taint, clean-log, and automatic
+fallback evidence while retaining the guarded bare-metal DSP-loss suspend as
+the remaining gate. All existing WirePlumber and ACP paths were byte-identical
+and retained in place. Before and after the upgrade, complete mixer SHA-256
+was
+`743e602e8066bea0aed9145669584497289fdb459c4c8450913513dbb7e15bc1`,
+Headphone/Microphone routes matched, PipeWire output remained at 20%, Low gain
+remained selected, and there were zero playback or capture streams. The custom
+kernel was not installed on the host.
+
 ## Remaining release gate
 
 This proves clean Fedora dependency resolution and package ownership/removal,

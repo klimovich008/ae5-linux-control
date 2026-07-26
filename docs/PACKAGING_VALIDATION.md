@@ -618,9 +618,9 @@ gain. Every playback PCM remained closed and no audio was played.
 The physical AE-5 normal playback path was isolated independently from the
 GTK work. The packaged ACP profile now bypasses HDA-Intel's duplicate
 `front:` softvol for stereo and each supported 2.1-through-5.1 mapping. The
-exact-card WirePlumber rules select S16 RW playback with 6016-frame periods,
-four periods, and ignored driver dB metadata. The live sink reported `hw:0`,
-`S16LE`, mmap disabled, period size 6016, and period count four.
+initial exact-card WirePlumber rules selected S16 RW playback with 6016-frame
+periods, four periods, and ignored driver dB metadata. That live sink reported
+`hw:0`, `S16LE`, mmap disabled, period size 6016, and period count four.
 
 The ACP validator asserts every required property. Rust route health also
 requires `api.alsa.ignore-dB=true`, so a stale or partial installation fails
@@ -635,6 +635,16 @@ period size 6016 and buffer size 24064. The test suspended each sink after the
 open, restored Headphone/2.0/Microphone and the profile's X-Bass state, and
 reproduced complete mixer SHA-256
 `26a75bb94621e15023ebb28bb3a3da92c63d210f0e657b74478187256d39142c`.
+
+A guarded follow-up separated format from geometry. The packaged rule now
+selects `S32LE` while retaining raw RW transport and 6016-by-four buffering.
+At the 20% PipeWire ceiling, the S32 What U Hear capture matched direct DSP
+response within 0.01 dB at every measured band; the prior S16 capture differed
+by as much as 5.81 dB at the same low software volume. A safe 997 Hz acoustic
+check was 6.30 dB above its Front-muted control, confirming that S32 reaches
+the headphone DAC rather than only the digital loopback. Zero-amplitude
+2.0, 2.1, 4.0, 4.1, 5.0, and 5.1 streams then negotiated exact 2/3/4/5/5/6
+channel S32 hardware PCMs with the same 6016/24064 geometry.
 
 ## Smart Volume mode user upgrade
 

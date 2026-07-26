@@ -818,15 +818,23 @@ fn sound_effects_page(
         "Current hardware",
         &format!("{} controls read from the AE-5", controls.len()),
         None,
+        false,
     ));
     match profile_library() {
         Ok(library) => {
             for entry in library.profiles {
+                let active = profile_matches_controls(&entry.profile, controls);
+                let detail = if active {
+                    active_profile_detail(&entry.profile)
+                } else {
+                    format!("{} validated controls", entry.profile.controls.len())
+                };
                 let card = sound_profile_card(
-                    "PROFILE",
+                    if active { "ACTIVE" } else { "PROFILE" },
                     &entry.profile.name,
-                    &format!("{} validated controls", entry.profile.controls.len()),
-                    Some("Preview & apply"),
+                    &detail,
+                    (!active).then_some("Preview & apply"),
+                    active,
                 );
                 if let Some(button) = find_widget(card.clone().upcast(), |widget| {
                     widget.has_css_class("profile-card-action")
@@ -862,6 +870,7 @@ fn sound_effects_page(
                 "Library unavailable",
                 &error.to_string(),
                 None,
+                false,
             ));
         }
     }
@@ -886,11 +895,28 @@ fn sound_effects_page(
     match builtin_profiles() {
         Ok(profiles) => {
             for preset in profiles {
+                let layout = controls
+                    .iter()
+                    .find(|control| control.name == "Surround Channel Config")
+                    .and_then(|control| control.selected.as_deref());
+                let live_profile = controls
+                    .iter()
+                    .find(|control| control.name == "Output Select")
+                    .and_then(|control| control.selected.as_deref())
+                    .and_then(|output| preset.profile_for(output, layout).ok());
+                let active = live_profile
+                    .as_ref()
+                    .is_some_and(|profile| profile_matches_controls(profile, controls));
+                let detail = live_profile.as_ref().filter(|_| active).map_or_else(
+                    || "Speaker + headphone variants".to_owned(),
+                    active_profile_detail,
+                );
                 let card = sound_profile_card(
-                    "BUILT-IN",
+                    if active { "ACTIVE" } else { "BUILT-IN" },
                     &preset.name,
-                    "Speaker + headphone variants",
-                    Some("Preview & apply"),
+                    &detail,
+                    (!active).then_some("Preview & apply"),
+                    active,
                 );
                 if let Some(button) = find_widget(card.clone().upcast(), |widget| {
                     widget.has_css_class("profile-card-action")
@@ -926,6 +952,7 @@ fn sound_effects_page(
                 "Defaults unavailable",
                 error,
                 None,
+                false,
             ));
         }
     }
@@ -980,11 +1007,17 @@ fn sound_effects_page(
         .build()
 }
 
-fn sound_profile_card(kicker: &str, title: &str, detail: &str, action: Option<&str>) -> gtk::Box {
+fn sound_profile_card(
+    kicker: &str,
+    title: &str,
+    detail: &str,
+    action: Option<&str>,
+    active: bool,
+) -> gtk::Box {
     let card = gtk::Box::new(gtk::Orientation::Vertical, 6);
     card.set_size_request(178, 126);
     card.add_css_class("sound-profile-card");
-    if action.is_none() {
+    if active {
         card.add_css_class("sound-profile-card-active");
     }
 
@@ -1012,13 +1045,110 @@ fn sound_profile_card(kicker: &str, title: &str, detail: &str, action: Option<&s
         let accessible_label = format!("{action} “{accessible_title}”");
         button.update_property(&[gtk::accessible::Property::Label(&accessible_label)]);
         card.append(&button);
-    } else {
+    } else if active {
         let active = gtk::Label::new(Some("ACTIVE"));
         active.set_halign(gtk::Align::Start);
         active.add_css_class("profile-card-active-label");
         card.append(&active);
     }
     card
+}
+
+fn profile_matches_controls(profile: &Profile, controls: &[ControlSnapshot]) -> bool {
+    let skip_equalizer_bands = profile
+        .controls
+        .get("FX: Equalizer Preset")
+        .and_then(|control| control.choice.as_deref())
+        .is_some_and(|preset| !preset.eq_ignore_ascii_case("Flat"));
+
+    profile.controls.iter().all(|(name, expected)| {
+        if capture_control_block_reason(name).is_some()
+            || skip_equalizer_bands && name.starts_with("EQ Band")
+        {
+            return true;
+        }
+        let Some(actual) = controls.iter().find(|control| control.name == *name) else {
+            return false;
+        };
+        expected.choice.as_ref().is_none_or(|value| {
+            actual
+                .selected
+                .as_ref()
+                .is_some_and(|actual| actual.eq_ignore_ascii_case(value))
+        }) && expected
+            .playback_switch
+            .is_none_or(|value| actual.playback_switch == Some(value))
+            && expected
+                .capture_switch
+                .is_none_or(|value| actual.capture_switch == Some(value))
+            && expected.playback_level.is_none_or(|value| {
+                actual.playback_level.as_ref().map(|level| level.value) == Some(value)
+            })
+            && expected.capture_level.is_none_or(|value| {
+                actual.capture_level.as_ref().map(|level| level.value) == Some(value)
+            })
+            && expected.playback_channels.iter().all(|(channel, value)| {
+                actual
+                    .playback_channels
+                    .iter()
+                    .find(|actual| actual.name.eq_ignore_ascii_case(channel))
+                    .map(|actual| actual.value)
+                    == Some(*value)
+            })
+            && expected.capture_channels.iter().all(|(channel, value)| {
+                actual
+                    .capture_channels
+                    .iter()
+                    .find(|actual| actual.name.eq_ignore_ascii_case(channel))
+                    .map(|actual| actual.value)
+                    == Some(*value)
+            })
+    })
+}
+
+fn active_profile_detail(profile: &Profile) -> String {
+    let effects = [
+        "FX: Surround",
+        "FX: Crystalizer",
+        "FX: X-Bass",
+        "FX: Smart Volume",
+        "FX: Dialog Plus",
+    ];
+    let enabled = effects
+        .iter()
+        .filter(|name| {
+            profile
+                .controls
+                .get(**name)
+                .and_then(|control| control.playback_switch)
+                == Some(true)
+        })
+        .count();
+    let disabled = effects
+        .iter()
+        .filter(|name| {
+            profile
+                .controls
+                .get(**name)
+                .and_then(|control| control.playback_switch)
+                == Some(false)
+        })
+        .count();
+    let equalizer = profile
+        .controls
+        .get("FX: Equalizer")
+        .and_then(|control| control.playback_switch)
+        == Some(true);
+
+    match (enabled, disabled, equalizer) {
+        (0, disabled, true) if disabled > 0 => {
+            format!("Equalizer only · {disabled} effects off by profile")
+        }
+        (0, _, true) => "Equalizer only".to_owned(),
+        (enabled, _, true) => format!("{enabled} effects + equalizer enabled"),
+        (enabled, _, false) if enabled > 0 => format!("{enabled} effects enabled"),
+        _ => "All acoustic effects disabled".to_owned(),
+    }
 }
 
 fn effect_control_card(
@@ -4999,6 +5129,91 @@ mod tests {
         assert!(profile_requires_high_gain(&profile));
         assert!(profile_preview(&profile).contains("High (150-600 Ohms)"));
         assert!(profile_preview(&profile).contains("Front Right=82"));
+    }
+
+    #[test]
+    fn matches_profiles_against_live_hardware_and_describes_eq_only_defaults() {
+        let profile = Profile {
+            format_version: 1,
+            name: "DOTA 2".to_owned(),
+            target: "1102:0012/1102:0051".to_owned(),
+            controls: std::collections::BTreeMap::from([
+                (
+                    "Output Select".to_owned(),
+                    ProfileControl {
+                        choice: Some("Headphone".to_owned()),
+                        ..ProfileControl::default()
+                    },
+                ),
+                (
+                    "FX: Crystalizer".to_owned(),
+                    ProfileControl {
+                        playback_switch: Some(false),
+                        playback_level: Some(38),
+                        ..ProfileControl::default()
+                    },
+                ),
+            ]),
+        };
+        let mut controls = vec![
+            ControlSnapshot {
+                name: "Output Select".to_owned(),
+                selected: Some("Headphone".to_owned()),
+                choices: vec!["Speakers".to_owned(), "Headphone".to_owned()],
+                playback_switch: None,
+                capture_switch: None,
+                playback_level: None,
+                capture_level: None,
+                playback_channels: Vec::new(),
+                capture_channels: Vec::new(),
+            },
+            ControlSnapshot {
+                name: "FX: Crystalizer".to_owned(),
+                selected: None,
+                choices: Vec::new(),
+                playback_switch: Some(false),
+                capture_switch: None,
+                playback_level: Some(Level {
+                    value: 38,
+                    min: 0,
+                    max: 100,
+                }),
+                capture_level: None,
+                playback_channels: Vec::new(),
+                capture_channels: Vec::new(),
+            },
+        ];
+
+        assert!(profile_matches_controls(&profile, &controls));
+        controls[1].playback_switch = Some(true);
+        assert!(!profile_matches_controls(&profile, &controls));
+
+        let mut eq_only = profile;
+        for effect in [
+            "FX: Surround",
+            "FX: X-Bass",
+            "FX: Smart Volume",
+            "FX: Dialog Plus",
+        ] {
+            eq_only.controls.insert(
+                effect.to_owned(),
+                ProfileControl {
+                    playback_switch: Some(false),
+                    ..ProfileControl::default()
+                },
+            );
+        }
+        eq_only.controls.insert(
+            "FX: Equalizer".to_owned(),
+            ProfileControl {
+                playback_switch: Some(true),
+                ..ProfileControl::default()
+            },
+        );
+        assert_eq!(
+            active_profile_detail(&eq_only),
+            "Equalizer only · 5 effects off by profile"
+        );
     }
 
     #[test]

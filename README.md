@@ -555,9 +555,11 @@ Windows render endpoint, despite its prior muted state. The Windows capture
 procedure therefore reapplies and independently verifies the 20% cap and mute
 after every output, profile, format, or device transition. A guarded 997 Hz
 Windows/Linux screen subsequently exposed and fixed the silent normal
-PipeWire transport: the AE-5 requires raw S16 read/write playback, its working
-6016-by-four buffer geometry, and ignored ALSA dB metadata. Linux playback is
-now audible through the normal desktop sink. A preliminary capture initially
+PipeWire transport: the AE-5 requires raw read/write playback, its working
+6016-by-four buffer geometry, and ignored ALSA dB metadata. A later
+format-controlled retest corrected the initial S16 conclusion; the desktop
+sink now uses S32 to preserve software-volume precision. Linux playback is
+audible through the normal desktop sink. A preliminary capture initially
 appeared 16.50 dB below Windows, but the levels were not matched: ALSA's
 virtual Master attenuation was stacked with low Front and PCM values. Kernel
 source review and a repeatable Master 19/20 A/B explain the result, so it is

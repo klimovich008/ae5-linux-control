@@ -369,8 +369,11 @@ headphones unworn and Low gain:
 | Fixed PipeWire sink, S16 RW, 6016/24064 frames | -70.65 dBFS |
 
 The first four values are at the acoustic noise floor. The raw S16
-read/write path with a 6016-frame period and four periods is the first
-combination that produced the fixture through the normal analog PCM.
+read/write path with a 6016-frame period and four periods was the first
+combination that produced the fixture through the normal analog PCM. This
+initial matrix did not test S32 with the working 6016-by-four geometry, so it
+proved the transport and buffer requirements but not a separate S16
+requirement.
 `front:Creative` is unsuitable because the generic HDA ALSA definition wraps
 the raw PCM in another `PCM Playback Volume` softvol. The custom ACP mappings
 therefore use `hw:%f` for stereo and every supported 2.1-through-5.1 layout.
@@ -378,13 +381,13 @@ therefore use `hw:%f` for stereo and every supported 2.1-through-5.1 layout.
 PipeWire additionally had to ignore the driver's dB metadata. The exact-card
 rule now combines `api.alsa.soft-mixer=true` with
 `api.alsa.ignore-dB=true`; a separate analog-profile-only sink rule requests
-`S16LE`, disables mmap, and fixes the period geometry to 6016 frames times
+`S32LE`, disables mmap, and fixes the period geometry to 6016 frames times
 four. IEC958 remains outside that transport rule. The Rust route-health path
 rejects an installation where `ignore-dB` is absent. The live node read back:
 
 ```text
 api.alsa.path = hw:0
-audio.format = S16LE
+audio.format = S32LE
 api.alsa.disable-mmap = true
 api.alsa.period-size = 6016
 api.alsa.period-num = 4
@@ -398,6 +401,22 @@ each stream. Restoring Headphone/2.0/Microphone reproduced the complete simple
 mixer SHA-256
 `26a75bb94621e15023ebb28bb3a3da92c63d210f0e657b74478187256d39142c`,
 and the 20%-ceiling playback preflight passed.
+
+The format-controlled follow-up kept Master and Front switched off during
+digital testing. Direct S32 RW playback with period size 6016 and buffer size
+24064 completed through What U Hear. The live PipeWire PCM then reported the
+same S32/RW/6016/24064 parameters. At 20% software volume, all ten PipeWire
+bands were exactly 41.93 or 41.94 dB below their direct references and the
+normalized response matched within 0.01 dB. The corresponding S16 capture had
+no XRUN or driver error but differed from direct response by up to 5.81 dB at
+that low level.
+
+A matched safe acoustic check used Low gain, a -14 dBFS 997 Hz fixture, and
+the 20% PipeWire ceiling. The Fifine capture measured mean 987-1007 Hz power
+`0.00419666666667` with the headphone stages on and `0.000983333333333` with
+Front and Master off, a +6.30 dB detection. This confirms that the corrected
+S32 transport reaches the analog headphone output. Every run ended at 5%,
+PipeWire muted, and both physical playback switches off.
 
 The earlier 43% observation is connected, but it is not a hidden hardware
 limit. WirePlumber had restored a saved route volume of 43%. PipeWire's cubic

@@ -293,9 +293,10 @@ acoustic repeat was rejected because its quiet microphone capture had a
 substantially elevated 997 Hz baseline; it is not used as acceptance evidence.
 
 This comparison found and fixed the Linux silent-transport path: use raw
-`hw:%f` rather than HDA's `front:` softvol, S16 rather than S32, ALSA
-read/write rather than mmap, 6016-frame periods with four periods, and
-`api.alsa.ignore-dB=true`. Exact A/B evidence is in
+`hw:%f` rather than HDA's `front:` softvol, ALSA read/write rather than mmap,
+6016-frame periods with four periods, S32 for low-volume precision, and
+`api.alsa.ignore-dB=true`. The original format conclusion was confounded by
+testing S32 only with the broken default period geometry. Exact A/B evidence is in
 [`DRIVER_ROUTING_INVESTIGATION.md`](DRIVER_ROUTING_INVESTIGATION.md).
 
 The result is a transport and audibility pass, not a parity pass. It uses a

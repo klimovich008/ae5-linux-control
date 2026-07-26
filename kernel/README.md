@@ -285,6 +285,9 @@ is recorded below.
 
 `ca0132-wedge-angle-default.patch` fixes an invalid ALSA control value present
 in Linux `v7.1.4` and upstream `master` at `48a5a7ab8d6a`.
+It was rechecked on 2026-07-26 against the official Linux `master` at
+`3dab139d4795` and `sound.git` `for-next` at `61471f29f315`; both still contain
+the invalid cached value.
 
 The driver exposes Wedge Angle as a logical integer from 20 to 180 degrees.
 `voice_focus_ctl_put()` subtracts 20 only when converting that public value to

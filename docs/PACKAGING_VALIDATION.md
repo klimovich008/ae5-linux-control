@@ -638,7 +638,7 @@ reproduced complete mixer SHA-256
 
 ## Smart Volume mode user upgrade
 
-The 2026-07-26 release build passed all 64 Rust/GTK/CLI tests, strict Clippy
+The 2026-07-26 release build passed all 78 Rust/GTK/CLI tests, strict Clippy
 and formatting, the audio-parity self-test, ACP and 54-row feature-matrix
 validators, diagnostics self-test, and the complete transactional rootless
 lifecycle. Native Wayland measurements passed the Version 1 budgets at 233 ms

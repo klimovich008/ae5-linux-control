@@ -287,7 +287,7 @@ impl Profile {
         })
     }
 
-    fn validate_structure(&self) -> Result<(), ProfileError> {
+    pub(crate) fn validate_structure(&self) -> Result<(), ProfileError> {
         if self.format_version != FORMAT_VERSION {
             return Err(ProfileError::Invalid(format!(
                 "unsupported profile format version {}",

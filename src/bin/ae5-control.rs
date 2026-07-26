@@ -1,13 +1,14 @@
 #[cfg(test)]
 use ae5_control::linux_driver_defaults_for;
 use ae5_control::{
-    Ae5Device, Ae5Lighting, Ae5Mixer, ChannelLevel, ControlError, ControlSnapshot,
-    DIRECT_MODE_CONTROL, FeatureSupport, LINUX_DRIVER_DEFAULTS_PRESERVED, Level, NativeRatesConfig,
-    ONBOARD_LED_COUNT, PipeWireNode, PipeWireRouteState, Profile, ProfileControl, RgbColor,
-    SbCommandImport, SbCommandTarget, ae5_input, ae5_output, ae5_route_state,
-    apply_linux_driver_defaults, capture_control_block_reason, direct_mode_block_reason,
-    discover_sbcommand_installation, equalizer_band_block_reason, export_library_profile,
-    feature_parity, front_vmaster_clamp_warning, headphone_playback_issue,
+    Ae5Device, Ae5Lighting, Ae5Mixer, BuiltinProfile, COMMAND_DEFAULT_PROFILE_COUNT, ChannelLevel,
+    ControlError, ControlSnapshot, DIRECT_MODE_CONTROL, FeatureSupport,
+    LINUX_DRIVER_DEFAULTS_PRESERVED, Level, NativeRatesConfig, ONBOARD_LED_COUNT, PipeWireNode,
+    PipeWireRouteState, Profile, ProfileControl, RgbColor, SbCommandImport, SbCommandTarget,
+    ae5_input, ae5_output, ae5_route_state, apply_linux_driver_defaults, builtin_profiles,
+    capture_control_block_reason, direct_mode_block_reason, discover_sbcommand_installation,
+    equalizer_band_block_reason, export_library_profile, feature_parity,
+    front_vmaster_clamp_warning, headphone_playback_issue,
     import_discovered_sbcommand_profile_with_report, import_sbcommand_profile_with_report,
     library_profile, native_rates_config, playback_switch_block_reason, profile_library,
     profile_library_directory, rename_library_profile, set_ae5_default_input,
@@ -760,7 +761,7 @@ fn sound_effects_page(
     }
     page.append(&header);
 
-    let profile_heading = gtk::Label::new(Some("Profiles"));
+    let profile_heading = gtk::Label::new(Some("Your profiles"));
     profile_heading.set_xalign(0.0);
     profile_heading.add_css_class("mixer-section");
     page.append(&profile_heading);
@@ -827,6 +828,69 @@ fn sound_effects_page(
     profiles.add_css_class("profile-carousel");
     page.append(&profiles);
 
+    let defaults_heading = gtk::Label::new(Some(&format!(
+        "Sound Blaster Command defaults · {COMMAND_DEFAULT_PROFILE_COUNT}"
+    )));
+    defaults_heading.set_xalign(0.0);
+    defaults_heading.add_css_class("mixer-section");
+    page.append(&defaults_heading);
+
+    let defaults_strip = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    match builtin_profiles() {
+        Ok(profiles) => {
+            for preset in profiles {
+                let card = sound_profile_card(
+                    "BUILT-IN",
+                    &preset.name,
+                    "Speaker + headphone variants",
+                    Some("Preview & apply"),
+                );
+                if let Some(button) = find_widget(card.clone().upcast(), |widget| {
+                    widget.has_css_class("profile-card-action")
+                })
+                .and_then(|widget| widget.downcast::<gtk::Button>().ok())
+                {
+                    let preset = preset.clone();
+                    let window = window.clone();
+                    let status = status.clone();
+                    button.connect_clicked(move |_| {
+                        let preset = preset.clone();
+                        let window = window.clone();
+                        let status = status.clone();
+                        gtk::glib::spawn_future_local(async move {
+                            match apply_builtin_profile(&window, card_index, &preset).await {
+                                Ok(Some(message)) => {
+                                    let _ = refresh_window(&window, Some(&message));
+                                }
+                                Ok(None) => {}
+                                Err(error) => {
+                                    set_status(&status, false, &format!("Apply failed: {error}"))
+                                }
+                            }
+                        });
+                    });
+                }
+                defaults_strip.append(&card);
+            }
+        }
+        Err(error) => {
+            defaults_strip.append(&sound_profile_card(
+                "BUILT-IN",
+                "Defaults unavailable",
+                error,
+                None,
+            ));
+        }
+    }
+    let defaults = gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Automatic)
+        .vscrollbar_policy(gtk::PolicyType::Never)
+        .min_content_height(148)
+        .child(&defaults_strip)
+        .build();
+    defaults.add_css_class("profile-carousel");
+    page.append(&defaults);
+
     let effects_heading = gtk::Label::new(Some("Acoustic engine"));
     effects_heading.set_xalign(0.0);
     effects_heading.add_css_class("mixer-section");
@@ -879,6 +943,7 @@ fn sound_profile_card(kicker: &str, title: &str, detail: &str, action: Option<&s
     let kicker = gtk::Label::new(Some(kicker));
     kicker.set_xalign(0.0);
     kicker.add_css_class("profile-card-kicker");
+    let accessible_title = title.to_owned();
     let title = gtk::Label::new(Some(title));
     title.set_xalign(0.0);
     title.set_ellipsize(gtk::pango::EllipsizeMode::End);
@@ -896,6 +961,8 @@ fn sound_profile_card(kicker: &str, title: &str, detail: &str, action: Option<&s
         let button = gtk::Button::with_label(action);
         button.set_halign(gtk::Align::Start);
         button.add_css_class("profile-card-action");
+        let accessible_label = format!("{action} “{accessible_title}”");
+        button.update_property(&[gtk::accessible::Property::Label(&accessible_label)]);
         card.append(&button);
     } else {
         let active = gtk::Label::new(Some("ACTIVE"));
@@ -1081,6 +1148,18 @@ fn analog_playback_page(
         1,
         2,
         1,
+        1,
+    );
+    grid.attach(
+        &playback_unavailable_tile(
+            "Headphone model tuning",
+            "Command's model files contain display metadata only; the correction response \
+             remains inside Creative's Windows driver/APO. Imported custom EQ profiles are \
+             available on Linux without pretending those proprietary curves were copied.",
+        ),
+        0,
+        3,
+        2,
         1,
     );
     page.append(&grid);
@@ -2179,9 +2258,9 @@ fn profile_page(
     heading.append(&title);
     if let Ok(library) = profile_library() {
         let summary = gtk::Label::new(Some(&format!(
-            "{} SAVED PROFILE{}",
+            "{} PERSONAL · {} BUILT-IN",
             library.profiles.len(),
-            if library.profiles.len() == 1 { "" } else { "S" }
+            COMMAND_DEFAULT_PROFILE_COUNT
         )));
         summary.add_css_class("status-pill");
         heading.append(&summary);
@@ -2197,10 +2276,20 @@ fn profile_page(
     intro.add_css_class("dim-label");
     page.append(&intro);
 
-    let saved_actions = saved_profile_actions(window, card_index, status);
+    let defaults_actions = builtin_profile_actions(window, card_index, status);
     page.append(&profile_card(
         "01",
-        "Saved profiles",
+        "Sound Blaster Command defaults",
+        "All 33 factory Sound Effects profiles from Command 3.5.10.0 are embedded as \
+         validated Linux controls. The live Speakers / Headphones route chooses the matching \
+         variant; built-ins never change the selected output.",
+        &defaults_actions,
+    ));
+
+    let saved_actions = saved_profile_actions(window, card_index, status);
+    page.append(&profile_card(
+        "02",
+        "Personal profiles",
         "Profiles in the standard per-user library are available immediately after \
          an app restart. Every apply still uses preview, validation, readback, and rollback.",
         &saved_actions,
@@ -2213,7 +2302,7 @@ fn profile_page(
     native_actions.append(&save);
     native_actions.append(&apply);
     page.append(&profile_card(
-        "02",
+        "03",
         "Profile files",
         "Portable JSON uses semantic ALSA names. Applying validates every value, \
          verifies readback, and rolls back the targeted controls on failure.",
@@ -2228,7 +2317,7 @@ fn profile_page(
     let reset_actions = gtk::Box::new(gtk::Orientation::Horizontal, 10);
     reset_actions.append(&reset);
     page.append(&profile_card(
-        "03",
+        "04",
         "Linux driver defaults",
         "Restore the CA0132 processing values initialized by the Linux driver. \
          A native backup is saved before the first mixer write; this is not claimed \
@@ -2243,7 +2332,7 @@ fn profile_page(
     import_actions.append(&import_active);
     import_actions.append(&import);
     page.append(&profile_card(
-        "04",
+        "05",
         "Sound Blaster Command",
         "Choose a mounted Windows user folder to discover and import its active setup, \
          or choose Creative profile and EQ files manually. Review every mapping before saving.",
@@ -2342,6 +2431,68 @@ fn profile_page(
         .build()
 }
 
+fn builtin_profile_actions(
+    window: &gtk::ApplicationWindow,
+    card_index: i32,
+    status: &gtk::Label,
+) -> gtk::Box {
+    let actions = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+    let Ok(profiles) = builtin_profiles() else {
+        let unavailable = gtk::Label::new(Some("The embedded profile catalog is unavailable."));
+        unavailable.add_css_class("warning-label");
+        actions.append(&unavailable);
+        return actions;
+    };
+
+    let names = profiles
+        .iter()
+        .map(|profile| profile.name.as_str())
+        .collect::<Vec<_>>();
+    let picker = gtk::DropDown::from_strings(&names);
+    picker.set_hexpand(true);
+    picker.update_property(&[gtk::accessible::Property::Label(
+        "Built-in Sound Blaster Command profile",
+    )]);
+    let apply = gtk::Button::with_label("Preview & apply");
+    apply.add_css_class("suggested-action");
+
+    {
+        let picker = picker.clone();
+        let window = window.clone();
+        let status = status.clone();
+        apply.connect_clicked(move |_| {
+            let selected = picker.selected() as usize;
+            let Some(preset) = builtin_profiles()
+                .ok()
+                .and_then(|profiles| profiles.get(selected))
+                .cloned()
+            else {
+                set_status(
+                    &status,
+                    false,
+                    "The selected built-in profile is unavailable.",
+                );
+                return;
+            };
+            let window = window.clone();
+            let status = status.clone();
+            gtk::glib::spawn_future_local(async move {
+                match apply_builtin_profile(&window, card_index, &preset).await {
+                    Ok(Some(message)) => {
+                        let _ = refresh_window(&window, Some(&message));
+                    }
+                    Ok(None) => {}
+                    Err(error) => set_status(&status, false, &format!("Apply failed: {error}")),
+                }
+            });
+        });
+    }
+
+    actions.append(&picker);
+    actions.append(&apply);
+    actions
+}
+
 fn saved_profile_actions(
     window: &gtk::ApplicationWindow,
     card_index: i32,
@@ -2395,6 +2546,15 @@ fn saved_profile_actions(
                 let export = gtk::Button::with_label("Export copy");
                 let rename = gtk::Button::with_label("Rename");
                 let trash = gtk::Button::with_label("Move to Trash");
+                for (button, action) in [
+                    (&apply, "Preview and apply"),
+                    (&export, "Export a copy of"),
+                    (&rename, "Rename"),
+                    (&trash, "Move to Trash"),
+                ] {
+                    let accessible_label = format!("{action} “{}”", entry.profile.name);
+                    button.update_property(&[gtk::accessible::Property::Label(&accessible_label)]);
+                }
                 export.set_tooltip_text(Some(
                     "Save a standalone copy without changing the library profile.",
                 ));
@@ -2591,6 +2751,35 @@ async fn apply_profile_path(
     path: &Path,
 ) -> Result<Option<String>, String> {
     let profile = Profile::load(path).map_err(|error| error.to_string())?;
+    apply_profile(window, card_index, profile).await
+}
+
+async fn apply_builtin_profile(
+    window: &gtk::ApplicationWindow,
+    card_index: i32,
+    preset: &BuiltinProfile,
+) -> Result<Option<String>, String> {
+    let controls = snapshot_controls(card_index).map_err(|error| error.to_string())?;
+    let selected = |name| {
+        controls
+            .iter()
+            .find(|control| control.name == name)
+            .and_then(|control| control.selected.as_deref())
+    };
+    let output = selected("Output Select")
+        .ok_or_else(|| "the live Speakers / Headphones route is unavailable".to_owned())?;
+    let layout = selected("Surround Channel Config");
+    let profile = preset
+        .profile_for(output, layout)
+        .map_err(|error| error.to_string())?;
+    apply_profile(window, card_index, profile).await
+}
+
+async fn apply_profile(
+    window: &gtk::ApplicationWindow,
+    card_index: i32,
+    profile: Profile,
+) -> Result<Option<String>, String> {
     let mixer = Ae5Mixer::open(card_index).map_err(|error| error.to_string())?;
     profile
         .check(&mixer, true)

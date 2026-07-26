@@ -784,17 +784,37 @@ fn map_lfe_bass_management(
     controls: &mut BTreeMap<String, ProfileControl>,
     report: &mut SbCommandImportReport,
 ) {
-    let has_lfe = controls
+    let layout = controls
         .get("Surround Channel Config")
-        .and_then(|control| control.choice.as_deref())
-        .is_some_and(|layout| layout.ends_with(".1"));
-    let Some(x_bass) = controls.get("FX: X-Bass") else {
+        .and_then(|control| control.choice.clone());
+    let Some(x_bass_enabled) = map_lfe_bass_controls(controls, layout.as_deref()) else {
         return;
     };
-    let x_bass_enabled = x_bass.playback_switch.unwrap_or(false);
-    if !has_lfe {
-        return;
+
+    for mappings in [&mut report.exact, &mut report.approximate] {
+        mappings.retain(|item| !item.starts_with("Bass → FX: X-Bass"));
+        for item in mappings
+            .iter_mut()
+            .filter(|item| item.starts_with("Bass.XOver "))
+        {
+            *item = item.replace("FX: X-Bass Crossover", "Bass Redirection Crossover");
+        }
     }
+    report.exact.push(format!(
+        "Bass → Bass Redirection (playback {}; X-Bass off and strength inactive for an LFE speaker layout)",
+        on_off(x_bass_enabled)
+    ));
+}
+
+pub(crate) fn map_lfe_bass_controls(
+    controls: &mut BTreeMap<String, ProfileControl>,
+    layout: Option<&str>,
+) -> Option<bool> {
+    if !layout.is_some_and(|layout| layout.ends_with(".1")) {
+        return None;
+    }
+    let x_bass = controls.get("FX: X-Bass")?;
+    let x_bass_enabled = x_bass.playback_switch.unwrap_or(false);
 
     controls.insert(
         "FX: X-Bass".to_owned(),
@@ -813,20 +833,7 @@ fn map_lfe_bass_management(
     if let Some(crossover) = controls.remove("FX: X-Bass Crossover") {
         controls.insert("Bass Redirection Crossover".to_owned(), crossover);
     }
-
-    for mappings in [&mut report.exact, &mut report.approximate] {
-        mappings.retain(|item| !item.starts_with("Bass → FX: X-Bass"));
-        for item in mappings
-            .iter_mut()
-            .filter(|item| item.starts_with("Bass.XOver "))
-        {
-            *item = item.replace("FX: X-Bass Crossover", "Bass Redirection Crossover");
-        }
-    }
-    report.exact.push(format!(
-        "Bass → Bass Redirection (playback {}; X-Bass off and strength inactive for an LFE speaker layout)",
-        on_off(x_bass_enabled)
-    ));
+    Some(x_bass_enabled)
 }
 
 fn speaker_layout(mask: u32) -> Option<&'static str> {

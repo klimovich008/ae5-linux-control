@@ -1,3 +1,4 @@
+pub mod builtin_profiles;
 pub mod controls;
 pub mod device;
 pub mod feature_parity;
@@ -7,6 +8,7 @@ pub mod profile;
 pub mod profile_library;
 pub mod sbcommand;
 
+pub use builtin_profiles::{BuiltinProfile, COMMAND_DEFAULT_PROFILE_COUNT, builtin_profiles};
 pub use controls::{
     Ae5Mixer, ChannelLevel, ControlError, ControlSnapshot, DIRECT_MODE_CONTROL, Level,
     capture_control_block_reason, direct_mode_block_reason, equalizer_band_block_reason,

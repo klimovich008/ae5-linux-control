@@ -161,6 +161,16 @@ cargo run -- profile-check headphones.json
 cargo run -- profile-apply headphones.json
 ```
 
+The GTK Sound Effects page also embeds all 33 selectable factory profiles from
+the validated AE-5 Sound Blaster Command 3.5.10.0 installation. Built-ins are
+immutable and always available: applying one previews the exact native
+controls, chooses its speaker or headphone section from the live route, and
+maps Windows Bass to CA0132 Bass Redirection for an active `.1` speaker layout
+without changing the selected output. Only converted names, identifiers, and
+representable values are included; no Creative artwork, binaries, raw files,
+or user settings are distributed. Provenance is recorded in
+[data/README.md](data/README.md).
+
 AE-5 Control also exposes an evidence-based Linux-driver processing baseline.
 It is not labeled as Creative's factory reset because Sound Blaster Command's
 exact reset semantics are undocumented. Previewing and checking are read-only:
@@ -245,6 +255,11 @@ because Command uses it only to choose the separately represented `Bass.XOver`
 value. Named Creative headphone tuning remains unsupported until Linux exposes
 a safe equivalent; the importer resolves its display model from Command's
 bounded text metadata so the warning identifies what was selected. Command's
+model records contain only display name and order; the actual correction
+response remains in the proprietary Windows driver/APO. The Playback page
+states that boundary instead of presenting a non-functional model selector.
+Personal graphic-EQ presets remain fully importable through the native profile
+library. Command's
 shared Bass feature uses X-Bass for headphones and speaker layouts without a
 subwoofer, but switches to Bass Management for 2.1, 4.1, and 5.1. The active
 setup importer mirrors that behavior with CA0132's `Bass Redirection` and

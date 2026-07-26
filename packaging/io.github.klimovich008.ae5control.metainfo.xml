@@ -14,9 +14,10 @@
     </p>
     <p>
       Profiles can be saved locally or converted from compatible Sound Blaster
-      Command JSON exports. Hardware writes are range-checked, read back, and
-      rolled back when a multi-control profile or lighting frame cannot be
-      applied completely.
+      Command JSON exports. The application includes 33 converted AE-5 factory
+      Sound Effects profiles with route-aware speaker and headphone variants.
+      Hardware writes are range-checked, read back, and rolled back when a
+      multi-control profile or lighting frame cannot be applied completely.
     </p>
     <p>
       The device page reports live hardware and driver capabilities and can

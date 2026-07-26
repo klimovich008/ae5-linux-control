@@ -25,8 +25,34 @@ its active user-owned AE-5 profile and equalizer files.
   after confirming the exact AE-5 hardware ID. It does not execute, decompile,
   or disassemble the driver.
 - Source Windows files are read-only inputs. No Creative binaries, firmware,
-  configuration files, identifiers, or user profile contents are committed.
+  artwork, raw configuration files, or user profile contents are committed.
+  A separate generated catalog contains only the factory profile names,
+  identifiers, and representable native AE-5 control values.
 - Conversion creates native profiles but does not apply them to hardware.
+
+## Embedded factory profile catalog
+
+The exact AE-5 product tree contains 33 selectable factory Sound Effects
+profiles plus one non-selectable base template. Every selectable profile has a
+speaker section and a headphone section. The validated importer converted all
+33 pairs to the native profile schema, including the one Call of Duty profile
+whose profile and EQ filenames differ but whose source identifiers match.
+
+The GTK Sound Effects page exposes the converted defaults as immutable cards.
+Application uses the live output route to select the correct section and does
+not change that route. For 2.1, 4.1, or 5.1 speakers, the existing
+layout-aware migration rule maps the shared Windows Bass setting to CA0132
+Bass Redirection and turns X-Bass off before normal profile validation,
+readback, and rollback.
+
+The embedded catalog is generated interoperability data, not a copy of
+Command's presentation layer. Creative images, descriptions, file paths, raw
+JSON, executables, and user-created settings remain outside the repository.
+The source snapshot and generated catalog hashes are recorded in
+[`data/README.md`](../data/README.md). Focused tests require 33 unique names
+and identifiers, validate both variants of every entry, pin known
+speaker/headphone differences, and cover LFE adaptation without a route
+change.
 
 ## Exact Command export equivalence
 

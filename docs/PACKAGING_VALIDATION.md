@@ -595,7 +595,7 @@ and ALSA-state sentinels byte-for-byte.
 ## Equalizer-evidence user upgrade
 
 The release build after the exact Windows SoundCore equalizer trace passed all
-75 Rust/GTK tests, strict Clippy and formatting, the 54-row feature-matrix
+76 Rust/GTK/CLI tests, strict Clippy and formatting, the 54-row feature-matrix
 validator, and the complete transactional rootless lifecycle. The real user
 installation was then upgraded without restarting WirePlumber.
 

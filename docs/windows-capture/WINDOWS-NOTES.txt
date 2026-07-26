@@ -6,6 +6,7 @@ Headphones:
 Windows master volume (must be <=20%):
 Player session volume (must be <=20%):
 Creative playback volume(s) (must be <=20%):
+20% cap and mute reverified after final route/profile change:
 Headphone gain (must be Low):
 Channel mode:
 Sample rate:

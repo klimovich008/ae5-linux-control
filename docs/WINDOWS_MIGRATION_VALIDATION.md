@@ -70,28 +70,29 @@ that package's INF, and archived Windows setup logs repeatedly select the same
 package. Command and driver versions now appear first in both the CLI report
 and desktop preview.
 
-The active speaker selection now converts to a native profile containing 21 ALSA
-controls. Its Windows channel mask mapped exactly to the AE-5 `5.1` speaker
-choice, and the output route mapped to `Speakers`. The source profile also
-enabled Windows Bass. The later exact Bass Management trace described below
-established that this toggle maps to speaker bass redirection, not X-Bass, for
-that layout.
+Live Command validation later established that the profile section type is
+`0` for headphones and `1` for speakers. With that mapping, the active speaker
+selection converts to 22 ALSA controls and reports 31 exact mappings, one
+approximate mapping, and no unsupported setting. Its Windows channel mask maps
+to the AE-5 `5.1` choice and its output route maps to `Speakers`. Its effect
+states, levels, and ten flat EQ bands match the values Command displayed for
+the speaker route.
 
-The active headphone selection now converts to a native profile containing 20
-ALSA controls, including the `Headphone` output route. The selected Creative
-headphone tuning was retained in the migration report as unsupported because
-the current CA0132 ALSA interface has no mapped control for that processing.
-This is a known sound-parity gap rather than a silently discarded setting.
+The active headphone selection converts to 21 ALSA controls and reports 23
+exact mappings, eight values rounded to representable ALSA steps, and one
+unsupported setting. It includes the `Headphone` output route, the visible SBX
+states and levels, and all ten custom EQ bands. The only unsupported item is
+the selected Creative headphone model tuning because the current CA0132 ALSA
+interface has no mapped equivalent. This is a known sound-parity gap rather
+than a silently discarded setting.
 
-Both generated profiles passed `ae5ctl profile-check` against the physical
-AE-5 without changing any mixer value. Float equalizer values were rounded to
-the nearest representable ALSA step and identified as approximate in the
-report. The converter now also selects `FX: Equalizer Preset` Flat before
-applying those custom bands, preventing a previously selected factory curve
-from surviving underneath them. An aggregate SHA-256 of every file below the
-mounted Creative and Creative_Technology_Ltd trees was
-`409cbe439f23ca22a378280499cdcad3c1f67999a841235cc7e0899bb8913f9f`
-both before and after the 2026-07-25 conversion rerun.
+Earlier generated profiles passed `ae5ctl profile-check` against the physical
+AE-5 without changing a mixer value. The corrected profiles are structurally
+valid and are stored in the private native profile library, but their final
+read-only hardware check waits until the card returns from the Windows guest.
+The converter selects `FX: Equalizer Preset` Flat before applying custom bands,
+preventing a previously selected factory curve from surviving underneath them.
+The source aggregate remained unchanged during conversion.
 
 ## Isolated Windows import round trip
 
@@ -109,30 +110,58 @@ version being imported. The installed executable has SHA-256
 and is byte-identical to the executable in the inspected source installation.
 The verified setting tree was copied into Command's actual versioned user,
 AE-5 product, and shared metadata locations without replacing any
-non-identical destination.
+non-identical destination. The first no-device launch left all 126 files
+byte-for-byte identical, but that was not sufficient live-device validation.
 
-Command then started interactively as the target Windows user. With no
-physical AE-5 assigned, it opened normally and requested that a supported
-device be connected. A normal close left all 126 files byte-for-byte
-identical to the staged import. This proves that the saved configuration can
-be transferred into a clean installation of the matching Command version
-without path, schema, or immediate startup corruption.
+Managed PCI passthrough then assigned the physical AE-5 to the system Windows
+guest. Both Creative PnP nodes were healthy with the Creative-signed
+`6.0.105.65` driver, and the expected Creative services were running. Command
+initially detected the card in its log but displayed an unsupported-device
+view because the read-only transfer medium had propagated its file attribute
+to 93 destination user files, including `user.config`. Clearing only the
+ReadOnly and Hidden attributes on those destination copies fixed startup.
+Their contents and aggregate SHA-256 did not change; the 33 shared metadata
+files were already writable and byte-identical to the installed copies.
 
-It does not yet prove that Command selects every imported value after live
-device discovery or that Windows and Linux produce the same analog response.
-Those checks require managed AE-5 passthrough and the guarded at-or-below-20%
-capture procedure. No Windows image, Creative binary, user setting, private
-identifier, or VM credential is committed.
+After a fresh launch, Command recognized the AE-5 and exposed the complete
+device UI. Of the 126 imported files, 125 remained byte-identical. Command
+legitimately updated only `user.config`: it added the selected speaker audio
+format cache and changed the saved surround-feature runtime state. The active
+profile and preset identifiers, both route-specific selections, and every
+plain setting consumed by the importer remained unchanged.
+
+The speaker view displayed the section whose profile type is `1`; switching to
+headphones displayed the section whose type is `0`. Narrow reflection over
+Creative's managed profile assembly independently confirmed the enum
+`Headphones = 0` and `Speakers = 1` in the profile, firmware-profile, and
+audio-profile settings types. No Creative binary or reflection output is
+committed. A focused Rust regression test fixes these values at the selection
+boundary.
+
+Windows playback safety was enforced independently at the endpoint layer:
+both render endpoints were capped at exactly 20% and muted, all AE-5 outputs
+were physically unplugged, and no audio was played. Command automatically
+unmuted the endpoint during a Speakers-to-Headphones route change. The test
+immediately restored 20% plus mute and verified it independently. Every future
+Windows route, profile, or device transition must therefore reapply and
+re-verify both the endpoint cap and mute before playback.
+
+This proves that the saved configuration can be transferred into a clean
+matching Command installation and selected after physical device discovery.
+It does not yet prove equal Windows and Linux analog response; that remains
+behind the guarded at-or-below-20% capture procedure. No Windows image,
+Creative binary, user setting, private identifier, or VM credential is
+committed.
 
 ## Offline native-library round trip
 
-The installed `ae5ctl` later repeated both active imports under disposable
-`HOME` and `XDG_CONFIG_HOME` directories. The speaker conversion produced 21
-controls and reported 24 exact, 2 approximate, and 9 unsupported mappings.
-The headphone conversion produced 20 controls and reported 17 exact, 8
-approximate, and 8 unsupported mappings. Both profiles contained numeric
-values for all ten `EQ Band0` through `EQ Band9` controls and selected
-`FX: Equalizer Preset` Flat before those custom bands.
+After the live output-type correction, the installed `ae5ctl` repeated both
+active imports from the exact verified transfer tree. The speaker conversion
+produced 22 controls and reported 31 exact, one approximate, and zero
+unsupported mappings. The headphone conversion produced 21 controls and
+reported 23 exact, eight approximate, and one unsupported mapping. Both
+profiles contain numeric values for all ten `EQ Band0` through `EQ Band9`
+controls and select `FX: Equalizer Preset` Flat before those custom bands.
 
 Static inspection of the exact installed Command UI later established that
 its separate Bass and Treble equalizer sliders are aliases for band index 1
@@ -141,21 +170,17 @@ values are therefore already preserved by `EQ Band1` and `EQ Band8`; no
 migration field is missing. The evidence boundary and binary hashes are
 recorded in [`SOURCE_INVENTORY.md`](SOURCE_INVENTORY.md).
 
-The isolated profile library then:
+The private profile library then:
 
 1. discovered both imported profiles;
-2. renamed the headphone profile with surrounding whitespace removed;
-3. exported both library entries to new standalone files; and
-4. compared each export byte-for-byte with its corresponding library file.
+2. displayed each profile and its expected target without hardware access; and
+3. retained both output files with owner-only permissions.
 
-Every step passed. No profile was applied or checked against ALSA, and no
-audio stream was opened. The temporary profiles and reports were deleted
-after their derived counts were recorded. A before/after aggregate over the
-exact active input scope was identical, and the broader Creative and
-Creative_Technology_Ltd aggregate remains
-`409cbe439f23ca22a378280499cdcad3c1f67999a841235cc7e0899bb8913f9f`.
-This completes the real custom-EQ native-library round-trip gate without
-publishing the user's profile names, identifiers, or tuning values.
+No profile was applied or checked against ALSA because the card remained
+assigned to Windows, and no audio stream was opened. The exact input tree was
+read-only throughout. This completes the corrected custom-EQ native-library
+import gate without publishing the user's profile names, identifiers, or
+tuning values.
 
 ## Inactive unsupported-feature settings
 
@@ -167,12 +192,10 @@ control, so the importer now records them as exact no-ops. A configured Scout
 object or `SubWooferGain` set to true remains explicitly unsupported; focused
 tests cover both refusal paths.
 
-Fresh mounted-user discovery with the rebuilt converter produced the same 21
-speaker and 20 headphone controls. The speaker report improved from 24 exact,
-2 approximate, and 9 unsupported items to 26 exact, 2 approximate, and 7
-unsupported items. The headphone report improved from 17 exact, 8
-approximate, and 8 unsupported items to 19 exact, 8 approximate, and 6
-unsupported items.
+Focused fixtures verified that disabled Scout settings and subwoofer gain are
+classified as exact no-ops while enabled values remain visible warnings. The
+final live-device counts are recorded above; earlier development counts used
+an unverified output-type assumption and are not acceptance evidence.
 
 The rerun used disposable output and configuration directories, applied no
 profile, and opened no audio stream. Before and after SHA-256 values were
@@ -200,14 +223,10 @@ unsupported for conservative review. Focused tests cover both paths. Binary
 hashes and the inspection boundary are recorded in
 [`SOURCE_INVENTORY.md`](SOURCE_INVENTORY.md).
 
-A fresh mounted-user conversion produced the same 21 speaker and 20 headphone
-controls. The speaker report improved from 26 exact, 2 approximate, and 7
-unsupported items to 31 exact, 2 approximate, and 2 unsupported items. The
-headphone report improved from 19 exact, 8 approximate, and 6 unsupported
-items to 24 exact, 8 approximate, and 1 unsupported item. At that stage, the
-remaining warnings were active behavior: the selected speaker tuning plus the
-LFE/X-Bass conflict for speakers, and the selected Creative headphone tuning
-for headphones.
+Focused fixtures verified these AE-5-irrelevant defaults and retained
+non-zero values as conservative warnings. The final live-device conversion
+leaves no unsupported speaker setting and only the selected Creative
+headphone tuning unsupported.
 
 The rerun used disposable `HOME`, configuration, report, and output paths. It
 did not apply either profile or open an audio stream. An aggregate hash over
@@ -235,13 +254,8 @@ inspection boundary are recorded in
 [`SOURCE_INVENTORY.md`](SOURCE_INVENTORY.md) and
 [`HEADPHONE_TUNING_INVESTIGATION.md`](HEADPHONE_TUNING_INVESTIGATION.md).
 
-A fresh mounted-user conversion retained the same 21 speaker and 20 headphone
-controls. The speaker report improved from 31 exact, 2 approximate, and 2
-unsupported items to 32 exact, 2 approximate, and 1 unsupported item; the
-then-remaining warning was the active LFE/X-Bass conflict. The headphone counts
-remain 24 exact, 8 approximate, and 1 unsupported because the selected
-driver/APO tuning still has no verified Linux equivalent, but that warning now
-includes its display model. The conversion used disposable output and
+Fresh conversion still identifies the selected driver/APO tuning by display
+model while leaving it unsupported. The conversion used disposable output and
 configuration paths and opened no audio stream. An aggregate over the five
 active inputs plus the selected ProgramData metadata config was identical
 before and after:
@@ -265,11 +279,11 @@ strength value. Headphone and non-LFE speaker imports continue to use X-Bass.
 The exact assembly and analysis-tool hashes and the interoperability boundary
 are recorded in [`SOURCE_INVENTORY.md`](SOURCE_INVENTORY.md).
 
-A fresh mounted-user conversion produced a 23-control speaker profile with 34
-exact, 1 approximate, and 0 unsupported mappings. The resulting profile passed
-read-only validation against the physical AE-5. The unchanged headphone
-conversion retained 20 controls with 24 exact, 8 approximate, and 1
-unsupported mapping for the selected driver/APO headphone tuning.
+The Bass Management implementation passed focused conversion tests and an
+earlier read-only check against the physical AE-5. In the corrected live
+import, the speaker's inactive Bass state is represented without an
+unsupported warning. The headphone path continues to leave only the selected
+driver/APO tuning unsupported.
 
 The conversion used disposable Linux output and configuration directories,
 did not apply either profile, and opened no audio stream. A deterministic

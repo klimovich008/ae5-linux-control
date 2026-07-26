@@ -233,6 +233,9 @@ shared Bass feature uses X-Bass for headphones and speaker layouts without a
 subwoofer, but switches to Bass Management for 2.1, 4.1, and 5.1. The active
 setup importer mirrors that behavior with CA0132's `Bass Redirection` and
 `Bass Redirection Crossover` controls while explicitly turning X-Bass off.
+Live Command 3.5.10.0 validation with the physical AE-5 established that
+profile section type `0` means headphones and type `1` means speakers; focused
+tests pin that mapping.
 
 The importer maps SBX switches and levels, crossover frequency, Smart Volume
 mode, and all ten EQ bands. It selects the driver's Flat preset before custom
@@ -476,12 +479,23 @@ The audited topology, package boundary, recovery rules, and per-kernel matrix
 are in [docs/VFIO_TEST_PLAN.md](docs/VFIO_TEST_PLAN.md). A guest cannot replace
 the final physical cold-boot and suspend tests.
 
-A separate Windows 11 comparison VM is now installed with the exact Creative
+A separate Windows 11 comparison VM is installed with the exact Creative
 Command `3.5.10.0` build and a file-by-file-verified copy of the saved AE-5
-settings. Command starts successfully and leaves the imported tree unchanged;
-live profile selection and response comparison remain gated on authenticated
-managed passthrough of the physical card. No source NTFS volume, audio device,
-or host PCI function is attached to the powered-off session guest.
+settings. Managed system passthrough now assigns the physical card
+successfully; Creative's signed `6.0.105.65` driver reports healthy devices,
+Command recognizes the complete AE-5 UI, and both route-specific imported
+settings views match the corrected Linux conversion. Read-only transfer
+attributes had to be cleared on destination user files before Command could
+update `user.config`.
+
+All physical outputs stayed unplugged and no audio was played during that
+validation. A Speakers-to-Headphones transition caused Command to unmute the
+Windows render endpoint, despite its prior muted state. The Windows capture
+procedure therefore reapplies and independently verifies the 20% cap and mute
+after every output, profile, format, or device transition. Objective response
+comparison and exact Linux-host recovery remain pending. No source NTFS
+volume, Windows image, Creative binary, private setting, or credential is
+stored in the repository.
 
 The complete patch stack now also builds, boots, and passes a guarded physical
 cycle on maintained Linux 6.18.40 LTS. That cycle covered the first-use/manual

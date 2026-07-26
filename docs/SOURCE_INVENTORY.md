@@ -127,6 +127,25 @@ errors against both running and current upstream source. It retains the What U
 Hear PCM. No proprietary binary, firmware disassembly, or decompiler output
 was used.
 
+## Windows profile output-type reference
+
+The first physical-card launch of Sound Blaster Command 3.5.10.0 showed that
+its two saved profile sections had been interpreted in reverse by the initial
+Linux importer: Command displayed type `1` for Speakers and type `0` for
+Headphones. A narrow PowerShell reflection query against the running
+installation then read only enum names and numeric values from
+`Creative.Platform.Profiles.dll`.
+
+`ProfileSettings.ProfileSettingsType` defines `Headphones = 0` and
+`Speakers = 1`. The same mapping appears in the firmware-profile and
+audio-profile output types. The inspected 189,440-byte assembly has SHA-256
+`a190130b146eb46e55a05ddfae0ead722fc45786cdba990ddc9ce1994ec319a1`.
+The Rust importer uses only this independently stated interoperability fact,
+with a focused two-section regression test.
+
+No Creative assembly, reflection output, private profile identifier, or
+setting payload is copied into the repository.
+
 ## Windows Direct Mode interoperability reference
 
 After the user explicitly requested an installed-driver comparison, three

@@ -16,6 +16,12 @@ Do not press Play until every item below is true:
 - Speakers are disconnected or confirmed not to be the active output.
 - The file being played is from `fixtures-48000`.
 
+Sound Blaster Command 3.5.10.0 was observed unmuting the Windows render
+endpoint when switching from Speakers to Headphones. After every output,
+profile, or device transition, reapply the 20% cap and mute, then verify both
+outside Command before continuing. Unmute only after the complete safety gate
+passes and immediately before the intended capture.
+
 The supplied tones peak at `-18 dBFS`. Never use the six-channel
 `parity-channel-id-6ch.wav` file for this headphone/microphone procedure.
 Stop immediately if the route, gain, or volume is uncertain.

@@ -1100,8 +1100,8 @@ fn invalid(message: impl Into<String>) -> SbCommandError {
 impl SbCommandTarget {
     fn profile_type(self) -> u8 {
         match self {
-            Self::Speaker => 0,
-            Self::Headphone => 1,
+            Self::Speaker => 1,
+            Self::Headphone => 0,
         }
     }
 
@@ -1337,7 +1337,7 @@ mod tests {
             r#"{
                 "Product":"AE5",
                 "Settings":[{
-                    "Type":1,
+                    "Type":0,
                     "Surround":{"Enable":true,"Level":0.67},
                     "Bass":{"Enable":true,"Level":0.0,"XOver":0.0},
                     "SBXMaster":{
@@ -1372,13 +1372,42 @@ mod tests {
     }
 
     #[test]
+    fn uses_creatives_reflected_profile_output_type_values() {
+        assert_eq!(SbCommandTarget::Headphone.profile_type(), 0);
+        assert_eq!(SbCommandTarget::Speaker.profile_type(), 1);
+
+        let profile: SourceProfile = serde_json::from_str(
+            r#"{
+                "Product":"AE5",
+                "Settings":[
+                    {"Type":0,"SBXMaster":{"Enable":true}},
+                    {"Type":1,"SBXMaster":{"Enable":false}}
+                ]
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(
+            select_settings(&profile.settings, SbCommandTarget::Headphone)
+                .unwrap()
+                .kind,
+            0
+        );
+        assert_eq!(
+            select_settings(&profile.settings, SbCommandTarget::Speaker)
+                .unwrap()
+                .kind,
+            1
+        );
+    }
+
+    #[test]
     fn separates_rounded_and_inactive_windows_settings() {
         let profile: SourceProfile = serde_json::from_str(
             r#"{
                 "Product":"AE5",
                 "SpeakerMethod":0,
                 "Settings":[{
-                    "Type":1,
+                    "Type":0,
                     "Scout":{
                         "Enable":false,
                         "SurroundEnable":false,
@@ -1470,7 +1499,7 @@ mod tests {
                 "Product":"AE5",
                 "SpeakerMethod":1,
                 "Settings":[{
-                    "Type":1,
+                    "Type":0,
                     "Surround":{"Enable":true,"Level":0.5,"Mode":1},
                     "Crystalizer":{"Enable":true,"Level":0.5,"Mode":1},
                     "SVM":{"Enable":true,"Level":0.5,"Mode":0,"PlusMode":1},
@@ -1520,7 +1549,7 @@ mod tests {
             r#"{
                 "Product":"AE5",
                 "Settings":[{
-                    "Type":1,
+                    "Type":0,
                     "Scout":{"Enable":true},
                     "Bass":{
                         "Enable":false,

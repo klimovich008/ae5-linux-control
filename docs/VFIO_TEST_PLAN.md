@@ -6,9 +6,10 @@ two Linux kernels against the same physical AE-5 without repeatedly changing
 the host kernel. It cannot replace final cold-boot, suspend, and recovery tests
 on the host.
 
-The virtualization stack, session guest, and system guest were installed on
-2026-07-24. Twelve guarded managed-passthrough cycles have now completed; the
-hostdev was removed afterward and both guests are powered off.
+The virtualization stack, session guests, and system guests were installed on
+2026-07-24. Twelve guarded Linux managed-passthrough cycles completed with
+exact host recovery. A separate Windows cycle has since attached the physical
+AE-5 successfully and validated live Creative driver and Command discovery.
 
 Run the read-only, fail-closed hardware check at any time:
 
@@ -80,10 +81,10 @@ and play normally before another cycle is attempted.
    [`hostdev` documentation](https://www.libvirt.org/formatdomain.html#host-device-assignment)
    describes `managed='yes'`, which detaches the function from the host before
    guest startup and reattaches it after guest shutdown.
-5. The next hardware step is controlled low-level playback/capture followed by
-   repeated reset and suspend acceptance. Persistent early-boot VFIO binding
-   remains unnecessary; managed, on-demand assignment limits the period in
-   which the host loses the card.
+5. The Windows comparison guest now uses the same managed, on-demand
+   assignment model. Persistent early-boot VFIO binding remains unnecessary.
+   Its remaining hardware step is a guarded acoustic comparison, followed by
+   shutdown and the same exact host-recovery audit.
 
 The PCI address is a host address; it must not be copied into an unrelated
 machine's configuration.
@@ -129,7 +130,7 @@ a61adeab895ef5a4db436e0a7011c92a2ff17bb0357f58b13bbc4062e535e7b9
 ```
 
 The installed image is Windows 11 Enterprise Evaluation x64, version
-`10.0.26200`, build `26200`. The persistent guest is powered off, has
+`10.0.26200`, build `26200`. The original session guest is powered off, has
 autostart disabled, and retains:
 
 - six host-passthrough vCPUs and 12 GiB RAM;
@@ -174,16 +175,16 @@ installation.
 The staged settings were then copied into Command's exact versioned user,
 AE-5 product, and shared headphone-metadata locations. The newly installed
 shared metadata was already byte-identical, so it was not overwritten. An
-interactive test-user launch opened Command successfully and displayed the
-expected request to connect a supported device. After a normal app close, all
-126 imported files still matched the staging manifest exactly. No audio
-device existed in the guest and no audio was played.
+interactive no-device launch displayed the expected request to connect a
+supported device and left all 126 imported files unchanged.
 
-The guest reports zero present problem devices, Command `3.5.10.00`, the
-AE-Series package `1.0.01.06`, Creative Audio Service running automatically,
-and no Creative DriverStore entry. The last result is expected without an
-attached AE-5: PnP driver binding and the live settings view remain part of
-the passthrough test.
+Because the files came from a read-only ISO, 93 destination user files
+inherited the ReadOnly attribute. Command's first physical-device launch
+detected the AE-5 but could not initialize its product view because
+`user.config` was not writable. Clearing ReadOnly and Hidden only on those 93
+destination copies preserved their content aggregate exactly. This transport
+normalization is now a mandatory migration step; content verification alone
+is insufficient.
 
 Two powered-off recovery points exist outside the repository:
 
@@ -196,20 +197,45 @@ Both qcow2 images pass `qemu-img check`; the milestone copy is a read-only
 Btrfs reflink. No password, Windows image, Creative binary, setting file,
 profile identifier, or private manifest is stored in this repository.
 
-This session guest remains only the safe installation environment.
+The session guest remains the safe installation environment;
 `qemu:///session` cannot detach the host's AE-5. The exact powered-off
-Command/settings milestone has been uploaded to the system `default` storage
-pool as `ae5-windows-compare-system.qcow2`. A streamed download matched
-SHA-256
+Command/settings milestone was uploaded to the system `default` storage pool
+as `ae5-windows-compare-system.qcow2`. A streamed download matched SHA-256
 `a3a3f3caddacc55ad47ab1b9905ee4ed9258a751fe4a43bd4ef6c3ca2ece1183`
 and passed `qemu-img check`.
 
-Defining the corresponding `qemu:///system` domain was denied by the current
-host policy before any domain was created. The verified system-pool volume
-was retained, powered off and unused, so only domain definition remains after
-authorization is available. The final definition must pass the same XML
-review and `scripts/check-vfio-host.sh --require-tools` gate before the card
-is added.
+The corresponding `qemu:///system` domain is now defined with autostart
+disabled and exactly one managed hostdev: the audited
+`1102:0012/1102:0051` AE-5 function. Starting it detached the card to
+`vfio-pci` without assigning the FiFine microphone, GPU, storage, or another
+IOMMU-group member. Linux PipeWire and WirePlumber were intentionally stopped
+while Windows owned the card.
+
+Windows installed the latest Creative-signed AE-Series driver
+`6.0.105.65`. Both physical Creative PnP nodes report healthy status, the
+Windows audio and Creative services run automatically, and Command 3.5.10.0
+recognizes the full AE-5 product UI. After live initialization, 125 of 126
+imported files remained byte-identical. Only `user.config` changed: Command
+added its hardware audio-format cache and updated one saved surround runtime
+flag while preserving the selected profile, presets, and route settings.
+
+Live UI checks established that Creative's profile section type is
+`Headphones = 0` and `Speakers = 1`; narrow managed reflection independently
+confirmed the same values in three profile-related enum types. This corrected
+the Linux importer's previously reversed selection. The speaker and headphone
+views then matched their respective imported states.
+
+All AE-5 outputs remained physically unplugged and no audio was played.
+Windows render endpoints were held at exactly 20% and muted before UI checks.
+Command nevertheless unmuted the endpoint when changing from Speakers to
+Headphones, so the cap and mute were immediately restored and independently
+verified. Every future output, profile, format, or device transition must
+reapply and re-check both values before the playback preflight can pass.
+
+After the comparison, the guest must shut down cleanly, the inactive hostdev
+must be removed, and the host must prove `snd_hda_intel`, ALSA, PipeWire,
+WirePlumber, routes, mixer hashes, and closed PCMs recovered before another
+cycle.
 
 ### Candidate kernel smoke test
 

@@ -317,7 +317,7 @@ that audible transition as an automatic reset.
 ### Static and build validation
 
 The exact patch has SHA-256
-`144fa9c2d4766f502fd67df82eac93576723f2655b173420cf8af545ca3905d9`.
+`b498de1fb7dec40509475ceadc087f4aa73f7c2cecf620a252918b5f05a534bd`.
 It applies and reverses cleanly against the exact Linux stable `v7.1.4`
 CA0132 source, SHA-256
 `7b61bcb02c4079b9ca6c82cde3147e95706cdbe958324ae383e7875d9a33a4f0`,

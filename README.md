@@ -9,6 +9,13 @@ verification and a no-audio QEMU smoke boot; bare-metal installation remains
 an explicit checkpoint. See
 [docs/HOST_KERNEL_BUILD.md](docs/HOST_KERNEL_BUILD.md).
 
+The same fixes are now maintained as an ordered patch queue that is checked
+against both the exact running Nobara source and current ALSA development
+source. The exact Nobara 7.1.4 queue passed its external-module gate and
+produced a verified, no-audio-booted `7.1.4-ae5-current` side-by-side RPM
+without installing it. The fail-closed update and rebuild workflow is in
+[docs/KERNEL_MAINTENANCE.md](docs/KERNEL_MAINTENANCE.md).
+
 ## Current milestone: desktop profiles, synchronized routing, and onboard lighting
 
 The first Rust slice detects the audited AE-5 revision by its PCI and subsystem

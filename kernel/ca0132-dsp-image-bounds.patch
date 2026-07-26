@@ -35,14 +35,10 @@ diff --git a/sound/hda/codecs/ca0132.c b/sound/hda/codecs/ca0132.c
 index 3fe11983d..b6d0bd805 100644
 --- a/sound/hda/codecs/ca0132.c
 +++ b/sound/hda/codecs/ca0132.c
-@@ -26,6 +26,7 @@
- #include "hda_jack.h"
- #include "generic.h"
+@@ -29,2 +29,3 @@
  
 +#include "ca0132_dsp_image.h"
  #include "ca0132_regs.h"
- 
- /* Enable this to see controls for tuning purpose. */
 @@ -3111,42 +3112,6 @@ static unsigned int dma_get_stream_id(struct dma_engine *dma)
  	return spec->dsp_stream_id;
  }

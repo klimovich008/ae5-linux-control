@@ -2,16 +2,12 @@ diff --git a/sound/hda/codecs/Kconfig b/sound/hda/codecs/Kconfig
 index dcf340e5a..419738124 100644
 --- a/sound/hda/codecs/Kconfig
 +++ b/sound/hda/codecs/Kconfig
-@@ -70,6 +70,9 @@ comment "Set to Y if you want auto-loading the codec driver"
+@@ -70,2 +70,5 @@
  config SND_HDA_CODEC_CA0132
- 	tristate "Build Creative CA0132 codec support"
- 	select SND_HDA_GENERIC
 +	select NEW_LEDS
 +	select LEDS_CLASS
 +	select LEDS_CLASS_MULTICOLOR
- 	help
- 	  Say Y or M here to include Creative CA0132 codec support in
- 	  snd-hda-intel driver.
+ 	tristate "Build Creative CA0132 codec support"
 diff --git a/sound/hda/codecs/ca0132.c b/sound/hda/codecs/ca0132.c
 index 3fe11983d..422624f63 100644
 --- a/sound/hda/codecs/ca0132.c

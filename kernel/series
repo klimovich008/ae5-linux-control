@@ -1,0 +1,9 @@
+# Ordered AE-5 patch queue for the running Nobara source and current sound.git.
+# Paths are relative to the ae5-linux-control repository root.
+kernel/ca0132-wedge-angle-default.patch
+kernel/ca0132-eq-preset-control-cache.patch
+kernel/ca0132-ae5-hide-ineffective-wuh-controls.patch
+kernel/ca0132-dsp-image-bounds.patch
+kernel/ca0132-ae5-onboard-leds.patch
+kernel/ca0132-ae5-direct-mode.patch
+kernel/ca0132-restore-smart-volume-resume.patch

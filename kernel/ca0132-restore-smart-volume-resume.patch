@@ -148,7 +148,7 @@ diff --git a/sound/hda/codecs/ca0132.c b/sound/hda/codecs/ca0132.c
  	bool dsp_loaded;
  
  	/*
-@@ -9553,8 +9567,13 @@ static int ca0132_init(struct hda_codec *codec)
+@@ -9553,7 +9567,12 @@ static int ca0132_init(struct hda_codec *codec)
  	 * controls will not be reloaded.
  	 */
  	if (spec->dsp_reload) {
@@ -162,4 +162,3 @@ diff --git a/sound/hda/codecs/ca0132.c b/sound/hda/codecs/ca0132.c
 +		spec->dsp_reload = false;
  	}
  
- 	return 0;

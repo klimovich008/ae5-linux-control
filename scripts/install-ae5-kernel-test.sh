@@ -77,7 +77,7 @@ install_candidate() {
 	[[ $EUID -eq 0 || ${self_test_mode:-no} == yes ]] ||
 		fail '--install must be run as root'
 	grep -Eq \
-		'^[[:space:]]*GRUB_DEFAULT[[:space:]]*=[[:space:]]*"?saved"?[[:space:]]*$' \
+		"^[[:space:]]*GRUB_DEFAULT[[:space:]]*=[[:space:]]*(saved|\"saved\"|'saved')[[:space:]]*$" \
 		"$grub_defaults" ||
 		fail 'GRUB_DEFAULT must be saved'
 	secure_boot=$(mokutil --sb-state 2>&1 || true)
@@ -184,7 +184,7 @@ self_test() {
 	modules_dir=$self_test_root/lib/modules
 	grub_defaults=$self_test_root/default-grub
 	mkdir -p -- "$bls_dir" "$modules_dir/stock-kernel"
-	printf 'GRUB_DEFAULT=saved\n' > "$grub_defaults"
+	printf "GRUB_DEFAULT='saved'\n" > "$grub_defaults"
 	printf 'version stock-kernel\n' > "$bls_dir/$test_saved.conf"
 
 	mokutil() {

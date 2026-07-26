@@ -100,6 +100,15 @@ The source tree is not modified. Any context drift, missing source, whitespace
 defect, or failed reverse application stops the command. It never uses
 three-way merge or patch fuzz.
 
+GitHub's `Kernel patch compatibility` workflow runs the same strict check when
+the queue or checker changes, on manual request, and every Monday against the
+current ALSA `for-next` head. It downloads only the four existing source files
+needed by the queue at the exact remote commit, rather than cloning the full
+kernel repository. A scheduled failure is an upstream-drift signal: rebase and
+retest the queue before using that newer source. This gate checks patch
+compatibility only; the exact-kernel module and full-build gates below remain
+mandatory.
+
 Apply only after the check passes:
 
 ```sh

@@ -128,7 +128,7 @@ fn refresh_window(window: &gtk::ApplicationWindow, message: Option<&str>) -> Opt
             Some(card_index)
         }
         Err(error) => {
-            window.set_child(Some(&error_view(&error)));
+            window.set_child(Some(&error_view(window, &error)));
             None
         }
     }
@@ -266,6 +266,9 @@ fn hero(device: &Ae5Device, controls: &[ControlSnapshot]) -> gtk::Box {
     header.add_css_class("hero");
 
     let titles = gtk::Box::new(gtk::Orientation::Vertical, 4);
+    let kicker = gtk::Label::new(Some("AE-5 CONTROL  //  HARDWARE LINK"));
+    kicker.set_xalign(0.0);
+    kicker.add_css_class("hero-kicker");
     let title = gtk::Label::new(Some(
         device
             .codec_name
@@ -282,11 +285,12 @@ fn hero(device: &Ae5Device, controls: &[ControlSnapshot]) -> gtk::Box {
     )));
     subtitle.set_xalign(0.0);
     subtitle.add_css_class("dim-label");
+    titles.append(&kicker);
     titles.append(&title);
     titles.append(&subtitle);
     header.append(&titles);
 
-    let status = gtk::Label::new(Some(&format!("{} live controls", controls.len())));
+    let status = gtk::Label::new(Some(&format!("ONLINE · {} CONTROLS", controls.len())));
     status.add_css_class("status-pill");
     status.set_halign(gtk::Align::End);
     status.set_hexpand(true);
@@ -2569,20 +2573,69 @@ fn find_widget(root: gtk::Widget, predicate: impl Fn(&gtk::Widget) -> bool) -> O
     None
 }
 
-fn error_view(message: &str) -> gtk::Box {
-    let view = gtk::Box::new(gtk::Orientation::Vertical, 12);
+fn error_view(window: &gtk::ApplicationWindow, message: &str) -> gtk::Box {
+    let view = gtk::Box::new(gtk::Orientation::Vertical, 0);
     view.set_valign(gtk::Align::Center);
     view.set_halign(gtk::Align::Center);
     view.set_margin_start(32);
     view.set_margin_end(32);
+    view.add_css_class("error-view");
+
+    let card = gtk::Box::new(gtk::Orientation::Vertical, 12);
+    card.set_size_request(520, -1);
+    card.add_css_class("unavailable-card");
+
+    let icon = gtk::Image::from_icon_name("audio-card-symbolic");
+    icon.set_pixel_size(42);
+    icon.set_halign(gtk::Align::Start);
+    icon.add_css_class("offline-icon");
+
+    let kicker = gtk::Label::new(Some("HARDWARE STATUS  //  OFFLINE"));
+    kicker.set_xalign(0.0);
+    kicker.add_css_class("error-kicker");
 
     let title = gtk::Label::new(Some("AE-5 unavailable"));
+    title.set_xalign(0.0);
     title.add_css_class("hero-title");
     let detail = gtk::Label::new(Some(message));
+    detail.set_xalign(0.0);
     detail.set_wrap(true);
+    detail.set_max_width_chars(64);
     detail.add_css_class("dim-label");
-    view.append(&title);
-    view.append(&detail);
+
+    let hint = gtk::Label::new(Some(
+        "Make sure the card is bound to snd_hda_intel and is not assigned to a virtual machine, then retry detection.",
+    ));
+    hint.set_xalign(0.0);
+    hint.set_wrap(true);
+    hint.set_max_width_chars(64);
+    hint.add_css_class("error-hint");
+
+    let retry = gtk::Button::with_label("Retry detection");
+    retry.set_halign(gtk::Align::Start);
+    retry.add_css_class("error-action");
+    {
+        let window = window.clone();
+        retry.connect_clicked(move |_| {
+            if let Some(card_index) = refresh_window(&window, Some("Hardware connection restored."))
+                && let Err(error) = start_mixer_watch(&window, card_index)
+            {
+                set_main_status(
+                    &window,
+                    false,
+                    &format!("Live synchronization failed: {error}"),
+                );
+            }
+        });
+    }
+
+    card.append(&icon);
+    card.append(&kicker);
+    card.append(&title);
+    card.append(&detail);
+    card.append(&hint);
+    card.append(&retry);
+    view.append(&card);
     view
 }
 
@@ -2648,33 +2701,69 @@ fn install_css() {
     let provider = gtk::CssProvider::new();
     provider.load_from_data(
         "
-        window { background: #11161c; color: #e9eef5; }
-        .hero { padding: 28px 30px; background: #18212b; }
-        .hero-title { font-size: 24px; font-weight: 700; }
-        .dim-label { color: #9daebe; }
+        window {
+            background: #0d1319;
+            color: #edf4f8;
+        }
+        .hero {
+            padding: 24px 30px;
+            background: #141e27;
+            border-bottom: 1px solid alpha(#6ce4c4, 0.22);
+        }
+        .hero-kicker, .error-kicker {
+            color: #65dfbd;
+            font-family: monospace;
+            font-size: 11px;
+            font-weight: 700;
+        }
+        .hero-title {
+            font-size: 25px;
+            font-weight: 750;
+        }
+        .dim-label { color: #9bafbd; }
         .status-pill {
-            background: #173d35;
-            color: #8ee3c5;
+            background: alpha(#35d2aa, 0.12);
+            color: #7ce5c8;
+            border: 1px solid alpha(#65dfbd, 0.42);
             border-radius: 999px;
-            padding: 7px 12px;
-            font-weight: 600;
+            padding: 8px 13px;
+            font-family: monospace;
+            font-size: 11px;
+            font-weight: 700;
         }
         .operation-status {
-            padding: 8px 30px;
-            background: #11161c;
-            color: #9daebe;
+            padding: 9px 30px;
+            background: #0f161d;
+            color: #a5b7c3;
             border-bottom: 1px solid alpha(#ffffff, 0.08);
         }
         .operation-ok { color: #8ee3c5; }
         .operation-error, .warning-label, .warning-value { color: #ffb4a9; }
-        .navigation-sidebar { background: #141b22; padding: 12px 8px; }
+        .navigation-sidebar {
+            background: #101820;
+            padding: 12px 8px;
+        }
+        .navigation-sidebar list { background: transparent; }
+        .navigation-sidebar row {
+            min-height: 44px;
+            margin: 2px 0;
+            border-radius: 5px;
+        }
+        .navigation-sidebar row:selected {
+            background: alpha(#35d2aa, 0.14);
+            color: #91efd3;
+            border-left: 3px solid #35d2aa;
+        }
         .profile-page { padding: 26px 30px; }
-        .page-title { font-size: 22px; font-weight: 700; }
+        .page-title {
+            font-size: 23px;
+            font-weight: 750;
+        }
         .profile-card {
-            background: #151d25;
-            border: 1px solid alpha(#ffffff, 0.10);
-            border-left: 3px solid #39d0aa;
-            border-radius: 4px;
+            background: #131c24;
+            border: 1px solid alpha(#b9d6e4, 0.13);
+            border-left: 3px solid #35d2aa;
+            border-radius: 7px;
             padding: 20px;
         }
         .profile-library-row {
@@ -2686,19 +2775,58 @@ fn install_css() {
             border-bottom: 1px solid alpha(#ffffff, 0.08);
         }
         .section-index {
-            background: #173d35;
-            color: #8ee3c5;
-            border-radius: 3px;
-            padding: 4px 7px;
+            background: alpha(#35d2aa, 0.13);
+            color: #83e9cc;
+            border: 1px solid alpha(#65dfbd, 0.30);
+            border-radius: 4px;
+            padding: 4px 8px;
             font-family: monospace;
             font-weight: 700;
         }
         .section-title { font-size: 17px; font-weight: 700; }
-        .control-list { background: transparent; }
+        .control-list {
+            background: #111920;
+            border: 1px solid alpha(#b9d6e4, 0.12);
+            border-radius: 7px;
+        }
         .control-row {
+            min-height: 52px;
             padding: 14px 16px;
             border-bottom: 1px solid alpha(#ffffff, 0.08);
         }
+        .control-row:hover { background: alpha(#ffffff, 0.025); }
+        button {
+            min-height: 32px;
+            padding: 6px 12px;
+        }
+        .error-view { padding: 32px; }
+        .unavailable-card {
+            background: #131c24;
+            border: 1px solid alpha(#ffbd66, 0.28);
+            border-left: 4px solid #ffad42;
+            border-radius: 8px;
+            padding: 28px;
+        }
+        .offline-icon {
+            color: #ffc06d;
+            background: alpha(#ffad42, 0.10);
+            border: 1px solid alpha(#ffbd66, 0.24);
+            border-radius: 7px;
+            padding: 10px;
+        }
+        .error-kicker { color: #ffc06d; }
+        .error-hint {
+            color: #c0cdd5;
+            margin-top: 4px;
+        }
+        .error-action {
+            margin-top: 8px;
+            background: #d98a27;
+            color: #111820;
+            border-color: #f2ad54;
+            font-weight: 700;
+        }
+        .error-action:hover { background: #ed9f3c; }
         scale { min-width: 210px; }
         scrollbar slider { min-width: 8px; }
         scrollbar.horizontal slider { min-height: 8px; }

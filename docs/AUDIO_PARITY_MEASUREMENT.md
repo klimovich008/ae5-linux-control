@@ -259,8 +259,13 @@ The final 20% safety-ceiling check repeated the same two-second, -18 dBFS,
 exactly 20% and initially muted, Master and Front were 19/99 and on, PCM was
 51/255, and headphone gain was Low. The quiet capture measured -116.11 dBFS
 in the 987-1007 Hz band; the playback capture measured -117.02 dBFS. Playback
-completed, but there was no acoustic tone rise. The sink was immediately
-remuted, every PCM closed, the complete mixer returned to SHA-256
+completed, but there was no acoustic tone rise. A no-output follow-up muted
+the hardware Master and recorded the same PipeWire stream through the card's
+internal What U Hear tap. Its 987-1007 Hz band measured -97.36 dBFS, while an
+otherwise identical idle capture was bit-exact zero. This proves that
+PipeWire, ALSA transport, and the DSP received samples and isolates the
+failure to final analog gain staging. The sink was immediately remuted, every
+PCM closed, the complete mixer returned to SHA-256
 `da1bb179b43584844826b8950653fd2fd9b6a78994c47a039ffd782db06497bc`,
 and no relevant kernel warning appeared. This is a gain-staging failure at
 the 20% operating point, not a route or transport regression: the virtual

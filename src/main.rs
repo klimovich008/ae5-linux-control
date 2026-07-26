@@ -3,12 +3,13 @@ use ae5_control::{
     LINUX_DRIVER_DEFAULTS_PRESERVED, ONBOARD_LED_COUNT, PipeWireNode, PipeWireRouteState, Profile,
     RgbColor, SbCommandImportReport, SbCommandTarget, ae5_input, ae5_output, ae5_route_state,
     apply_linux_driver_defaults, discover_sbcommand_installation, export_library_profile,
-    feature_parity, headphone_playback_issue, import_active_sbcommand_profile_with_report,
-    import_discovered_sbcommand_profile_with_report, import_sbcommand_profile_with_report,
-    lighting_config_path, linux_driver_defaults, native_rates_config, profile_library,
-    profile_library_directory, rename_library_profile, restore_saved_lighting,
-    set_ae5_default_input, set_ae5_default_output, set_native_rates_enabled, set_saved_led,
-    set_saved_lighting, snapshot_controls, validate_linux_driver_defaults,
+    feature_parity, front_vmaster_clamp_warning, headphone_playback_issue,
+    import_active_sbcommand_profile_with_report, import_discovered_sbcommand_profile_with_report,
+    import_sbcommand_profile_with_report, lighting_config_path, linux_driver_defaults,
+    native_rates_config, profile_library, profile_library_directory, rename_library_profile,
+    restore_saved_lighting, set_ae5_default_input, set_ae5_default_output,
+    set_native_rates_enabled, set_saved_led, set_saved_lighting, snapshot_controls,
+    validate_linux_driver_defaults,
 };
 use std::error::Error;
 use std::fmt::Write as _;
@@ -159,6 +160,9 @@ fn print_status() -> Result<(), Box<dyn Error>> {
             headphone_playback_issue(&controls),
         ),
         Err(error) => println!("  Desktop routes: unavailable ({error})"),
+    }
+    if let Some(warning) = front_vmaster_clamp_warning(&controls) {
+        println!("  Playback gain staging: warning ({warning})");
     }
     match Ae5Lighting::discover().and_then(|lighting| lighting.colors()) {
         Ok(colors) => println!(

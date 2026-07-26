@@ -184,6 +184,38 @@ pub fn headphone_playback_issue(controls: &[ControlSnapshot]) -> Option<&'static
     }
 }
 
+pub fn front_vmaster_clamp_warning(controls: &[ControlSnapshot]) -> Option<String> {
+    let master = controls
+        .iter()
+        .find(|control| control.name == "Master")?
+        .playback_level
+        .as_ref()?;
+    let front = controls
+        .iter()
+        .find(|control| control.name == "Front")?
+        .playback_level
+        .as_ref()?;
+    let effective = (front.value + master.value - master.max).clamp(front.min, front.max);
+    if effective != front.min {
+        return None;
+    }
+
+    let last_clamped_master = (master.max + front.min - front.value).clamp(master.min, master.max);
+    let consequence = if last_clamped_master < master.max {
+        format!(
+            "Master changes remain at the floor through {last_clamped_master}/{} while Front stays at {}/{}.",
+            master.max, front.value, front.max
+        )
+    } else {
+        "Master cannot raise effective Front until the Front level changes.".to_owned()
+    };
+    Some(format!(
+        "ALSA's virtual Master and Front attenuations stack: effective Front is {effective}/{} \
+         ({} + {} − {}). {consequence}",
+        front.max, master.value, front.value, master.max
+    ))
+}
+
 pub(crate) fn is_equalizer_band(name: &str) -> bool {
     name.strip_prefix("EQ Band")
         .is_some_and(|band| band.parse::<u8>().is_ok_and(|band| band < 10))
@@ -1029,6 +1061,20 @@ mod tests {
         }
     }
 
+    fn playback_level(name: &str, value: i64, min: i64, max: i64) -> ControlSnapshot {
+        ControlSnapshot {
+            name: name.to_owned(),
+            selected: None,
+            choices: Vec::new(),
+            playback_switch: None,
+            capture_switch: None,
+            playback_level: Some(Level { value, min, max }),
+            capture_level: None,
+            playback_channels: Vec::new(),
+            capture_channels: Vec::new(),
+        }
+    }
+
     #[test]
     fn formats_a_compound_control_readably() {
         let control = ControlSnapshot {
@@ -1232,6 +1278,36 @@ mod tests {
         controls.push(playback_switch("Front", false));
         controls.push(playback_switch(DIRECT_MODE_CONTROL, true));
         assert_eq!(headphone_playback_issue(&controls), None);
+    }
+
+    #[test]
+    fn explains_when_virtual_master_changes_are_clamped_by_front() {
+        let mut controls = vec![
+            playback_level("Master", 19, 0, 99),
+            playback_level("Front", 19, 0, 99),
+        ];
+        assert_eq!(
+            front_vmaster_clamp_warning(&controls),
+            Some(
+                "ALSA's virtual Master and Front attenuations stack: effective Front is 0/99 \
+                 (19 + 19 − 99). Master changes remain at the floor through 80/99 while Front \
+                 stays at 19/99."
+                    .to_owned()
+            )
+        );
+
+        controls[0].playback_level.as_mut().unwrap().value = 81;
+        assert_eq!(front_vmaster_clamp_warning(&controls), None);
+        controls[0].playback_level.as_mut().unwrap().value = 99;
+        controls[1].playback_level.as_mut().unwrap().value = 0;
+        assert_eq!(
+            front_vmaster_clamp_warning(&controls),
+            Some(
+                "ALSA's virtual Master and Front attenuations stack: effective Front is 0/99 \
+                 (99 + 0 − 99). Master cannot raise effective Front until the Front level changes."
+                    .to_owned()
+            )
+        );
     }
 
     #[test]

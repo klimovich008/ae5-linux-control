@@ -10,7 +10,8 @@ pub mod sbcommand;
 pub use controls::{
     Ae5Mixer, ChannelLevel, ControlError, ControlSnapshot, DIRECT_MODE_CONTROL, Level,
     capture_control_block_reason, direct_mode_block_reason, equalizer_band_block_reason,
-    headphone_playback_issue, playback_switch_block_reason, snapshot_controls,
+    front_vmaster_clamp_warning, headphone_playback_issue, playback_switch_block_reason,
+    snapshot_controls,
 };
 pub use device::Ae5Device;
 pub use feature_parity::{FeatureParity, FeatureSupport, feature_parity};

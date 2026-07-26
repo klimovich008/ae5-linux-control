@@ -496,8 +496,12 @@ after every output, profile, format, or device transition. A guarded 997 Hz
 Windows/Linux screen subsequently exposed and fixed the silent normal
 PipeWire transport: the AE-5 requires raw S16 read/write playback, its working
 6016-by-four buffer geometry, and ignored ALSA dB metadata. Linux playback is
-now audible through the normal desktop sink, but the preliminary capture
-remains 16.50 dB below Windows; full response/noise parity is still pending.
+now audible through the normal desktop sink. A preliminary capture initially
+appeared 16.50 dB below Windows, but the levels were not matched: ALSA's
+virtual Master attenuation was stacked with low Front and PCM values. Kernel
+source review and a repeatable Master 19/20 A/B explain the result, so it is
+not evidence of a 16.50 dB driver-performance gap. Full matched electrical
+response/noise parity is still pending.
 No source NTFS volume, Windows image, Creative binary, private setting, or
 credential is stored in the repository.
 

@@ -406,12 +406,25 @@ approximately -21.99 dB. With `soft-mixer` active, that percentage no longer
 rewrites the AE-5 Master, Front, or PCM controls. The test restored the desktop
 sink to 20%, raw Master and Front to 19/99, PCM to 51/255, and Low gain.
 
-The fixed PipeWire capture is 16.50 dB below the guarded Windows capture at
-997 Hz, so this closes the silent-playback fault but not Windows level or
-frequency-response parity. A bounded attempt to raise raw Master from 19 to 35
-made the tone fall to the noise floor on the current stock Nobara kernel; the
-cleanup guard restored Master 19. Further parity work must compare the driver
-state rather than compensating with an unverified gain increase.
+The fixed PipeWire capture initially appeared 16.50 dB below the guarded
+Windows capture at 997 Hz. That closes the silent-playback fault but is not a
+valid Windows level comparison: Linux used conservative attenuation at every
+stage while Windows used its endpoint control.
+
+The ALSA Master is a virtual master over Front. Linux `vmaster.c` computes the
+effective follower as `Front + Master - Master max`, clamped to the follower
+range. Master 19 plus Front 19 minus 99 therefore clamps to 0/99, and changing
+Master does not alter effective Front until Master reaches 81/99. A bounded
+19/20/19/20 A/B at the approved 40% PipeWire ceiling confirmed this exactly:
+the paired differences were +0.05 and -0.01 dB, with 0.04 dB or less repeat
+spread. The earlier Master 35 probe also remained inside the same clamped
+range; it did not establish a driver regression.
+
+The Rust backend now detects this condition. `ae5ctl status` and the GTK
+Playback page explain the effective floor and the last clamped Master value
+without changing hardware volume. Further parity work must use a matched,
+safely attenuated electrical capture rather than compensating with an
+unverified gain increase.
 
 ## Safe cold-boot probe
 

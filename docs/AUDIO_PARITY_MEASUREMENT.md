@@ -233,8 +233,22 @@ returning the card to the Linux host.
 The Windows capture measured -54.16 dBFS at 997 Hz. The repaired normal
 PipeWire path measured -70.65 dBFS with the desktop sink at the separately
 approved 40% ceiling, player stream at unity, raw Master and Front at 19/99,
-PCM at 51/255, and Low gain. The Linux tone is therefore present but 16.50 dB
-below Windows in this preliminary acoustic setup.
+PCM at 51/255, and Low gain. The Linux tone is present, but the 16.50 dB
+difference is not a level-matched operating-system comparison.
+
+`Master` is ALSA's virtual master over the `Front` follower. The kernel
+computes the effective follower as `Front + Master - Master max`, clamped to
+the follower range. At Master 19 and Front 19 that is `19 + 19 - 99`, which
+clamps to 0/99. Master remains at that floor through 80/99 while Front stays
+at 19/99. PCM 51/255 and PipeWire's software attenuation add two more
+independent reductions.
+
+A bounded four-capture A/B at the approved 40% PipeWire ceiling confirmed the
+source-derived behavior. Two Master 19 captures measured -65.22 and
+-65.19 dBFS; two Master 20 captures measured -65.17 and -65.19 dBFS. The
+Master 20 minus Master 19 deltas were +0.05 and -0.01 dB, within the repeat
+spread. This is expected virtual-master clamping, not a stuck 43% hardware
+volume or evidence that Linux playback is intrinsically 16.50 dB quieter.
 
 This comparison found and fixed the Linux silent-transport path: use raw
 `hw:%f` rather than HDA's `front:` softvol, S16 rather than S32, ALSA
@@ -242,10 +256,10 @@ read/write rather than mmap, 6016-frame periods with four periods, and
 `api.alsa.ignore-dB=true`. Exact A/B evidence is in
 [`DRIVER_ROUTING_INVESTIGATION.md`](DRIVER_ROUTING_INVESTIGATION.md).
 
-The result is not a parity pass. It uses a microphone rather than an
-attenuated electrical capture, compares only one frequency, and deliberately
-uses different operating-system volume controls. Full response, noise, and
-matched electrical-level measurements remain open.
+The result is a transport and audibility pass, not a parity pass. It uses a
+microphone rather than an attenuated electrical capture, compares only one
+frequency, and deliberately uses different operating-system gain structures.
+Full response, noise, and matched electrical-level measurements remain open.
 
 ## Target-card Linux digital baseline
 

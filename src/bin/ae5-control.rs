@@ -7,12 +7,12 @@ use ae5_control::{
     SbCommandImport, SbCommandTarget, ae5_input, ae5_output, ae5_route_state,
     apply_linux_driver_defaults, capture_control_block_reason, direct_mode_block_reason,
     discover_sbcommand_installation, equalizer_band_block_reason, export_library_profile,
-    feature_parity, headphone_playback_issue, import_discovered_sbcommand_profile_with_report,
-    import_sbcommand_profile_with_report, library_profile, native_rates_config,
-    playback_switch_block_reason, profile_library, profile_library_directory,
-    rename_library_profile, set_ae5_default_input, set_ae5_default_output,
-    set_native_rates_enabled, set_saved_led, set_saved_lighting, snapshot_controls,
-    validate_linux_driver_defaults,
+    feature_parity, front_vmaster_clamp_warning, headphone_playback_issue,
+    import_discovered_sbcommand_profile_with_report, import_sbcommand_profile_with_report,
+    library_profile, native_rates_config, playback_switch_block_reason, profile_library,
+    profile_library_directory, rename_library_profile, set_ae5_default_input,
+    set_ae5_default_output, set_native_rates_enabled, set_saved_led, set_saved_lighting,
+    snapshot_controls, validate_linux_driver_defaults,
 };
 use gtk::prelude::*;
 use gtk::{gdk::Display, gio};
@@ -249,6 +249,7 @@ fn populate_page(
                 device.card_index,
                 status,
                 controls,
+                category,
                 controls
                     .iter()
                     .filter(|control| category.matches(&control.name)),
@@ -1985,6 +1986,7 @@ fn control_page<'a>(
     card_index: i32,
     status: &gtk::Label,
     all_controls: &[ControlSnapshot],
+    category: Category,
     controls: impl Iterator<Item = &'a ControlSnapshot>,
 ) -> gtk::ScrolledWindow {
     let list = gtk::ListBox::new();
@@ -2012,6 +2014,16 @@ fn control_page<'a>(
     page.set_margin_bottom(20);
     page.set_margin_start(24);
     page.set_margin_end(24);
+    if matches!(category, Category::Playback)
+        && let Some(warning) = front_vmaster_clamp_warning(all_controls)
+    {
+        let notice = gtk::Label::new(Some(&format!("Gain staging\n{warning}")));
+        notice.set_xalign(0.0);
+        notice.set_wrap(true);
+        notice.set_selectable(true);
+        notice.add_css_class("gain-stage-notice");
+        page.append(&notice);
+    }
     page.append(&list);
 
     gtk::ScrolledWindow::builder()
@@ -2788,6 +2800,15 @@ fn install_css() {
             background: #111920;
             border: 1px solid alpha(#b9d6e4, 0.12);
             border-radius: 7px;
+        }
+        .gain-stage-notice {
+            color: #ffd19a;
+            background: alpha(#ffad42, 0.08);
+            border: 1px solid alpha(#ffbd66, 0.25);
+            border-left: 3px solid #ffad42;
+            border-radius: 7px;
+            padding: 13px 15px;
+            margin-bottom: 14px;
         }
         .control-row {
             min-height: 52px;

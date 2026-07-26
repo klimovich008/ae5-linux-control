@@ -35,6 +35,10 @@ const MUTED_HEADPHONE_PLAYBACK: &str = "ALSA selects Headphone, but Front playba
     use the explicit route repair action";
 const UNVERIFIED_HEADPHONE_PLAYBACK: &str =
     "ALSA selects Headphone, but the Front playback switch is unavailable";
+const MUTED_HEADPHONE_MASTER: &str = "ALSA selects Headphone, but hardware Master playback is \
+    muted; PipeWire's software mute cannot unmute it, so use the explicit route repair action";
+const UNVERIFIED_HEADPHONE_MASTER: &str =
+    "ALSA selects Headphone, but the hardware Master playback switch is unavailable";
 
 #[derive(Debug)]
 pub enum ControlError {
@@ -81,6 +85,7 @@ pub struct Ae5Mixer {
 struct RouteRepairPlan {
     output: Option<String>,
     input: Option<String>,
+    unmute_master: bool,
     unmute_front: bool,
 }
 
@@ -189,6 +194,15 @@ pub fn headphone_playback_issue(controls: &[ControlSnapshot]) -> Option<&'static
     });
     if !headphone_selected || direct_mode {
         return None;
+    }
+    match controls
+        .iter()
+        .find(|control| control.name == "Master")
+        .and_then(|control| control.playback_switch)
+    {
+        Some(true) => {}
+        Some(false) => return Some(MUTED_HEADPHONE_MASTER),
+        None => return Some(UNVERIFIED_HEADPHONE_MASTER),
     }
     match controls
         .iter()
@@ -318,14 +332,24 @@ impl Ae5Mixer {
             self.set_choice("Input Source", input)?;
             changes.push(format!("reapplied {input} input"));
         }
-        if plan.unmute_front {
+        if plan.unmute_master || plan.unmute_front {
             let suspended = suspend_ae5_output(self.card_index)?;
-            let result = self.set_playback_switch("Front", true);
+            let result = (|| {
+                if plan.unmute_master {
+                    self.set_playback_switch("Master", true)?;
+                    changes.push("unmuted hardware Master playback".to_owned());
+                }
+                if plan.unmute_front {
+                    self.set_playback_switch("Front", true)?;
+                    changes.push("unmuted Front playback".to_owned());
+                }
+                Ok(())
+            })();
             let resumed = suspended.resume().map_err(ControlError::from);
             match (result, resumed) {
-                (Ok(_), Ok(())) => changes.push("unmuted Front playback".to_owned()),
+                (Ok(()), Ok(())) => {}
                 (Err(error), _) => return Err(error),
-                (Ok(_), Err(error)) => return Err(error),
+                (Ok(()), Err(error)) => return Err(error),
             }
         }
 
@@ -733,6 +757,20 @@ fn route_repair_plan(
     let direct_mode = controls.iter().any(|control| {
         control.name == DIRECT_MODE_CONTROL && control.playback_switch == Some(true)
     });
+    let unmute_master = if output == "Headphone" && !direct_mode {
+        match controls
+            .iter()
+            .find(|control| control.name == "Master")
+            .and_then(|control| control.playback_switch)
+        {
+            Some(enabled) => !enabled,
+            None => {
+                return Err(ControlError::Missing("Master playback switch".to_owned()));
+            }
+        }
+    } else {
+        false
+    };
     let unmute_front = if output == "Headphone" && !direct_mode {
         match controls
             .iter()
@@ -750,6 +788,7 @@ fn route_repair_plan(
             .output_issue(output, layout)
             .map(|_| output.to_owned()),
         input: state.input_issue(input).map(|_| input.to_owned()),
+        unmute_master,
         unmute_front,
     })
 }
@@ -1301,29 +1340,53 @@ mod tests {
     fn detects_a_muted_or_unverifiable_headphone_dac() {
         let mut controls = vec![
             selected_choice("Output Select", "Headphone"),
+            playback_switch("Master", true),
             playback_switch("Front", true),
         ];
         assert_eq!(headphone_playback_issue(&controls), None);
 
-        controls[1].playback_switch = Some(false);
+        controls[2].playback_switch = Some(false);
         assert_eq!(
             headphone_playback_issue(&controls),
             Some(MUTED_HEADPHONE_PLAYBACK)
         );
 
+        controls[2].playback_switch = Some(true);
+        controls[1].playback_switch = Some(false);
+        assert_eq!(
+            headphone_playback_issue(&controls),
+            Some(MUTED_HEADPHONE_MASTER)
+        );
+
+        controls.remove(1);
+        assert_eq!(
+            headphone_playback_issue(&controls),
+            Some(UNVERIFIED_HEADPHONE_MASTER)
+        );
+
         controls.pop();
         assert_eq!(
             headphone_playback_issue(&controls),
-            Some(UNVERIFIED_HEADPHONE_PLAYBACK)
+            Some(UNVERIFIED_HEADPHONE_MASTER)
         );
 
         controls[0].selected = Some("Speakers".to_owned());
         assert_eq!(headphone_playback_issue(&controls), None);
 
         controls[0].selected = Some("Headphone".to_owned());
+        controls.push(playback_switch("Master", true));
         controls.push(playback_switch("Front", false));
         controls.push(playback_switch(DIRECT_MODE_CONTROL, true));
         assert_eq!(headphone_playback_issue(&controls), None);
+
+        controls.pop();
+        controls.pop();
+        controls.push(playback_switch("Front", true));
+        controls.pop();
+        assert_eq!(
+            headphone_playback_issue(&controls),
+            Some(UNVERIFIED_HEADPHONE_PLAYBACK)
+        );
     }
 
     #[test]
@@ -1362,6 +1425,7 @@ mod tests {
             selected_choice("Output Select", "Headphone"),
             selected_choice("Surround Channel Config", "2.0"),
             selected_choice("Input Source", "Microphone"),
+            playback_switch("Master", true),
             playback_switch("Front", true),
         ];
         let mut state = PipeWireRouteState {
@@ -1384,6 +1448,7 @@ mod tests {
             RouteRepairPlan {
                 output: Some("Headphone".to_owned()),
                 input: Some("Microphone".to_owned()),
+                unmute_master: false,
                 unmute_front: false,
             }
         );
@@ -1391,7 +1456,7 @@ mod tests {
         state.output_route =
             Some("sound-blaster-ae5-output-headphones;output-headphones".to_owned());
         state.input_route = Some("sound-blaster-ae5-input-microphone".to_owned());
-        controls[3].playback_switch = Some(false);
+        controls[4].playback_switch = Some(false);
         assert_eq!(
             route_repair_plan(&controls, &state).unwrap(),
             RouteRepairPlan {
@@ -1400,6 +1465,17 @@ mod tests {
             }
         );
 
+        controls[4].playback_switch = Some(true);
+        controls[3].playback_switch = Some(false);
+        assert_eq!(
+            route_repair_plan(&controls, &state).unwrap(),
+            RouteRepairPlan {
+                unmute_master: true,
+                ..RouteRepairPlan::default()
+            }
+        );
+
+        controls[3].playback_switch = Some(true);
         controls.push(playback_switch(DIRECT_MODE_CONTROL, true));
         assert_eq!(
             route_repair_plan(&controls, &state).unwrap(),
@@ -1411,6 +1487,13 @@ mod tests {
         assert!(matches!(
             route_repair_plan(&controls, &state),
             Err(ControlError::Missing(name)) if name == "Front playback switch"
+        ));
+
+        controls.push(playback_switch("Front", true));
+        controls.remove(3);
+        assert!(matches!(
+            route_repair_plan(&controls, &state),
+            Err(ControlError::Missing(name)) if name == "Master playback switch"
         ));
     }
 }

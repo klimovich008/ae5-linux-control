@@ -426,6 +426,30 @@ without changing hardware volume. Further parity work must use a matched,
 safely attenuated electrical capture rather than compensating with an
 unverified gain increase.
 
+### Software-unmute and hardware-Master split
+
+A 2026-07-26 post-reboot report exposed a separate absolute-mute condition.
+The ALSA and PipeWire headphone routes matched, `Front` was on, Low gain was
+selected, the desktop sink was at 20%, and every AE-5 PCM was closed, but the
+hardware `Master` playback switch was off. Because the installed card rule
+uses `api.alsa.soft-mixer=true`, toggling the desktop mute changed only
+PipeWire state: a guarded no-stream unmute/readback/remute cycle left ALSA
+`Master` off throughout.
+
+Route health previously checked the required headphone `Front` switch but not
+this independent hardware mute. It now rejects a muted or unavailable
+`Master` switch for normal Headphone output. The existing explicit
+`route-repair` transaction suspends the matching sink, verifies that playback
+PCMs close, unmutes whichever of `Master` and `Front` require repair, verifies
+readback, and resumes only a sink that it suspended itself.
+
+The live repair was exercised while PipeWire remained muted at 20% and no
+sink input or AE-5 PCM was open. It changed only `Master` from off to on;
+`Front` remained on, the Headphone/Microphone routes remained matched, and
+the final route-health check passed. This closes the hidden hardware-mute
+fault without claiming that the conservative 19/19/51 gain staging matches
+Windows loudness.
+
 ## Safe cold-boot probe
 
 `collect-routing-state.sh` discovers the exact audited card by

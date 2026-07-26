@@ -32,6 +32,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const APP_ID: &str = "io.github.klimovich008.ae5control";
 const MAIN_STACK_NAME: &str = "main-navigation";
+const BUILTIN_PROFILE_PICKER_NAME: &str = "builtin-profile-picker";
+const PERSONAL_PROFILE_CAROUSEL_NAME: &str = "personal-profile-carousel";
+const BUILTIN_PROFILE_CAROUSEL_NAME: &str = "builtin-profile-carousel";
 const PERFORMANCE_PROBE: &str = "AE5_CONTROL_PERFORMANCE_PROBE";
 const DIRECT_MODE_DESCRIPTION: &str = "Bypasses CA0132 DSP processing for a stereo hardware path. \
     AE-5 Control briefly suspends PipeWire while switching; use stream or software volume because \
@@ -54,6 +57,21 @@ enum KernelReadiness {
     Ready,
     Stock,
     Attention,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct OperationStatus {
+    success: bool,
+    message: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+struct RefreshViewState {
+    visible_page: Option<String>,
+    builtin_profile: Option<u32>,
+    personal_profile_scroll: Option<f64>,
+    builtin_profile_scroll: Option<f64>,
+    operation_status: Option<OperationStatus>,
 }
 
 fn main() -> gtk::glib::ExitCode {
@@ -123,7 +141,9 @@ fn start_performance_probe(window: &gtk::ApplicationWindow, started: Instant) {
 }
 
 fn refresh_window(window: &gtk::ApplicationWindow, message: Option<&str>) -> Option<i32> {
-    let visible_page = main_stack(window).and_then(|stack| stack.visible_child_name());
+    let view_state = capture_refresh_view_state(window);
+    let operation_status =
+        operation_status_for_refresh(message, view_state.operation_status.clone());
     match load_hardware() {
         Ok((device, controls)) => {
             let card_index = device.card_index;
@@ -131,9 +151,15 @@ fn refresh_window(window: &gtk::ApplicationWindow, message: Option<&str>) -> Opt
                 window,
                 &device,
                 &controls,
-                message,
-                visible_page.as_deref(),
+                operation_status
+                    .as_ref()
+                    .map(|status| status.message.as_str()),
+                view_state.visible_page.as_deref(),
             )));
+            restore_refresh_view_state(window, &view_state);
+            if let Some(status) = operation_status {
+                set_main_status(window, status.success, &status.message);
+            }
             Some(card_index)
         }
         Err(error) => {
@@ -141,6 +167,18 @@ fn refresh_window(window: &gtk::ApplicationWindow, message: Option<&str>) -> Opt
             None
         }
     }
+}
+
+fn operation_status_for_refresh(
+    message: Option<&str>,
+    retained: Option<OperationStatus>,
+) -> Option<OperationStatus> {
+    message
+        .map(|message| OperationStatus {
+            success: true,
+            message: message.to_owned(),
+        })
+        .or(retained)
 }
 
 fn load_hardware() -> Result<(Ae5Device, Vec<ControlSnapshot>), String> {
@@ -519,7 +557,7 @@ fn device_page(
         let repair = gtk::Button::with_label("Repair current route");
         repair.set_halign(gtk::Align::Start);
         repair.set_tooltip_text(Some(
-            "Explicitly reapplies the current ALSA/PipeWire routes and may unmute the Front DAC.",
+            "Explicitly reapplies the current ALSA/PipeWire routes and may unmute hardware Master and the Front DAC.",
         ));
         route_actions.append(&repair);
 
@@ -550,7 +588,7 @@ fn device_page(
     page.append(&profile_card(
         "04",
         "Desktop route health",
-        "The check is read-only. The repair action is explicit and may unmute Front when Headphone output requires it.",
+        "The check is read-only. The repair action is explicit and may unmute hardware Master or Front when Headphone output requires it.",
         &route_actions,
     ));
 
@@ -825,6 +863,7 @@ fn sound_effects_page(
         .min_content_height(148)
         .child(&profile_strip)
         .build();
+    profiles.set_widget_name(PERSONAL_PROFILE_CAROUSEL_NAME);
     profiles.add_css_class("profile-carousel");
     page.append(&profiles);
 
@@ -888,6 +927,7 @@ fn sound_effects_page(
         .min_content_height(148)
         .child(&defaults_strip)
         .build();
+    defaults.set_widget_name(BUILTIN_PROFILE_CAROUSEL_NAME);
     defaults.add_css_class("profile-carousel");
     page.append(&defaults);
 
@@ -2449,6 +2489,7 @@ fn builtin_profile_actions(
         .map(|profile| profile.name.as_str())
         .collect::<Vec<_>>();
     let picker = gtk::DropDown::from_strings(&names);
+    picker.set_widget_name(BUILTIN_PROFILE_PICKER_NAME);
     picker.set_hexpand(true);
     picker.update_property(&[gtk::accessible::Property::Label(
         "Built-in Sound Blaster Command profile",
@@ -3863,10 +3904,7 @@ fn start_mixer_watch(window: &gtk::ApplicationWindow, card_index: i32) -> Result
                         gtk::glib::MainContext::default().invoke(move || {
                             refresh_queued.store(false, Ordering::Release);
                             if let Some(window) = active_main_window() {
-                                let _ = refresh_window(
-                                    &window,
-                                    Some("Synchronized after an ALSA mixer event."),
-                                );
+                                let _ = refresh_window(&window, None);
                             }
                         });
                     }
@@ -3906,13 +3944,89 @@ fn main_stack(window: &gtk::ApplicationWindow) -> Option<gtk::Stack> {
     .ok()
 }
 
-fn set_main_status(window: &gtk::ApplicationWindow, success: bool, message: &str) {
-    if let Some(status) = find_widget(
+fn capture_refresh_view_state(window: &gtk::ApplicationWindow) -> RefreshViewState {
+    RefreshViewState {
+        visible_page: main_stack(window)
+            .and_then(|stack| stack.visible_child_name())
+            .map(|name| name.to_string()),
+        builtin_profile: named_widget(window, BUILTIN_PROFILE_PICKER_NAME)
+            .and_then(|widget| widget.downcast::<gtk::DropDown>().ok())
+            .map(|picker| picker.selected()),
+        personal_profile_scroll: horizontal_scroll_value(window, PERSONAL_PROFILE_CAROUSEL_NAME),
+        builtin_profile_scroll: horizontal_scroll_value(window, BUILTIN_PROFILE_CAROUSEL_NAME),
+        operation_status: current_operation_status(window),
+    }
+}
+
+fn restore_refresh_view_state(window: &gtk::ApplicationWindow, state: &RefreshViewState) {
+    if let Some(selected) = state.builtin_profile
+        && let Some(picker) = named_widget(window, BUILTIN_PROFILE_PICKER_NAME)
+            .and_then(|widget| widget.downcast::<gtk::DropDown>().ok())
+        && picker
+            .model()
+            .is_some_and(|model| selected < model.n_items())
+    {
+        picker.set_selected(selected);
+    }
+    for (name, value) in [
+        (
+            PERSONAL_PROFILE_CAROUSEL_NAME,
+            state.personal_profile_scroll,
+        ),
+        (BUILTIN_PROFILE_CAROUSEL_NAME, state.builtin_profile_scroll),
+    ] {
+        let Some(value) = value else {
+            continue;
+        };
+        let Some(scroll) = named_widget(window, name)
+            .and_then(|widget| widget.downcast::<gtk::ScrolledWindow>().ok())
+        else {
+            continue;
+        };
+        let adjustment = scroll.hadjustment();
+        gtk::glib::idle_add_local_once(move || {
+            let lower = adjustment.lower();
+            let upper = (adjustment.upper() - adjustment.page_size()).max(lower);
+            adjustment.set_value(value.clamp(lower, upper));
+        });
+    }
+}
+
+fn horizontal_scroll_value(window: &gtk::ApplicationWindow, name: &str) -> Option<f64> {
+    named_widget(window, name)
+        .and_then(|widget| widget.downcast::<gtk::ScrolledWindow>().ok())
+        .map(|scroll| scroll.hadjustment().value())
+}
+
+fn current_operation_status(window: &gtk::ApplicationWindow) -> Option<OperationStatus> {
+    let status = operation_status_label(window)?;
+    let success = if status.has_css_class("operation-ok") {
+        true
+    } else if status.has_css_class("operation-error") {
+        false
+    } else {
+        return None;
+    };
+    Some(OperationStatus {
+        success,
+        message: status.text().to_string(),
+    })
+}
+
+fn named_widget(window: &gtk::ApplicationWindow, name: &str) -> Option<gtk::Widget> {
+    find_widget(window.child()?, |widget| widget.widget_name() == name)
+}
+
+fn operation_status_label(window: &gtk::ApplicationWindow) -> Option<gtk::Label> {
+    find_widget(
         window.child().unwrap_or_else(|| window.clone().upcast()),
         |widget| widget.has_css_class("operation-status"),
     )
     .and_then(|widget| widget.downcast::<gtk::Label>().ok())
-    {
+}
+
+fn set_main_status(window: &gtk::ApplicationWindow, success: bool, message: &str) {
+    if let Some(status) = operation_status_label(window) {
         set_status(&status, success, message);
     }
 }
@@ -4707,6 +4821,17 @@ mod tests {
                 capture_channels: Vec::new(),
             },
             ControlSnapshot {
+                name: "Master".to_owned(),
+                selected: None,
+                choices: Vec::new(),
+                playback_switch: Some(true),
+                capture_switch: None,
+                playback_level: None,
+                capture_level: None,
+                playback_channels: Vec::new(),
+                capture_channels: Vec::new(),
+            },
+            ControlSnapshot {
                 name: "Front".to_owned(),
                 selected: None,
                 choices: Vec::new(),
@@ -4746,7 +4871,7 @@ mod tests {
         assert!(!healthy);
         assert!(summary.contains("reapply the input choice"));
 
-        controls[3].playback_switch = Some(false);
+        controls[4].playback_switch = Some(false);
         let (summary, healthy) = route_health_summary(
             &controls,
             Ok(PipeWireRouteState {
@@ -4762,6 +4887,24 @@ mod tests {
         );
         assert!(!healthy);
         assert!(summary.contains("Front playback is muted"));
+
+        controls[4].playback_switch = Some(true);
+        controls[3].playback_switch = Some(false);
+        let (summary, healthy) = route_health_summary(
+            &controls,
+            Ok(PipeWireRouteState {
+                profile_set: Some("sound-blaster-ae5.conf".to_owned()),
+                soft_mixer: Some(true),
+                ignore_db: Some(true),
+                active_profile: Some("output:analog-stereo+input:analog-stereo".to_owned()),
+                input_route: Some("sound-blaster-ae5-input-microphone".to_owned()),
+                output_route: Some(
+                    "sound-blaster-ae5-output-headphones;output-headphones".to_owned(),
+                ),
+            }),
+        );
+        assert!(!healthy);
+        assert!(summary.contains("hardware Master playback is muted"));
     }
 
     #[test]
@@ -4978,6 +5121,28 @@ mod tests {
                 Some("Select Speakers output before enabling bass redirection.")
             ),
             "Current state: Bass Redirection | playback off. Unavailable: Select Speakers output before enabling bass redirection."
+        );
+    }
+
+    #[test]
+    fn refresh_retains_verified_feedback_until_an_explicit_result_replaces_it() {
+        let applied = OperationStatus {
+            success: true,
+            message: "Applied “Gaming”; 20 controls were verified against the hardware.".to_owned(),
+        };
+        assert_eq!(
+            operation_status_for_refresh(None, Some(applied.clone())),
+            Some(applied)
+        );
+        assert_eq!(
+            operation_status_for_refresh(
+                Some("Applied “My profile · Headphones”; 21 controls were verified."),
+                None,
+            ),
+            Some(OperationStatus {
+                success: true,
+                message: "Applied “My profile · Headphones”; 21 controls were verified.".to_owned(),
+            })
         );
     }
 }

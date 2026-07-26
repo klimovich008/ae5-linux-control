@@ -727,6 +727,41 @@ mixer SHA-256 returned exactly to
 Headphone output, Low gain, and the 20% PipeWire ceiling remained selected,
 and all four AE-5 PCM substreams stayed closed. No audio was played.
 
+## Profile-refresh and hardware-mute repair upgrade
+
+The transactional rootless installer upgraded the real user installation
+without restarting WirePlumber. The installed binaries are byte-identical to
+the release inputs:
+
+- GUI SHA-256:
+  `97aa39686b15939cd5eb50bd8e200dcf4dd8f1875290ed75a8d68b662e9cb73b`;
+- CLI SHA-256:
+  `50d8ae906682d04b05c39aee35e2794be98830c4e49649e5c1a09e703756bedc`.
+
+The installed native Wayland GUI started in 287 ms and refreshed all 48
+controls in 81 ms. A physical-card interaction test selected the Gaming
+built-in, confirmed its preview, applied 20 controls, and waited through the
+resulting ALSA events. The Profiles selector remained on Gaming and the
+verified success message remained visible. Applying `My profile · Headphones`
+then retained the exact profile name and its 21-control verified result instead
+of replacing it with a generic mixer-event message.
+
+The same live session reproduced a desktop/hardware mute split:
+PipeWire toggled between muted and unmuted at 20% while ALSA `Master` remained
+off. The upgraded CLI rejected that state, named the hardware Master mute,
+and the explicit no-stream repair changed only Master from off to on.
+`route-status` then matched Headphone/Microphone again. PipeWire remained
+muted at 20%, Front remained on at 19/99, PCM remained 51/255, Low gain
+remained selected, and every AE-5 PCM was closed. No audio was played.
+
+All 85 Rust and GTK tests, strict Clippy, formatting, shell syntax, the feature
+and ACP validators, three sample-rate audio-fixture self-tests, diagnostics,
+routing, kernel-runtime, VFIO, kernel-installer self-tests, desktop/AppStream/
+udev/systemd metadata, and the complete rootless lifecycle passed. A fresh
+Fedora 44 RPM also built successfully and repeated the release tests and
+metadata validation. Its root-only install/remove lifecycle remains delegated
+to CI because the development account has no authenticated sudo access.
+
 ## Remaining release gate
 
 This proves clean Fedora dependency resolution and package ownership/removal,

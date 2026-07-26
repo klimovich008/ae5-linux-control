@@ -684,6 +684,31 @@ Headphone/Microphone routes matched, PipeWire output remained at 20%, Low gain
 remained selected, and there were zero playback or capture streams. The custom
 kernel was not installed on the host.
 
+## Kernel-readiness user upgrade
+
+The transactional rootless installer upgraded the real user installation to
+the kernel-readiness release without restarting WirePlumber. Its installed
+binaries are byte-identical to the release inputs:
+
+- GUI SHA-256:
+  `c726cb0d09d844403a2fb36874ce6e4f4b4f5bc708567f03c8139bcf5701ada8`
+- CLI SHA-256:
+  `d001357515dc9ca099ff6d9fda572a993f0c98c6193d6513ddc658f7e3e7b6d7`
+
+The installed native Wayland release passed every Version 1 performance
+budget at 207 ms startup, 69 ms refresh, 0.00% sampled idle CPU, and
+70,696 KiB peak idle RSS. It detected the exact physical card, all 48 stock
+controls, matched Headphone/Microphone desktop routes, the clean stock kernel,
+and the expected absence of project-only Direct Mode and lighting interfaces.
+
+The private diagnostics report now records `installation_scope=user`, both
+exact binary hashes and sizes, and `system_package=not-installed` without
+including the user's home path. Its mode was `0600`. Both imported Windows
+profiles and complete mixer SHA-256
+`743e602e8066bea0aed9145669584497289fdb459c4c8450913513dbb7e15bc1`
+were identical before and after the upgrade; every AE-5 PCM remained closed
+and no audio was played.
+
 ## Remaining release gate
 
 This proves clean Fedora dependency resolution and package ownership/removal,

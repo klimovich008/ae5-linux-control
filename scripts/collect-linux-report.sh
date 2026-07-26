@@ -56,6 +56,50 @@ collect_lighting() {
 	done
 }
 
+collect_installation() {
+	local binary name package resolved scope
+	local data_root=${XDG_DATA_HOME:-"$HOME/.local/share"}
+
+	section 'AE-5 Control installation'
+	if binary=$(command -v ae5ctl 2>/dev/null) &&
+		resolved=$(readlink -f -- "$binary" 2>/dev/null); then
+		case $resolved in
+		"$data_root"/ae5-control/user-install/bin/*)
+			scope=user
+			;;
+		*)
+			if command -v rpm >/dev/null 2>&1 &&
+				rpm -qf "$resolved" >/dev/null 2>&1; then
+				scope=system
+			else
+				scope=unmanaged
+			fi
+			;;
+		esac
+	else
+		scope=unavailable
+	fi
+	printf 'installation_scope=%s\n' "$scope"
+
+	for name in ae5ctl ae5-control; do
+		if ! binary=$(command -v "$name" 2>/dev/null) || [[ ! -f $binary ]]; then
+			printf '%s=unavailable\n' "$name"
+			continue
+		fi
+		printf '%s_sha256=' "$name"
+		sha256sum -- "$binary" | awk '{print $1}'
+		printf '%s_bytes=%s\n' "$name" "$(stat -Lc '%s' -- "$binary")"
+	done
+
+	if command -v rpm >/dev/null 2>&1 &&
+		package=$(rpm -q --qf '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}' \
+			ae5-control 2>/dev/null); then
+		printf 'system_package=%s\n' "$package"
+	else
+		printf 'system_package=not-installed\n'
+	fi
+}
+
 collect() {
 	local card card_index vendor codec found=0
 
@@ -78,6 +122,7 @@ collect() {
 		printf 'kernel_tainted=unavailable\n'
 	fi
 
+	collect_installation
 	run 'Creative PCI devices' lspci -nnk -d 1102:
 	run 'ALSA cards' sh -c 'cat /proc/asound/cards'
 	run 'Playback devices' aplay -l
@@ -135,6 +180,9 @@ self_test() {
 	collect > "$report"
 	grep -q '^# AE-5 Linux hardware report$' "$report"
 	grep -q '^## Operating system$' "$report"
+	grep -q '^## AE-5 Control installation$' "$report"
+	grep -Eq '^installation_scope=(user|system|unmanaged|unavailable)$' "$report"
+	grep -q '^system_package=' "$report"
 	grep -q '^## Creative PCI devices$' "$report"
 	grep -q '^## Creative PipeWire objects$' "$report"
 	grep -q '^## AE-5 Control route health$' "$report"

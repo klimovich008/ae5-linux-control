@@ -390,9 +390,10 @@ a dedicated confirmation.
 
 ## Hardware audit
 
-Collect the actual card identity, kernel taint and failed-unit state, driver
-and module metadata, ALSA controls, onboard LED-class state, codec data, and
-relevant kernel log with the installed package:
+Collect the exact application binary fingerprints and installation scope,
+actual card identity, kernel taint and failed-unit state, driver and module
+metadata, ALSA controls, onboard LED-class state, codec data, and relevant
+kernel log with the installed package:
 
 ```sh
 ae5-collect-report

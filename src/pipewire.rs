@@ -27,6 +27,7 @@ pub struct PipeWireNode {
 pub struct PipeWireRouteState {
     pub profile_set: Option<String>,
     pub soft_mixer: Option<bool>,
+    pub ignore_db: Option<bool>,
     pub active_profile: Option<String>,
     pub input_route: Option<String>,
     pub output_route: Option<String>,
@@ -124,6 +125,12 @@ impl PipeWireRouteState {
         if self.soft_mixer != Some(true) {
             return Some(
                 "PipeWire hardware volume control is unsafe for the AE-5; enable api.alsa.soft-mixer and restart WirePlumber"
+                    .to_owned(),
+            );
+        }
+        if self.ignore_db != Some(true) {
+            return Some(
+                "PipeWire must ignore the AE-5 driver's invalid dB metadata; enable api.alsa.ignore-dB and restart WirePlumber"
                     .to_owned(),
             );
         }
@@ -383,6 +390,12 @@ fn parse_card_profile(card: &serde_json::Value) -> io::Result<PipeWireCardProfil
             "PipeWire must enable api.alsa.soft-mixer for safe AE-5 routing",
         ));
     }
+    if json_bool(&card["properties"]["api.alsa.ignore-dB"]) != Some(true) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "PipeWire must enable api.alsa.ignore-dB for working AE-5 volume",
+        ));
+    }
     let profiles = card["profiles"].as_object().ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::InvalidData,
@@ -559,6 +572,12 @@ fn require_ae5_profile(node_id: u32) -> io::Result<()> {
             "the AE-5 desktop route is missing api.alsa.soft-mixer; restart WirePlumber after installing the package",
         ));
     }
+    if property(&device, "api.alsa.ignore-dB").as_deref() != Some("true") {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "the AE-5 desktop route is missing api.alsa.ignore-dB; restart WirePlumber after installing the package",
+        ));
+    }
     Ok(())
 }
 
@@ -605,12 +624,14 @@ fn parse_route_state(output: &str, card_index: i32) -> io::Result<PipeWireRouteS
         .as_str()
         .map(str::to_owned);
     let soft_mixer = json_bool(&device["info"]["props"]["api.alsa.soft-mixer"]);
+    let ignore_db = json_bool(&device["info"]["props"]["api.alsa.ignore-dB"]);
     let active_profile = single_param_name(device, "Profile", None)?;
     let input_route = single_param_name(device, "Route", Some("Input"))?;
     let output_route = single_param_name(device, "Route", Some("Output"))?;
     Ok(PipeWireRouteState {
         profile_set,
         soft_mixer,
+        ignore_db,
         active_profile,
         input_route,
         output_route,
@@ -982,7 +1003,8 @@ id 58, type PipeWire:Interface:Node
             "properties": {
               "alsa.card": "0",
               "device.profile-set": "sound-blaster-ae5.conf",
-              "api.alsa.soft-mixer": "true"
+              "api.alsa.soft-mixer": "true",
+              "api.alsa.ignore-dB": "true"
             },
             "active_profile": "output:analog-stereo+input:analog-stereo",
             "profiles": {
@@ -1027,6 +1049,16 @@ id 58, type PipeWire:Interface:Node
                 .kind(),
             io::ErrorKind::InvalidData
         );
+        let invalid_db_metadata = cards.replace(
+            r#""api.alsa.ignore-dB": "true""#,
+            r#""api.alsa.ignore-dB": false"#,
+        );
+        assert_eq!(
+            parse_pactl_card_profile(&invalid_db_metadata, 0)
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::InvalidData
+        );
     }
 
     #[test]
@@ -1045,7 +1077,8 @@ id 58, type PipeWire:Interface:Node
               "props": {
                 "api.alsa.card": 0,
                 "device.profile-set": "sound-blaster-ae5.conf",
-                "api.alsa.soft-mixer": true
+                "api.alsa.soft-mixer": true,
+                "api.alsa.ignore-dB": true
               },
               "params": {
                 "Profile": [
@@ -1071,6 +1104,7 @@ id 58, type PipeWire:Interface:Node
             PipeWireRouteState {
                 profile_set: Some(AE5_PROFILE_SET.to_owned()),
                 soft_mixer: Some(true),
+                ignore_db: Some(true),
                 active_profile: Some("output:analog-stereo+input:analog-stereo".to_owned()),
                 input_route: Some("sound-blaster-ae5-input-microphone".to_owned()),
                 output_route: Some(
@@ -1120,6 +1154,7 @@ id 58, type PipeWire:Interface:Node
         let mut state = PipeWireRouteState {
             profile_set: Some("default.conf".to_owned()),
             soft_mixer: Some(true),
+            ignore_db: Some(true),
             active_profile: None,
             input_route: None,
             output_route: None,
@@ -1139,6 +1174,14 @@ id 58, type PipeWire:Interface:Node
                 .contains("hardware volume control is unsafe")
         );
         state.soft_mixer = Some(true);
+        state.ignore_db = Some(false);
+        assert!(
+            state
+                .output_issue("Headphone", "2.0")
+                .unwrap()
+                .contains("invalid dB metadata")
+        );
+        state.ignore_db = Some(true);
         state.active_profile = Some("output:iec958-stereo".to_owned());
         assert!(
             state
@@ -1159,6 +1202,7 @@ id 58, type PipeWire:Interface:Node
         let mut state = PipeWireRouteState {
             profile_set: Some(AE5_PROFILE_SET.to_owned()),
             soft_mixer: Some(true),
+            ignore_db: Some(true),
             active_profile: Some("output:analog-surround-51+input:analog-stereo".to_owned()),
             input_route: Some("sound-blaster-ae5-input-microphone".to_owned()),
             output_route: None,

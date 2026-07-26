@@ -492,10 +492,14 @@ All physical outputs stayed unplugged and no audio was played during that
 validation. A Speakers-to-Headphones transition caused Command to unmute the
 Windows render endpoint, despite its prior muted state. The Windows capture
 procedure therefore reapplies and independently verifies the 20% cap and mute
-after every output, profile, format, or device transition. Objective response
-comparison and exact Linux-host recovery remain pending. No source NTFS
-volume, Windows image, Creative binary, private setting, or credential is
-stored in the repository.
+after every output, profile, format, or device transition. A guarded 997 Hz
+Windows/Linux screen subsequently exposed and fixed the silent normal
+PipeWire transport: the AE-5 requires raw S16 read/write playback, its working
+6016-by-four buffer geometry, and ignored ALSA dB metadata. Linux playback is
+now audible through the normal desktop sink, but the preliminary capture
+remains 16.50 dB below Windows; full response/noise parity is still pending.
+No source NTFS volume, Windows image, Creative binary, private setting, or
+credential is stored in the repository.
 
 The complete patch stack now also builds, boots, and passes a guarded physical
 cycle on maintained Linux 6.18.40 LTS. That cycle covered the first-use/manual

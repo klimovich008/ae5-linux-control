@@ -352,6 +352,67 @@ stream or relevant kernel warning remained, and all ambient WAV data was
 deleted. This independently proves audibility after an application route
 cycle; it is not a cold-boot, DAC-filter, or Windows-parity measurement.
 
+### PipeWire analog transport fix
+
+On 2026-07-26, a guarded Windows-VM/host comparison isolated five independent
+causes of silent normal PipeWire playback on the audited AE-5. All captures
+used the same headphones beside the same Fifine microphone, with the
+headphones unworn and Low gain:
+
+| Playback path | 997 Hz result |
+|---|---:|
+| ALSA `front:Creative`, S32 | -99.09 dBFS |
+| ALSA `hw:Creative`, S32 | -98.05 dBFS |
+| ALSA `hw:Creative`, S16 with mmap | -102.30 dBFS |
+| ALSA `hw:Creative`, S16 RW, 1024/32768 frames | -100.47 dBFS |
+| ALSA `hw:Creative`, S16 RW, 6016/24064 frames | -41.34 dBFS |
+| Fixed PipeWire sink, S16 RW, 6016/24064 frames | -70.65 dBFS |
+
+The first four values are at the acoustic noise floor. The raw S16
+read/write path with a 6016-frame period and four periods is the first
+combination that produced the fixture through the normal analog PCM.
+`front:Creative` is unsuitable because the generic HDA ALSA definition wraps
+the raw PCM in another `PCM Playback Volume` softvol. The custom ACP mappings
+therefore use `hw:%f` for stereo and every supported 2.1-through-5.1 layout.
+
+PipeWire additionally had to ignore the driver's dB metadata. The exact-card
+rule now combines `api.alsa.soft-mixer=true` with
+`api.alsa.ignore-dB=true`; a separate analog-profile-only sink rule requests
+`S16LE`, disables mmap, and fixes the period geometry to 6016 frames times
+four. IEC958 remains outside that transport rule. The Rust route-health path
+rejects an installation where `ignore-dB` is absent. The live node read back:
+
+```text
+api.alsa.path = hw:0
+audio.format = S16LE
+api.alsa.disable-mmap = true
+api.alsa.period-size = 6016
+api.alsa.period-num = 4
+```
+
+After installing the same mappings, a zero-amplitude stream opened each
+supported profile without audible output. The kernel reported 2, 3, 4, 5, and
+6 channels for 2.0, 2.1, 4.0, 4.1, and 5.1 respectively; every case retained
+RW, S16, period size 6016, and buffer size 24064. The sink was suspended after
+each stream. Restoring Headphone/2.0/Microphone reproduced the complete simple
+mixer SHA-256
+`26a75bb94621e15023ebb28bb3a3da92c63d210f0e657b74478187256d39142c`,
+and the 20%-ceiling playback preflight passed.
+
+The earlier 43% observation is connected, but it is not a hidden hardware
+limit. WirePlumber had restored a saved route volume of 43%. PipeWire's cubic
+software-volume curve reports 20% as -41.94 dB, 40% as -23.88 dB, and 43% as
+approximately -21.99 dB. With `soft-mixer` active, that percentage no longer
+rewrites the AE-5 Master, Front, or PCM controls. The test restored the desktop
+sink to 20%, raw Master and Front to 19/99, PCM to 51/255, and Low gain.
+
+The fixed PipeWire capture is 16.50 dB below the guarded Windows capture at
+997 Hz, so this closes the silent-playback fault but not Windows level or
+frequency-response parity. A bounded attempt to raise raw Master from 19 to 35
+made the tone fall to the noise floor on the current stock Nobara kernel; the
+cleanup guard restored Master 19. Further parity work must compare the driver
+state rather than compensating with an unverified gain increase.
+
 ## Safe cold-boot probe
 
 `collect-routing-state.sh` discovers the exact audited card by

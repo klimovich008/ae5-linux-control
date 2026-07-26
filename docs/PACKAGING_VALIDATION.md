@@ -613,6 +613,29 @@ floats without edge compensation. The upgrade preserved raw mixer SHA-256
 the complete route-health output, PipeWire volume `0.20`, and Low headphone
 gain. Every playback PCM remained closed and no audio was played.
 
+## Working PipeWire analog transport
+
+The physical AE-5 normal playback path was isolated independently from the
+GTK work. The packaged ACP profile now bypasses HDA-Intel's duplicate
+`front:` softvol for stereo and each supported 2.1-through-5.1 mapping. The
+exact-card WirePlumber rules select S16 RW playback with 6016-frame periods,
+four periods, and ignored driver dB metadata. The live sink reported `hw:0`,
+`S16LE`, mmap disabled, period size 6016, and period count four.
+
+The ACP validator asserts every required property. Rust route health also
+requires `api.alsa.ignore-dB=true`, so a stale or partial installation fails
+closed instead of reporting a healthy route. The guarded physical capture
+contained a clean 997 Hz tone where the prior generic PipeWire path measured
+only its noise floor. The sink, mixer, route, and Low-gain state were restored
+to the 20% project ceiling afterward.
+
+A zero-amplitude installed-profile matrix then opened 2.0, 2.1, 4.0, 4.1,
+and 5.1 as exact 2/3/4/5/6-channel S16 RW hardware streams. Every stream used
+period size 6016 and buffer size 24064. The test suspended each sink after the
+open, restored Headphone/2.0/Microphone and the profile's X-Bass state, and
+reproduced complete mixer SHA-256
+`26a75bb94621e15023ebb28bb3a3da92c63d210f0e657b74478187256d39142c`.
+
 ## Remaining release gate
 
 This proves clean Fedora dependency resolution and package ownership/removal,

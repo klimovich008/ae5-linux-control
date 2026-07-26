@@ -2973,6 +2973,7 @@ mod tests {
         let mut state = PipeWireRouteState {
             profile_set: Some("sound-blaster-ae5.conf".to_owned()),
             soft_mixer: Some(true),
+            ignore_db: Some(true),
             active_profile: Some("output:analog-stereo+input:analog-stereo".to_owned()),
             input_route: Some("sound-blaster-ae5-input-microphone".to_owned()),
             output_route: Some("sound-blaster-ae5-output-headphones;output-headphones".to_owned()),
@@ -3003,6 +3004,7 @@ mod tests {
             Ok(PipeWireRouteState {
                 profile_set: Some("sound-blaster-ae5.conf".to_owned()),
                 soft_mixer: Some(true),
+                ignore_db: Some(true),
                 active_profile: Some("output:analog-stereo+input:analog-stereo".to_owned()),
                 input_route: Some("sound-blaster-ae5-input-microphone".to_owned()),
                 output_route: Some(

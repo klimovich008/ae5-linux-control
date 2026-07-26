@@ -221,6 +221,32 @@ If direct ALSA matches Windows but PipeWire does not, investigate PipeWire
 format/rate policy before touching the kernel. If both Linux paths diverge in
 the same way, compare DSP state and CA0132 initialization next.
 
+## Guarded Windows/Linux acoustic screen
+
+On 2026-07-26, the Windows comparison guest owned the physical AE-5 through
+VFIO and loaded the imported headphone profile in Sound Blaster Command
+3.5.10.0. The Windows endpoint and player session were both verified at 20%,
+and Command reported Low headphone gain. The same -18 dBFS 997 Hz fixture,
+headphone/microphone placement, and Fifine capture path were then reused after
+returning the card to the Linux host.
+
+The Windows capture measured -54.16 dBFS at 997 Hz. The repaired normal
+PipeWire path measured -70.65 dBFS with the desktop sink at the separately
+approved 40% ceiling, player stream at unity, raw Master and Front at 19/99,
+PCM at 51/255, and Low gain. The Linux tone is therefore present but 16.50 dB
+below Windows in this preliminary acoustic setup.
+
+This comparison found and fixed the Linux silent-transport path: use raw
+`hw:%f` rather than HDA's `front:` softvol, S16 rather than S32, ALSA
+read/write rather than mmap, 6016-frame periods with four periods, and
+`api.alsa.ignore-dB=true`. Exact A/B evidence is in
+[`DRIVER_ROUTING_INVESTIGATION.md`](DRIVER_ROUTING_INVESTIGATION.md).
+
+The result is not a parity pass. It uses a microphone rather than an
+attenuated electrical capture, compares only one frequency, and deliberately
+uses different operating-system volume controls. Full response, noise, and
+matched electrical-level measurements remain open.
+
 ## Target-card Linux digital baseline
 
 On 2026-07-24, the generated tone fixture was played through both direct ALSA

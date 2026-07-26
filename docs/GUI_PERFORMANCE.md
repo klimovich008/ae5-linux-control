@@ -76,3 +76,11 @@ No playback was attempted.
 
 These numbers prove the software budgets on the recorded reference system.
 They do not replace audio latency, DSP, cold-boot, or suspend/resume tests.
+
+The installed transport-fix build was rechecked explicitly with
+`GDK_BACKEND=wayland` on 2026-07-26. It measured 235 ms startup, 68 ms refresh,
+0.00% sampled idle CPU, and 68,440 KiB peak idle RSS. A live active-window
+capture showed the refined hardware console with the exact AE-5 online and all
+48 controls detected. The only GTK diagnostic was the distribution's
+unrecognized global `gtk-modules` setting; the application itself emitted no
+error.

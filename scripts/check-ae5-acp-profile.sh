@@ -8,6 +8,32 @@ rule=$repo_root/packaging/wireplumber/90-ae5-control.conf
 input_paths='sound-blaster-ae5-input-microphone sound-blaster-ae5-input-front-microphone sound-blaster-ae5-input-line-in'
 output_paths='analog-output analog-output-lineout analog-output-speaker sound-blaster-ae5-output-headphones analog-output-headphones-2'
 
+device=$(awk '
+	$0 == "[Mapping analog-stereo]" { found = 1; next }
+	found && /^\[/ { exit }
+	found && /^device-strings = / {
+		sub(/^device-strings = /, "")
+		print
+		exit
+	}
+' "$profile")
+[[ $device == 'hw:%f' ]]
+
+for mapping in \
+	analog-surround-21 analog-surround-40 analog-surround-41 \
+	analog-surround-50 analog-surround-51; do
+	device=$(awk -v section="[Mapping $mapping]" '
+		$0 == section { found = 1; next }
+		found && /^\[/ { exit }
+		found && /^device-strings = / {
+			sub(/^device-strings = /, "")
+			print
+			exit
+		}
+	' "$profile")
+	[[ $device == 'hw:%f' ]]
+done
+
 for mapping in analog-stereo stereo-fallback mono-fallback; do
 	paths=$(awk -v section="[Mapping $mapping]" '
 		$0 == section { found = 1; next }
@@ -67,5 +93,13 @@ grep -Fq 'device.vendor.id = "0x1102"' "$rule"
 grep -Fq 'device.product.id = "0x0012"' "$rule"
 grep -Fq 'device.profile-set = "sound-blaster-ae5.conf"' "$rule"
 grep -Fq 'api.alsa.soft-mixer = true' "$rule"
+grep -Fq 'api.alsa.ignore-dB = true' "$rule"
+grep -Fq 'node.name = "~alsa_output.*"' "$rule"
+grep -Fq 'device.profile.name = "~analog-.*"' "$rule"
+grep -Fq 'alsa.components = "~HDA:11020011,11020051,.*"' "$rule"
+grep -Fq 'audio.format = "S16LE"' "$rule"
+grep -Fq 'api.alsa.disable-mmap = true' "$rule"
+grep -Fq 'api.alsa.period-size = 6016' "$rule"
+grep -Fq 'api.alsa.period-num = 4' "$rule"
 
-printf 'AE-5 ACP profile: stable managed route order and shared Front DAC validated\n'
+printf 'AE-5 ACP profile: raw S16 playback, stable managed route order, and shared Front DAC validated\n'

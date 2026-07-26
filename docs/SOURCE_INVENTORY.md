@@ -99,6 +99,32 @@ Standalone and combined objects rebuilt with warnings as errors. The patches
 therefore have no outstanding source rebase delta as of that check; external
 submission still requires the contributor's own DCO sign-off.
 
+## Smart Volume DSP-reload state
+
+The public CA0132 source is sufficient to prove a Smart Volume resume defect
+without a proprietary-driver reference. `ae5_setup_defaults()` sends the
+effect table's default request values during each DSP download. For Smart
+Volume those defaults are level 74 and Normal mode. The codec's cached
+`fx_ctl_val[]` and `smart_volume_setting` values survive the reload, while the
+`dsp_reload` tail restores only the playback-enhancement switches through
+`ca0132_pe_switch_set()`. The Smart Volume getters return the caches rather
+than querying the DSP.
+
+Consequently, after a DSP-losing suspend, Linux can report the requested
+pre-suspend level and mode while the DSP has reverted to 74/Normal. The
+minimal source-derived candidate is
+[`kernel/ca0132-restore-smart-volume-resume.patch`](../kernel/ca0132-restore-smart-volume-resume.patch).
+It replays only the cached Smart Volume level and mode, propagates DSP write
+failures from those controls, and keeps failed writes out of the cache. It
+does not guess an adaptive-history reset command or cycle the output route.
+
+The patch applies to the exact running `v7.1.4` source and the recorded
+upstream CA0132 snapshot. Strict `checkpatch.pl` is clean, and its composition
+with the maintained 6.18.40 AE-5 stack builds `ca0132.o` with warnings treated
+as errors. Physical bare-metal suspend and acoustic validation remain
+required. No Creative binary, firmware disassembly, or decompiler output was
+used for this candidate.
+
 ## What U Hear control history
 
 The AE-5's `What U Hear Capture Volume` and `What U Hear Capture Switch` are

@@ -260,7 +260,11 @@ The CA0132 driver exposes a Smart Volume level plus Normal, Loud, and Night
 modes. Only Normal uses the adjustable level; Loud and Night select fixed DSP
 values. The desktop app therefore keeps their mode and enable controls active
 but disables the ineffective level slider until Normal is selected. Saved and
-imported profiles still retain that value for a later return to Normal.
+imported profiles still retain that value for a later return to Normal. A
+separate kernel candidate now restores the cached Smart Volume level and mode
+after a real DSP-losing resume; it has passed static and cardless build
+validation but still needs the guarded physical suspend test documented in
+[`kernel/README.md`](kernel/README.md).
 
 ## Native desktop application
 

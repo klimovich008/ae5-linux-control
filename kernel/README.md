@@ -12,6 +12,11 @@ The diagnostic SpeakerEQ probe was loaded separately in two earlier cycles and
 produced the bounded negative result described below. None changes the running
 host kernel merely by being present in this repository.
 
+The Smart Volume resume candidate was validated later against the exact
+running source and in the cardless kernel-build guest. It has not been loaded
+on the physical card; its bare-metal suspend and acoustic acceptance gate is
+documented in its section below.
+
 The complete production, onboard-RGB, and Direct Mode stack has also been
 packaged as a side-by-side host kernel and passed non-installing verification
 plus a no-audio QEMU smoke boot. It has not been installed. The exact build,
@@ -280,6 +285,72 @@ reboots, 50 speaker/headphone route transitions, clean shutdown, and exact
 guest/host restoration. Analog input controls, physical speaker/line-out and
 digital playback, and suspend/resume remain. The maintained-kernel repetition
 is recorded below.
+
+## Smart Volume restoration after DSP reload
+
+[`ca0132-restore-smart-volume-resume.patch`](ca0132-restore-smart-volume-resume.patch)
+fixes a stale-cache defect after a suspend or other codec reinitialization that
+loses the downloaded DSP state.
+
+`ae5_setup_defaults()` writes the Smart Volume level and mode defaults back to
+the DSP during every reload: request 5 receives level 74 and request 6 receives
+Normal. The cached `fx_ctl_val[]` level and `smart_volume_setting` mode survive
+that path, however, and the existing resume tail replays only the output-effect
+switches. Both ALSA getters read those surviving caches. The mixer and
+application can therefore report the pre-suspend level and mode while the DSP
+is actually processing with 74/Normal.
+
+The candidate replays the cached Smart Volume level and mode before restoring
+the output-effect switches. It also makes the shared output-effect level write
+return the DSP error, updates the level or mode cache only after a successful
+DSP write, and reports a successful changed ALSA control as changed. A failed
+Smart Volume restore leaves `dsp_reload` set so a later initialization can
+retry.
+
+This patch does not reset Smart Volume's adaptive history. There is no
+source-backed DSP request for that operation. Cycling global `Enable OutFX`
+also reselects the output route, so the driver and application must not use
+that audible transition as an automatic reset.
+
+### Static and build validation
+
+The exact patch has SHA-256
+`144fa9c2d4766f502fd67df82eac93576723f2655b173420cf8af545ca3905d9`.
+It applies and reverses cleanly against the exact Linux stable `v7.1.4`
+CA0132 source, SHA-256
+`7b61bcb02c4079b9ca6c82cde3147e95706cdbe958324ae383e7875d9a33a4f0`,
+and produces the reviewed source SHA-256
+`c0e4f63e79b74ac0833a185adfbbf44d0feb23b965c1418f8607aed918b861e1`.
+It also applies cleanly to the recorded current-upstream CA0132 snapshot,
+SHA-256
+`95a23cdef3504d67762b35d3e0fcedf31651233f08477c4dcf56bd436c2552cb`.
+
+Strict `checkpatch.pl` reports zero errors, warnings, or checks across 156
+lines. Applied after the maintained Linux 6.18.40 AE-5 stack in the cardless
+build guest, `sound/hda/codecs/ca0132.o` compiles with
+`W=1 KCFLAGS=-Werror`. The patched integrated source has SHA-256
+`a9a6373512886ed98a76ad2d26002002f13edfc223808fbb6f0de7bfd1333ac0`;
+the resulting object has SHA-256
+`e27add747d76de41de6c582eeef6114f7b884dcf74f92d3947aa691328291a38`.
+No module was loaded and the physical card remained on the host driver.
+
+### Remaining physical acceptance
+
+The fix is not accepted until a guarded bare-metal test:
+
+- saves the exact mixer and PipeWire baseline with no open PCM;
+- selects non-default Smart Volume level and mode values;
+- proves the suspend caused a real DSP reload rather than a shallow no-op;
+- compares direct-ALSA What U Hear captures before and after resume, with the
+  playback path held at or below the repository's 20% safety ceiling;
+- distinguishes restored non-default DSP behavior from the 74/Normal default,
+  instead of trusting cache-backed ALSA readback alone;
+- repeats the matrix in counterbalanced order because Smart Volume is stateful;
+- restores the exact mixer, routes, defaults, and zero-PCM state and checks the
+  kernel log for CA0132, HDA, DSP, timeout, or warning messages.
+
+Adaptive Normal/Night repeatability and matched Windows measurements remain a
+separate parity investigation even if this resume test passes.
 
 ## Wedge Angle default
 

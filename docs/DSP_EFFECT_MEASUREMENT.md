@@ -85,6 +85,27 @@ avoids presenting the proven-ineffective Loud/Night slider. Deterministic
 Night behavior and matched Windows measurements remain open driver/parity
 work.
 
+## Separate Smart Volume resume defect
+
+Source review found a separate deterministic defect that must not be confused
+with the within-session adaptive-history result above. When a suspend loses
+and reloads the CA0132 DSP, `ae5_setup_defaults()` writes Smart Volume level 74
+and Normal mode to the DSP. The driver preserves the prior level and mode in
+its software caches and restores only effect switches. ALSA readback can
+therefore continue to show the selected pre-suspend values while the hardware
+actually runs 74/Normal.
+
+The bounded candidate in
+[`kernel/ca0132-restore-smart-volume-resume.patch`](../kernel/ca0132-restore-smart-volume-resume.patch)
+replays the cached level and mode during that DSP-reload path and avoids
+committing failed level or mode writes to the cache. It passes strict kernel
+style checking and a warnings-as-errors CA0132 object build, but still requires
+physical bare-metal suspend and counterbalanced What U Hear validation.
+
+The candidate intentionally does not cycle global OutFX or claim to clear
+compressor history. Passing its resume test would close the stale-cache defect,
+not the remaining Normal/Night repeatability or Windows-parity gate.
+
 Dialog Plus produced a repeatable low-band-heavy response with this pure-tone
 fixture. That proves that the ALSA switch reaches active DSP processing; it
 does not establish how the effect behaves on speech or whether its response

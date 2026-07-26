@@ -3,6 +3,12 @@
 Linux control software and upstream driver fixes for the Creative Sound
 BlasterX AE-5, developed from public source and reproducible hardware evidence.
 
+**New maintainer or reviewer:** start with
+[`HANDOVER.md`](HANDOVER.md). It identifies the authoritative development
+branch, current host state, non-negotiable audio-safety rules, known blockers,
+and the shortest validation path. This README retains cumulative milestone
+history and should not be read as a single current-state report.
+
 The physically tested Linux 6.18 CA0132 patch stack now also has a
 host-configured, side-by-side kernel RPM. It passed non-installing package
 verification and a no-audio QEMU smoke boot; bare-metal installation remains

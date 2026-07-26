@@ -80,8 +80,8 @@ fn build_window(application: &gtk::Application, started: Instant, performance_pr
     let window = gtk::ApplicationWindow::builder()
         .application(application)
         .title("AE-5 Control")
-        .default_width(980)
-        .default_height(680)
+        .default_width(1120)
+        .default_height(700)
         .build();
 
     if let Some(card_index) = refresh_window(&window, None)
@@ -159,15 +159,14 @@ fn content(
     message: Option<&str>,
     visible_page: Option<&str>,
 ) -> gtk::Box {
-    let root = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    root.append(&hero(device, controls));
+    let root = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    root.add_css_class("application-shell");
     let status = gtk::Label::new(Some(
         message.unwrap_or("Ready — every change is verified against the hardware."),
     ));
     status.set_xalign(0.0);
-    status.set_wrap(true);
+    status.set_ellipsize(gtk::pango::EllipsizeMode::End);
     status.add_css_class("operation-status");
-    root.append(&status);
 
     let stack = gtk::Stack::builder()
         .transition_type(gtk::StackTransitionType::Crossfade)
@@ -177,15 +176,15 @@ fn content(
     stack.set_widget_name(MAIN_STACK_NAME);
 
     for (name, title) in [
-        ("device", "Device"),
-        ("compatibility", "Compatibility"),
-        ("routing", "System audio"),
-        ("lighting", "Lighting"),
-        ("profiles", "Profiles"),
-        ("playback", "Playback"),
         ("effects", "Sound effects"),
         ("equalizer", "Equalizer"),
+        ("playback", "Playback"),
         ("recording", "Recording"),
+        ("scout", "Scout Mode"),
+        ("mixer", "Mixer"),
+        ("lighting", "Lighting"),
+        ("profiles", "Profiles"),
+        ("settings", "Settings"),
     ] {
         let holder = gtk::Box::new(gtk::Orientation::Vertical, 0);
         holder.set_hexpand(true);
@@ -193,7 +192,7 @@ fn content(
         stack.add_titled(&holder, Some(name), title);
     }
 
-    let initial_page = visible_page.unwrap_or("device");
+    let initial_page = visible_page.unwrap_or("effects");
     stack.set_visible_child_name(initial_page);
     populate_page(&stack, window, device, controls, &status, initial_page);
     {
@@ -210,15 +209,30 @@ fn content(
 
     let sidebar = gtk::StackSidebar::builder()
         .stack(&stack)
-        .width_request(190)
+        .width_request(208)
+        .vexpand(true)
         .build();
     sidebar.add_css_class("navigation-sidebar");
 
-    let body = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-    body.append(&sidebar);
-    body.append(&gtk::Separator::new(gtk::Orientation::Vertical));
-    body.append(&stack);
-    root.append(&body);
+    let sidebar_panel = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    sidebar_panel.add_css_class("sidebar-panel");
+    sidebar_panel.append(&sidebar_brand(device));
+    sidebar_panel.append(&sidebar);
+    let sidebar_footer = gtk::Label::new(Some("LINUX NATIVE  ·  WAYLAND"));
+    sidebar_footer.set_xalign(0.0);
+    sidebar_footer.add_css_class("sidebar-footer");
+    sidebar_panel.append(&sidebar_footer);
+
+    let main = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    main.set_hexpand(true);
+    main.set_vexpand(true);
+    main.add_css_class("main-panel");
+    main.append(&hero(device, controls));
+    main.append(&stack);
+    main.append(&status_rail(&status, controls));
+
+    root.append(&sidebar_panel);
+    root.append(&main);
     root
 }
 
@@ -241,9 +255,10 @@ fn populate_page(
     }
 
     let page: gtk::Widget = match name {
-        "device" => device_page(window, device, controls, status).upcast(),
-        "compatibility" => compatibility_page().upcast(),
-        "routing" => routing_page(device.card_index, status).upcast(),
+        "settings" => settings_page(window, device, controls, status).upcast(),
+        "scout" => scout_page().upcast(),
+        "mixer" => mixer_page(device.card_index, status, controls).upcast(),
+        "equalizer" => equalizer_page(device.card_index, status, controls).upcast(),
         "lighting" => lighting_page(window, status).upcast(),
         "profiles" => profile_page(window, device.card_index, status).upcast(),
         _ => {
@@ -270,14 +285,59 @@ fn populate_page(
     holder.append(&page);
 }
 
+fn sidebar_brand(device: &Ae5Device) -> gtk::Box {
+    let brand = gtk::Box::new(gtk::Orientation::Vertical, 3);
+    brand.add_css_class("sidebar-brand");
+
+    let title = gtk::Label::new(Some("AE-5 CONTROL"));
+    title.set_xalign(0.0);
+    title.add_css_class("sidebar-title");
+    let device = gtk::Label::new(Some(
+        device
+            .codec_name
+            .as_deref()
+            .unwrap_or("Sound BlasterX AE-5"),
+    ));
+    device.set_xalign(0.0);
+    device.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    device.add_css_class("sidebar-device");
+
+    brand.append(&title);
+    brand.append(&device);
+    brand
+}
+
+fn status_rail(status: &gtk::Label, controls: &[ControlSnapshot]) -> gtk::Box {
+    let rail = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    rail.add_css_class("status-rail");
+
+    let mark = gtk::Label::new(Some("AE-5"));
+    mark.add_css_class("status-mark");
+    rail.append(&mark);
+    rail.append(status);
+
+    let output = controls
+        .iter()
+        .find(|control| control.name == "Master")
+        .map(
+            |control| match (&control.playback_level, control.playback_switch) {
+                (_, Some(false)) => "OUTPUT MUTED".to_owned(),
+                (Some(level), _) => format!("HARDWARE {}%", level.value),
+                _ => "OUTPUT ACTIVE".to_owned(),
+            },
+        )
+        .unwrap_or_else(|| "OUTPUT UNKNOWN".to_owned());
+    let output = gtk::Label::new(Some(&output));
+    output.add_css_class("output-state");
+    rail.append(&output);
+    rail
+}
+
 fn hero(device: &Ae5Device, controls: &[ControlSnapshot]) -> gtk::Box {
-    let header = gtk::Box::new(gtk::Orientation::Horizontal, 20);
+    let header = gtk::Box::new(gtk::Orientation::Horizontal, 16);
     header.add_css_class("hero");
 
-    let titles = gtk::Box::new(gtk::Orientation::Vertical, 4);
-    let kicker = gtk::Label::new(Some("AE-5 CONTROL  //  HARDWARE LINK"));
-    kicker.set_xalign(0.0);
-    kicker.add_css_class("hero-kicker");
+    let titles = gtk::Box::new(gtk::Orientation::Vertical, 2);
     let title = gtk::Label::new(Some(
         device
             .codec_name
@@ -294,7 +354,6 @@ fn hero(device: &Ae5Device, controls: &[ControlSnapshot]) -> gtk::Box {
     )));
     subtitle.set_xalign(0.0);
     subtitle.add_css_class("dim-label");
-    titles.append(&kicker);
     titles.append(&title);
     titles.append(&subtitle);
     header.append(&titles);
@@ -560,6 +619,251 @@ fn kernel_readiness_summary(
     )
 }
 
+fn settings_page(
+    window: &gtk::ApplicationWindow,
+    device: &Ae5Device,
+    controls: &[ControlSnapshot],
+    status: &gtk::Label,
+) -> gtk::Box {
+    let page = gtk::Box::new(gtk::Orientation::Vertical, 0);
+
+    let header = gtk::Box::new(gtk::Orientation::Vertical, 12);
+    header.add_css_class("settings-header");
+    let heading = gtk::Label::new(Some("Settings"));
+    heading.set_xalign(0.0);
+    heading.add_css_class("page-title");
+    header.append(&heading);
+
+    let stack = gtk::Stack::builder()
+        .transition_type(gtk::StackTransitionType::Crossfade)
+        .hexpand(true)
+        .vexpand(true)
+        .build();
+    stack.add_titled(
+        &device_page(window, device, controls, status),
+        Some("device"),
+        "Device",
+    );
+    stack.add_titled(
+        &compatibility_page(),
+        Some("compatibility"),
+        "Compatibility",
+    );
+    let switcher = gtk::StackSwitcher::builder()
+        .stack(&stack)
+        .halign(gtk::Align::Start)
+        .build();
+    switcher.add_css_class("page-tabs");
+    header.append(&switcher);
+
+    page.append(&header);
+    page.append(&stack);
+    page
+}
+
+fn scout_page() -> gtk::ScrolledWindow {
+    let page = gtk::Box::new(gtk::Orientation::Vertical, 18);
+    page.add_css_class("profile-page");
+
+    let heading = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    let title = gtk::Label::new(Some("Scout Mode"));
+    title.set_xalign(0.0);
+    title.add_css_class("page-title");
+    let toggle = gtk::Switch::builder()
+        .active(false)
+        .sensitive(false)
+        .build();
+    toggle.set_tooltip_text(Some(
+        "The proprietary Scout Mode processing path is not available through the Linux driver.",
+    ));
+    heading.append(&toggle);
+    heading.append(&title);
+    page.append(&heading);
+
+    let explanation = gtk::Label::new(Some(
+        "Scout Mode is visible here so Windows users can account for the feature during \
+         migration. The Creative implementation and its hotkey integration are proprietary, \
+         and the Linux CA0132 driver does not expose an equivalent control.",
+    ));
+    explanation.set_xalign(0.0);
+    explanation.set_wrap(true);
+    explanation.add_css_class("dim-label");
+    page.append(&explanation);
+
+    let alternatives = gtk::Box::new(gtk::Orientation::Vertical, 8);
+    for text in [
+        "Use the Equalizer page for a transparent, user-controlled frequency emphasis.",
+        "Use a PipeWire filter-chain preset only when you can verify its gain and latency.",
+        "Imported Windows profiles retain Scout Mode as an explicit unsupported item.",
+    ] {
+        let row = gtk::Label::new(Some(&format!("• {text}")));
+        row.set_xalign(0.0);
+        row.set_wrap(true);
+        alternatives.append(&row);
+    }
+    page.append(&profile_card(
+        "—",
+        "Linux status: unavailable",
+        "AE-5 Control does not present a decorative switch as working hardware support.",
+        &alternatives,
+    ));
+
+    gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .child(&page)
+        .build()
+}
+
+fn equalizer_page(
+    card_index: i32,
+    status: &gtk::Label,
+    controls: &[ControlSnapshot],
+) -> gtk::ScrolledWindow {
+    let page = gtk::Box::new(gtk::Orientation::Vertical, 18);
+    page.add_css_class("profile-page");
+
+    let heading = gtk::Label::new(Some("Equalizer"));
+    heading.set_xalign(0.0);
+    heading.add_css_class("page-title");
+    page.append(&heading);
+
+    let intro = gtk::Label::new(Some(
+        "Ten hardware bands follow the same center frequencies used by Sound Blaster Command. \
+         Bass maps to 62 Hz and Treble maps to 8 kHz during Windows profile migration.",
+    ));
+    intro.set_xalign(0.0);
+    intro.set_wrap(true);
+    intro.add_css_class("dim-label");
+    page.append(&intro);
+
+    page.append(&control_list(
+        card_index,
+        status,
+        controls,
+        ["FX: Equalizer", "FX: Equalizer Preset"]
+            .into_iter()
+            .filter_map(|name| controls.iter().find(|control| control.name == name)),
+    ));
+
+    let bands = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+    bands.set_homogeneous(true);
+    bands.add_css_class("equalizer-bands");
+    for (index, frequency) in [
+        "31", "62", "125", "250", "500", "1k", "2k", "4k", "8k", "16k",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let name = format!("EQ Band{index}");
+        let Some(control) = controls.iter().find(|control| control.name == name) else {
+            continue;
+        };
+        let Some(level) = &control.playback_level else {
+            continue;
+        };
+        let band = gtk::Box::new(gtk::Orientation::Vertical, 6);
+        band.set_halign(gtk::Align::Center);
+        let editor = level_editor_oriented(
+            card_index,
+            status,
+            &control.name,
+            level,
+            false,
+            None,
+            direct_mode_block_reason(&control.name, controls)
+                .or_else(|| equalizer_band_block_reason(&control.name, controls)),
+            gtk::Orientation::Vertical,
+        );
+        let label = gtk::Label::new(Some(frequency));
+        label.add_css_class("equalizer-frequency");
+        band.append(&editor);
+        band.append(&label);
+        bands.append(&band);
+    }
+    page.append(&bands);
+
+    gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .child(&page)
+        .build()
+}
+
+fn mixer_page(
+    card_index: i32,
+    status: &gtk::Label,
+    controls: &[ControlSnapshot],
+) -> gtk::ScrolledWindow {
+    let page = gtk::Box::new(gtk::Orientation::Vertical, 18);
+    page.add_css_class("profile-page");
+
+    let heading = gtk::Label::new(Some("Mixer"));
+    heading.set_xalign(0.0);
+    heading.add_css_class("page-title");
+    page.append(&heading);
+
+    let intro = gtk::Label::new(Some(
+        "Hardware playback and recording levels are shown together. Desktop default-device \
+         choices remain separate from the card's ALSA mixer state.",
+    ));
+    intro.set_xalign(0.0);
+    intro.set_wrap(true);
+    intro.add_css_class("dim-label");
+    page.append(&intro);
+
+    let playback = gtk::Label::new(Some("Playback"));
+    playback.set_xalign(0.0);
+    playback.add_css_class("mixer-section");
+    page.append(&playback);
+    page.append(&control_list(
+        card_index,
+        status,
+        controls,
+        ["Master", "PCM", "Front", "Surround", "Center", "LFE"]
+            .into_iter()
+            .filter_map(|name| controls.iter().find(|control| control.name == name)),
+    ));
+
+    let recording = gtk::Label::new(Some("Recording"));
+    recording.set_xalign(0.0);
+    recording.add_css_class("mixer-section");
+    page.append(&recording);
+    page.append(&control_list(
+        card_index,
+        status,
+        controls,
+        ["Capture", "What U Hear"]
+            .into_iter()
+            .filter_map(|name| controls.iter().find(|control| control.name == name)),
+    ));
+
+    let routing = gtk::Label::new(Some("Desktop routing"));
+    routing.set_xalign(0.0);
+    routing.add_css_class("mixer-section");
+    page.append(&routing);
+    page.append(&routing_card(
+        card_index,
+        status,
+        "01",
+        "Desktop playback output",
+        ae5_output(card_index),
+        set_ae5_default_output,
+    ));
+    page.append(&routing_card(
+        card_index,
+        status,
+        "02",
+        "Desktop recording input",
+        ae5_input(card_index),
+        set_ae5_default_input,
+    ));
+    page.append(&native_rates_card(status, native_rates_config()));
+
+    gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .child(&page)
+        .build()
+}
+
 fn compatibility_page() -> gtk::ScrolledWindow {
     let page = gtk::Box::new(gtk::Orientation::Vertical, 18);
     page.add_css_class("profile-page");
@@ -644,48 +948,6 @@ fn compatibility_summary() -> String {
         counts[2],
         counts[3]
     )
-}
-
-fn routing_page(card_index: i32, status: &gtk::Label) -> gtk::ScrolledWindow {
-    let page = gtk::Box::new(gtk::Orientation::Vertical, 18);
-    page.add_css_class("profile-page");
-
-    let heading = gtk::Label::new(Some("System audio routing"));
-    heading.set_xalign(0.0);
-    heading.add_css_class("page-title");
-    page.append(&heading);
-
-    let intro = gtk::Label::new(Some(
-        "Choose whether desktop applications use the AE-5 by default. These \
-         actions change WirePlumber routing only; they do not alter ALSA or DSP settings.",
-    ));
-    intro.set_xalign(0.0);
-    intro.set_wrap(true);
-    intro.add_css_class("dim-label");
-    page.append(&intro);
-
-    page.append(&routing_card(
-        card_index,
-        status,
-        "01",
-        "Playback output",
-        ae5_output(card_index),
-        set_ae5_default_output,
-    ));
-    page.append(&routing_card(
-        card_index,
-        status,
-        "02",
-        "Recording input",
-        ae5_input(card_index),
-        set_ae5_default_input,
-    ));
-    page.append(&native_rates_card(status, native_rates_config()));
-
-    gtk::ScrolledWindow::builder()
-        .hscrollbar_policy(gtk::PolicyType::Never)
-        .child(&page)
-        .build()
 }
 
 fn lighting_page(window: &gtk::ApplicationWindow, status: &gtk::Label) -> gtk::ScrolledWindow {
@@ -2081,6 +2343,56 @@ fn control_page<'a>(
     category: Category,
     controls: impl Iterator<Item = &'a ControlSnapshot>,
 ) -> gtk::ScrolledWindow {
+    let mut controls = controls.collect::<Vec<_>>();
+    controls.sort_by(|left, right| {
+        category
+            .control_order(&left.name)
+            .cmp(&category.control_order(&right.name))
+            .then_with(|| left.name.cmp(&right.name))
+    });
+
+    let page = gtk::Box::new(gtk::Orientation::Vertical, 14);
+    page.add_css_class("control-page");
+
+    let heading = gtk::Label::new(Some(category.title()));
+    heading.set_xalign(0.0);
+    heading.add_css_class("page-title");
+    page.append(&heading);
+    let intro = gtk::Label::new(Some(category.description()));
+    intro.set_xalign(0.0);
+    intro.set_wrap(true);
+    intro.add_css_class("dim-label");
+    page.append(&intro);
+
+    if matches!(category, Category::Playback)
+        && let Some(warning) = front_vmaster_clamp_warning(all_controls)
+    {
+        let notice = gtk::Label::new(Some(&format!("Gain staging\n{warning}")));
+        notice.set_xalign(0.0);
+        notice.set_wrap(true);
+        notice.set_selectable(true);
+        notice.add_css_class("gain-stage-notice");
+        page.append(&notice);
+    }
+    page.append(&control_list(
+        card_index,
+        status,
+        all_controls,
+        controls.into_iter(),
+    ));
+
+    gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .child(&page)
+        .build()
+}
+
+fn control_list<'a>(
+    card_index: i32,
+    status: &gtk::Label,
+    all_controls: &[ControlSnapshot],
+    controls: impl Iterator<Item = &'a ControlSnapshot>,
+) -> gtk::ListBox {
     let list = gtk::ListBox::new();
     list.set_selection_mode(gtk::SelectionMode::None);
     list.add_css_class("control-list");
@@ -2101,28 +2413,7 @@ fn control_page<'a>(
             capture_block,
         ));
     }
-
-    let page = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    page.set_margin_top(20);
-    page.set_margin_bottom(20);
-    page.set_margin_start(24);
-    page.set_margin_end(24);
-    if matches!(category, Category::Playback)
-        && let Some(warning) = front_vmaster_clamp_warning(all_controls)
-    {
-        let notice = gtk::Label::new(Some(&format!("Gain staging\n{warning}")));
-        notice.set_xalign(0.0);
-        notice.set_wrap(true);
-        notice.set_selectable(true);
-        notice.add_css_class("gain-stage-notice");
-        page.append(&notice);
-    }
-    page.append(&list);
-
-    gtk::ScrolledWindow::builder()
-        .hscrollbar_policy(gtk::PolicyType::Never)
-        .child(&page)
-        .build()
+    list
 }
 
 fn control_row(
@@ -2451,6 +2742,29 @@ fn level_editor(
     channel: Option<&str>,
     block_reason: Option<&str>,
 ) -> gtk::Widget {
+    level_editor_oriented(
+        card_index,
+        status,
+        name,
+        level,
+        capture,
+        channel,
+        block_reason,
+        gtk::Orientation::Horizontal,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn level_editor_oriented(
+    card_index: i32,
+    status: &gtk::Label,
+    name: &str,
+    level: &Level,
+    capture: bool,
+    channel: Option<&str>,
+    block_reason: Option<&str>,
+    orientation: gtk::Orientation,
+) -> gtk::Widget {
     if !(level.min..=level.max).contains(&level.value) {
         let warning = gtk::Label::new(Some(&format!(
             "{} (driver reports {}..{})",
@@ -2463,16 +2777,16 @@ fn level_editor(
         return warning.upcast();
     }
 
-    let scale = gtk::Scale::with_range(
-        gtk::Orientation::Horizontal,
-        level.min as f64,
-        level.max as f64,
-        1.0,
-    );
+    let scale = gtk::Scale::with_range(orientation, level.min as f64, level.max as f64, 1.0);
     scale.set_value(level.value as f64);
     scale.set_digits(0);
     scale.set_draw_value(true);
-    scale.set_width_request(210);
+    if orientation == gtk::Orientation::Horizontal {
+        scale.set_width_request(190);
+    } else {
+        scale.set_height_request(178);
+        scale.set_value_pos(gtk::PositionType::Top);
+    }
     if let Some(reason) = block_reason {
         scale.set_sensitive(false);
         scale.set_tooltip_text(Some(reason));
@@ -2769,6 +3083,79 @@ impl Category {
         }
     }
 
+    fn title(self) -> &'static str {
+        match self {
+            Self::Playback => "Playback",
+            Self::Effects => "Sound effects",
+            Self::Equalizer => "Equalizer",
+            Self::Recording => "Recording",
+        }
+    }
+
+    fn description(self) -> &'static str {
+        match self {
+            Self::Playback => {
+                "Choose the physical output, speaker layout, headphone gain, filter, and \
+                 low-level playback controls exposed by the Linux CA0132 driver."
+            }
+            Self::Effects => {
+                "Shape the CA0132 DSP processing path. Changes are written to ALSA and read \
+                 back from the card immediately."
+            }
+            Self::Equalizer => {
+                "Control the ten hardware equalizer bands and the driver's preset selector."
+            }
+            Self::Recording => {
+                "Choose the input and configure capture processing. Unsupported or unsafe \
+                 driver controls stay visible with an explanation."
+            }
+        }
+    }
+
+    fn control_order(self, name: &str) -> u8 {
+        let ordered: &[&str] = match self {
+            Self::Playback => &[
+                "Output Select",
+                "HP/Speaker Auto Detect",
+                "Surround Channel Config",
+                "Full-Range Front Speakers",
+                "Full-Range Rear Speakers",
+                "AE-5: Headphone Gain",
+                "AE-5: Sound Filter",
+                DIRECT_MODE_CONTROL,
+                "Bass Redirection",
+                "Bass Redirection Crossover",
+            ],
+            Self::Effects => &[
+                "Enable OutFX",
+                "FX: Surround",
+                "FX: Crystalizer",
+                "FX: X-Bass",
+                "FX: X-Bass Crossover",
+                "FX: Smart Volume",
+                "FX: Smart Volume Setting",
+                "FX: Dialog Plus",
+            ],
+            Self::Equalizer => &["FX: Equalizer", "FX: Equalizer Preset"],
+            Self::Recording => &[
+                "Input Source",
+                "Capture",
+                "Mic Boost",
+                "Enable InFX",
+                "FX: Noise Reduction",
+                "FX: Mic SVM",
+                "SVM Level",
+                "FX: Voice Focus",
+                "VoiceFX",
+                "What U Hear",
+            ],
+        };
+        ordered
+            .iter()
+            .position(|control| *control == name)
+            .map_or(u8::MAX, |index| index as u8)
+    }
+
     fn matches(self, name: &str) -> bool {
         match self {
             Self::Equalizer => name.starts_with("EQ Band") || name == "FX: Equalizer Preset",
@@ -2807,125 +3194,255 @@ fn install_css() {
     provider.load_from_data(
         "
         window {
-            background: #0d1319;
-            color: #edf4f8;
+            background: #111827;
+            color: #edf2f7;
+        }
+        .application-shell {
+            background: #1d1c2e;
+        }
+        .sidebar-panel {
+            min-width: 208px;
+            background: #162040;
+            border-right: 1px solid alpha(#ffffff, 0.08);
+        }
+        .sidebar-brand {
+            padding: 18px 16px 14px 16px;
+            background: #0d1828;
+            border-bottom: 1px solid alpha(#ffffff, 0.08);
+        }
+        .sidebar-title {
+            color: #21c6d4;
+            font-family: monospace;
+            font-size: 13px;
+            font-weight: 800;
+            letter-spacing: 1px;
+        }
+        .sidebar-device {
+            color: #8ca0b4;
+            font-size: 11px;
+        }
+        .sidebar-footer {
+            padding: 14px 16px;
+            color: #7890a5;
+            background: #101a2d;
+            border-top: 1px solid alpha(#ffffff, 0.08);
+            font-family: monospace;
+            font-size: 10px;
+            font-weight: 700;
+        }
+        .main-panel {
+            background: #1d1c2e;
         }
         .hero {
-            padding: 24px 30px;
-            background: #141e27;
-            border-bottom: 1px solid alpha(#6ce4c4, 0.22);
+            min-height: 48px;
+            padding: 10px 22px;
+            background: #0d1828;
+            border-bottom: 1px solid alpha(#ffffff, 0.08);
         }
         .hero-kicker, .error-kicker {
-            color: #65dfbd;
+            color: #22c7d4;
             font-family: monospace;
             font-size: 11px;
             font-weight: 700;
         }
         .hero-title {
-            font-size: 25px;
-            font-weight: 750;
+            font-size: 15px;
+            font-weight: 700;
         }
-        .dim-label { color: #9bafbd; }
+        .dim-label { color: #98a7b7; }
         .status-pill {
-            background: alpha(#35d2aa, 0.12);
-            color: #7ce5c8;
-            border: 1px solid alpha(#65dfbd, 0.42);
-            border-radius: 999px;
-            padding: 8px 13px;
+            background: alpha(#22c7d4, 0.10);
+            color: #57dce5;
+            border: 1px solid alpha(#22c7d4, 0.38);
+            border-radius: 3px;
+            padding: 6px 10px;
+            font-family: monospace;
+            font-size: 10px;
+            font-weight: 700;
+        }
+        .operation-status {
+            color: #9fb0c0;
+            font-size: 11px;
+            padding: 0;
+        }
+        .status-rail {
+            min-height: 30px;
+            padding: 6px 14px;
+            background: #0d1828;
+            border-top: 1px solid alpha(#ffffff, 0.08);
+        }
+        .status-mark {
+            color: #eef3f7;
+            font-size: 14px;
+            font-weight: 800;
+        }
+        .output-state {
+            color: #49d5df;
+            font-family: monospace;
+            font-size: 10px;
+            font-weight: 700;
+        }
+        .operation-ok { color: #72d9c0; }
+        .operation-error, .warning-label, .warning-value { color: #ffb4a9; }
+        stacksidebar.navigation-sidebar,
+        stacksidebar.navigation-sidebar scrolledwindow,
+        stacksidebar.navigation-sidebar viewport,
+        stacksidebar.navigation-sidebar list,
+        stacksidebar.navigation-sidebar .view {
+            background: #162040;
+        }
+        .navigation-sidebar {
+            padding: 9px 0;
+        }
+        .navigation-sidebar row {
+            min-height: 39px;
+            margin: 0;
+            padding: 0 12px;
+            background: #162040;
+            border-radius: 0;
+            border-left: 3px solid transparent;
+        }
+        .navigation-sidebar row:hover { background: alpha(#ffffff, 0.035); }
+        .navigation-sidebar row:selected {
+            background: #49536e;
+            color: #43d5df;
+            border-left: 3px solid #22c7d4;
+        }
+        .settings-header {
+            padding: 18px 24px 0 24px;
+            background: #25213c;
+            border-bottom: 1px solid alpha(#ffffff, 0.07);
+        }
+        .page-tabs button {
+            min-height: 30px;
+            padding: 5px 14px;
+            color: #98a7b7;
+            background: transparent;
+            border: 0;
+            border-radius: 0;
+            border-bottom: 2px solid transparent;
+        }
+        .page-tabs button:checked {
+            color: #35d3de;
+            border-bottom: 2px solid #22c7d4;
+        }
+        .profile-page, .control-page { padding: 18px 24px 24px 24px; }
+        .page-title {
+            font-size: 20px;
+            font-weight: 760;
+        }
+        .mixer-section {
+            margin-top: 4px;
+            color: #eef3f7;
+            font-size: 14px;
+            font-weight: 700;
+        }
+        .equalizer-bands {
+            min-height: 230px;
+            padding: 16px 18px 12px 18px;
+            background: #242238;
+            border: 1px solid alpha(#c1c7d0, 0.10);
+            border-radius: 2px;
+        }
+        .equalizer-frequency {
+            color: #9fb0c0;
             font-family: monospace;
             font-size: 11px;
             font-weight: 700;
         }
-        .operation-status {
-            padding: 9px 30px;
-            background: #0f161d;
-            color: #a5b7c3;
-            border-bottom: 1px solid alpha(#ffffff, 0.08);
-        }
-        .operation-ok { color: #8ee3c5; }
-        .operation-error, .warning-label, .warning-value { color: #ffb4a9; }
-        .navigation-sidebar {
-            background: #101820;
-            padding: 12px 8px;
-        }
-        .navigation-sidebar list { background: transparent; }
-        .navigation-sidebar row {
-            min-height: 44px;
-            margin: 2px 0;
-            border-radius: 5px;
-        }
-        .navigation-sidebar row:selected {
-            background: alpha(#35d2aa, 0.14);
-            color: #91efd3;
-            border-left: 3px solid #35d2aa;
-        }
-        .profile-page { padding: 26px 30px; }
-        .page-title {
-            font-size: 23px;
-            font-weight: 750;
-        }
         .profile-card {
-            background: #131c24;
-            border: 1px solid alpha(#b9d6e4, 0.13);
-            border-left: 3px solid #35d2aa;
-            border-radius: 7px;
-            padding: 20px;
+            background: #242238;
+            border: 1px solid alpha(#c1c7d0, 0.10);
+            border-radius: 2px;
+            padding: 14px 16px;
         }
         .profile-library-row {
-            padding: 10px 0;
-            border-bottom: 1px solid alpha(#ffffff, 0.08);
-        }
-        .feature-entry {
             padding: 8px 0;
             border-bottom: 1px solid alpha(#ffffff, 0.08);
         }
+        .feature-entry {
+            padding: 7px 0;
+            border-bottom: 1px solid alpha(#ffffff, 0.08);
+        }
         .section-index {
-            background: alpha(#35d2aa, 0.13);
-            color: #83e9cc;
-            border: 1px solid alpha(#65dfbd, 0.30);
-            border-radius: 4px;
-            padding: 4px 8px;
+            background: alpha(#22c7d4, 0.12);
+            color: #4ed6df;
+            border: 1px solid alpha(#22c7d4, 0.30);
+            border-radius: 2px;
+            padding: 3px 7px;
             font-family: monospace;
             font-weight: 700;
         }
-        .section-title { font-size: 17px; font-weight: 700; }
+        .section-title { font-size: 15px; font-weight: 700; }
         .control-list {
-            background: #111920;
-            border: 1px solid alpha(#b9d6e4, 0.12);
-            border-radius: 7px;
+            background: #242238;
+            border: 1px solid alpha(#c1c7d0, 0.10);
+            border-radius: 2px;
         }
         .gain-stage-notice {
             color: #ffd19a;
             background: alpha(#ffad42, 0.08);
             border: 1px solid alpha(#ffbd66, 0.25);
             border-left: 3px solid #ffad42;
-            border-radius: 7px;
-            padding: 13px 15px;
-            margin-bottom: 14px;
+            border-radius: 2px;
+            padding: 10px 12px;
         }
         .control-row {
-            min-height: 52px;
-            padding: 14px 16px;
+            min-height: 42px;
+            padding: 9px 12px;
             border-bottom: 1px solid alpha(#ffffff, 0.08);
         }
-        .control-row:hover { background: alpha(#ffffff, 0.025); }
+        .control-row:hover { background: alpha(#ffffff, 0.035); }
         button {
-            min-height: 32px;
-            padding: 6px 12px;
+            min-height: 29px;
+            padding: 5px 10px;
+            border-radius: 2px;
+        }
+        button.suggested-action {
+            background: #147e88;
+            color: #ffffff;
+            border-color: #22b8c5;
+        }
+        switch {
+            min-width: 34px;
+            min-height: 18px;
+        }
+        switch:checked {
+            background: #17b9c6;
+        }
+        scale trough {
+            min-height: 4px;
+            background: #3d4052;
+            border-radius: 0;
+        }
+        scale highlight {
+            background: #20c7d4;
+        }
+        scale slider {
+            min-width: 18px;
+            min-height: 18px;
+            background: #dbe6ed;
+            border: 0;
+            border-radius: 999px;
+        }
+        dropdown, entry {
+            background: #343544;
+            border-color: alpha(#ffffff, 0.12);
+            border-radius: 2px;
         }
         .error-view { padding: 32px; }
         .unavailable-card {
-            background: #131c24;
+            background: #242238;
             border: 1px solid alpha(#ffbd66, 0.28);
             border-left: 4px solid #ffad42;
-            border-radius: 8px;
+            border-radius: 2px;
             padding: 28px;
         }
         .offline-icon {
             color: #ffc06d;
             background: alpha(#ffad42, 0.10);
             border: 1px solid alpha(#ffbd66, 0.24);
-            border-radius: 7px;
+            border-radius: 2px;
             padding: 10px;
         }
         .error-kicker { color: #ffc06d; }
@@ -2941,7 +3458,11 @@ fn install_css() {
             font-weight: 700;
         }
         .error-action:hover { background: #ed9f3c; }
-        scale { min-width: 210px; }
+        scale.horizontal { min-width: 190px; }
+        scale.vertical {
+            min-width: 28px;
+            min-height: 178px;
+        }
         scrollbar slider { min-width: 8px; }
         scrollbar.horizontal slider { min-height: 8px; }
         ",
@@ -2993,6 +3514,26 @@ mod tests {
                 1
             );
         }
+    }
+
+    #[test]
+    fn command_primary_controls_appear_first() {
+        assert!(
+            Category::Playback.control_order("Output Select")
+                < Category::Playback.control_order("AE-5: Headphone Gain")
+        );
+        assert!(
+            Category::Effects.control_order("FX: Surround")
+                < Category::Effects.control_order("FX: Dialog Plus")
+        );
+        assert!(
+            Category::Recording.control_order("Input Source")
+                < Category::Recording.control_order("FX: Noise Reduction")
+        );
+        assert_eq!(
+            Category::Playback.control_order("unrecognized future control"),
+            u8::MAX
+        );
     }
 
     #[test]

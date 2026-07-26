@@ -27,6 +27,8 @@ const EQUALIZER_BAND_EDIT_BLOCK: &str = "Factory EQ presets use DSP values that 
     1 dB controls cannot represent reliably. Select Flat before editing custom bands.";
 const DIRECT_MODE_DSP_BLOCK: &str = "Direct Mode bypasses the CA0132 DSP, so this control has no \
     effect. Disable Direct Mode first.";
+const FIXED_SMART_VOLUME_LEVEL: &str = "Loud and Night use fixed CA0132 DSP levels. Select Normal \
+    to adjust the Smart Volume level.";
 const INEFFECTIVE_WHAT_U_HEAR_CONTROL: &str = "The AE-5 DSP loopback bypasses this advertised \
     HDA gain and mute control. Use the recording application's stream-level volume or mute.";
 const MUTED_HEADPHONE_PLAYBACK: &str = "ALSA selects Headphone, but Front playback is muted; \
@@ -157,6 +159,21 @@ pub fn direct_mode_block_reason(name: &str, controls: &[ControlSnapshot]) -> Opt
         .iter()
         .any(|control| control.name == DIRECT_MODE_CONTROL && control.playback_switch == Some(true))
         .then_some(DIRECT_MODE_DSP_BLOCK)
+}
+
+pub fn smart_volume_level_block_reason(
+    name: &str,
+    controls: &[ControlSnapshot],
+) -> Option<&'static str> {
+    if name != "FX: Smart Volume" {
+        return None;
+    }
+    controls
+        .iter()
+        .find(|control| control.name == "FX: Smart Volume Setting")
+        .and_then(|control| control.selected.as_deref())
+        .is_some_and(|mode| mode.eq_ignore_ascii_case("Loud") || mode.eq_ignore_ascii_case("Night"))
+        .then_some(FIXED_SMART_VOLUME_LEVEL)
 }
 
 pub fn capture_control_block_reason(name: &str) -> Option<&'static str> {
@@ -1179,6 +1196,35 @@ mod tests {
 
         controls[0].selected = Some("Flat".to_owned());
         assert_eq!(equalizer_band_block_reason("EQ Band9", &controls), None);
+    }
+
+    #[test]
+    fn exposes_the_smart_volume_level_only_in_normal_mode() {
+        let mut controls = vec![selected_choice("FX: Smart Volume Setting", "Normal")];
+        assert_eq!(
+            smart_volume_level_block_reason("FX: Smart Volume", &controls),
+            None
+        );
+
+        controls[0].selected = Some("Loud".to_owned());
+        assert_eq!(
+            smart_volume_level_block_reason("FX: Smart Volume", &controls),
+            Some(FIXED_SMART_VOLUME_LEVEL)
+        );
+
+        controls[0].selected = Some("Night".to_owned());
+        assert_eq!(
+            smart_volume_level_block_reason("FX: Smart Volume", &controls),
+            Some(FIXED_SMART_VOLUME_LEVEL)
+        );
+        assert_eq!(
+            smart_volume_level_block_reason("FX: Crystalizer", &controls),
+            None
+        );
+        assert_eq!(
+            smart_volume_level_block_reason("FX: Smart Volume", &[]),
+            None
+        );
     }
 
     #[test]

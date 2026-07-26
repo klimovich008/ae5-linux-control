@@ -50,6 +50,41 @@ Smart Volume is a stateful leveler, so its 0.42 dB repeat variation over the
 ordered tone sequence is expected and remains inside the project's 0.5 dB
 level target. The other static effects repeated within 0.01 dB.
 
+## Smart Volume modes and retained DSP state
+
+A second counterbalanced pass measured Normal, Loud, and Night with the same
+48 kHz tone order and Smart Volume level 74. The running CA0132 source maps
+the mode enum to DSP request 6 values 0, 1, and 2. Its control comment states
+that Normal uses request 5's adjustable level while Loud and Night disregard
+that slider and use fixed, non-editable values. AE-5 Control now reflects that
+hardware contract.
+
+Turning only Smart Volume off did not produce a repeatable neutral reference:
+later captures retained leveler history even when every individual output
+effect read back off. A deterministic setup required disabling global
+`Enable OutFX`, disabling every individual output effect, then enabling
+`Enable OutFX` before selecting the mode. Two neutral captures prepared this
+way matched by 0.00 dB at every band and measured -21.11 dBFS at 1 kHz.
+
+| Mode/run | 1 kHz delta versus neutral | Maximum normalized response change |
+|---|---:|---:|
+| Normal A | +7.40 dB | 1.61 dB |
+| Normal B | +5.72 dB | 2.11 dB |
+| Loud A | +13.59 dB | 3.19 dB |
+| Loud B | +13.99 dB | 1.45 dB |
+| Night A | +2.06 dB | 5.00 dB |
+| Night B | +0.00 dB | 0.00 dB |
+
+Loud was clearly active and its 1 kHz level repeated within 0.40 dB. Normal
+varied by 1.68 dB in this pass despite the earlier 0.42 dB result. Night
+produced a strong low-frequency-dependent response once but was
+indistinguishable from neutral on its counterbalanced repeat. This does not
+justify an application-side reset: toggling global OutFX reselects the output
+path in the driver and could cause an audible transition. The app instead
+avoids presenting the proven-ineffective Loud/Night slider. Deterministic
+Night behavior and matched Windows measurements remain open driver/parity
+work.
+
 Dialog Plus produced a repeatable low-band-heavy response with this pure-tone
 fixture. That proves that the ALSA switch reaches active DSP processing; it
 does not establish how the effect behaves on speech or whether its response

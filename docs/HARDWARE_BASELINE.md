@@ -210,6 +210,15 @@ output effect was disabled. Static effects repeated within 0.01 dB; the
 stateful Smart Volume sequence repeated within 0.42 dB. Equalizer Flat matched
 neutral by 0.00 dB.
 
+A later counterbalanced Smart Volume mode matrix established that Loud and
+Night use the driver's fixed DSP values rather than the exposed level slider.
+After a complete global OutFX reset, duplicate neutral references matched
+exactly. Loud raised 1 kHz by 13.59 and 13.99 dB; Normal raised it by 7.40 and
+5.72 dB. Night changed the first response by up to 5.00 dB but matched neutral
+on the repeat, so Night determinism remains open. The GUI now disables only
+the ineffective level slider in Loud/Night while preserving the switch, mode,
+and profile value.
+
 All ten EQ controls targeted the expected fixture bands. A +12 dB request
 measured within 0.86 dB on Bands 1 through 8, while the 31 Hz and 16 kHz edge
 bands fell short by 1.90 and 1.80 dB. The full method, result tables, safety

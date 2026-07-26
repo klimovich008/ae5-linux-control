@@ -12,7 +12,7 @@ use ae5_control::{
     library_profile, native_rates_config, playback_switch_block_reason, profile_library,
     profile_library_directory, rename_library_profile, set_ae5_default_input,
     set_ae5_default_output, set_native_rates_enabled, set_saved_led, set_saved_lighting,
-    snapshot_controls, validate_linux_driver_defaults,
+    smart_volume_level_block_reason, snapshot_controls, validate_linux_driver_defaults,
 };
 use gtk::prelude::*;
 use gtk::{gdk::Display, gio};
@@ -2006,7 +2006,8 @@ fn control_page<'a>(
             .then(|| playback_switch_block_reason(&control.name, true, all_controls))
             .flatten();
         let edit_block = direct_mode_block_reason(&control.name, all_controls)
-            .or_else(|| equalizer_band_block_reason(&control.name, all_controls));
+            .or_else(|| equalizer_band_block_reason(&control.name, all_controls))
+            .or_else(|| smart_volume_level_block_reason(&control.name, all_controls));
         let capture_block = capture_control_block_reason(&control.name);
         list.append(&control_row(
             card_index,

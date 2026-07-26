@@ -256,6 +256,12 @@ first selects a Windows routing API, while Creative's own profile path applies
 the latter three only to Katana. Unexpected nonzero values remain unsupported
 for review.
 
+The CA0132 driver exposes a Smart Volume level plus Normal, Loud, and Night
+modes. Only Normal uses the adjustable level; Loud and Night select fixed DSP
+values. The desktop app therefore keeps their mode and enable controls active
+but disables the ineffective level slider until Normal is selected. Saved and
+imported profiles still retain that value for a later return to Normal.
+
 ## Native desktop application
 
 The GTK 4 application groups device diagnostics, Command compatibility, system

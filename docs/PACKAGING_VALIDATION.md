@@ -636,6 +636,31 @@ open, restored Headphone/2.0/Microphone and the profile's X-Bass state, and
 reproduced complete mixer SHA-256
 `26a75bb94621e15023ebb28bb3a3da92c63d210f0e657b74478187256d39142c`.
 
+## Smart Volume mode user upgrade
+
+The 2026-07-26 release build passed all 64 Rust/GTK/CLI tests, strict Clippy
+and formatting, the audio-parity self-test, ACP and 54-row feature-matrix
+validators, diagnostics self-test, and the complete transactional rootless
+lifecycle. Native Wayland measurements passed the Version 1 budgets at 233 ms
+startup, 86 ms refresh, 0.00% idle CPU, and 70,416 KiB peak idle RSS.
+
+The real user installation was upgraded without restarting WirePlumber. Its
+installed binaries are byte-identical to the release inputs:
+
+- GUI SHA-256:
+  `ea6d75c416f37a3343a48ae3b228db89059f5d48d5ac6cc989153dce7c389efa`
+- CLI SHA-256:
+  `09ccec2ea706451bbf87fc7ed16e0a05ee2b090aa9927aa64711013d7e22aa9f`
+
+With a guarded temporary Night selection, the installed GTK accessibility
+tree kept the Smart Volume playback switch and Night mode selector sensitive,
+made only `FX: Smart Volume playback level` insensitive, and exposed the
+fixed-DSP explanation. Applying the saved 46-control profile restored Normal
+mode and complete mixer SHA-256
+`743e602e8066bea0aed9145669584497289fdb459c4c8450913513dbb7e15bc1`.
+Headphone/Microphone routes remained matched, PipeWire remained at `0.20`,
+every PCM was closed, and no audio was played.
+
 ## Remaining release gate
 
 This proves clean Fedora dependency resolution and package ownership/removal,

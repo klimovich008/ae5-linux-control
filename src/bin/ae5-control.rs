@@ -919,8 +919,17 @@ fn routing_card(
 }
 
 fn pipewire_node_summary(node: &PipeWireNode) -> String {
+    let volume = node.volume_percent.map_or_else(
+        || "PipeWire node volume unavailable".to_owned(),
+        |volume| {
+            format!(
+                "PipeWire node volume: {volume}%\nWith the installed AE-5 soft-mixer profile, \
+                 this is software attenuation and does not rewrite Master, Front, or PCM."
+            )
+        },
+    );
     format!(
-        "{}\n{} — {}",
+        "{}\n{} — {}\n{volume}",
         node.description,
         node.node_name,
         if node.is_default {
@@ -2925,11 +2934,14 @@ mod tests {
             node_name: "alsa_output.pci-ae5.analog-stereo".to_owned(),
             description: "AE-5 Analog Stereo".to_owned(),
             is_default: true,
+            volume_percent: Some(43),
         };
 
         assert_eq!(
             pipewire_node_summary(&node),
-            "AE-5 Analog Stereo\nalsa_output.pci-ae5.analog-stereo — currently default"
+            "AE-5 Analog Stereo\nalsa_output.pci-ae5.analog-stereo — currently default\n\
+             PipeWire node volume: 43%\nWith the installed AE-5 soft-mixer profile, this is \
+             software attenuation and does not rewrite Master, Front, or PCM."
         );
     }
 

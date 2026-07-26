@@ -61,7 +61,10 @@ selected routes and may unmute `Front` when Headphone output requires it. The
 GTK Device page offers the same action only after its read-only health check
 finds a problem. Nothing repairs or unmutes a route automatically at login.
 The default-device actions invoke `wpctl` directly without a shell and verify
-the new default. They do not change the card's ALSA mixer controls.
+the new default. They do not change the card's ALSA mixer controls. CLI status
+and the GTK System audio page also show the PipeWire node volume separately;
+with the installed soft-mixer profile, a restored value such as 43% is
+software attenuation and does not rewrite Master, Front, or PCM.
 
 The optional native-rate configuration lets PipeWire switch the global graph
 between 44.1, 48, and 96 kHz after its next restart:

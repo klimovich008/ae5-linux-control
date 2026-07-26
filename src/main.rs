@@ -426,14 +426,17 @@ fn restore_lighting() -> Result<(), Box<dyn Error>> {
 
 fn print_pipewire_node(kind: &str, node: &PipeWireNode) {
     println!(
-        "  PipeWire {kind}: {} ({}){}",
+        "  PipeWire {kind}: {} ({}){}{}",
         node.description,
         node.node_name,
         if node.is_default {
             " [default]"
         } else {
             " [not default]"
-        }
+        },
+        node.volume_percent
+            .map(|volume| format!(" [node volume: {volume}%]"))
+            .unwrap_or_default()
     );
 }
 

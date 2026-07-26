@@ -21,6 +21,7 @@ pub struct PipeWireNode {
     pub node_name: String,
     pub description: String,
     pub is_default: bool,
+    pub volume_percent: Option<u16>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -328,6 +329,7 @@ fn ae5_node(card_index: i32, nodes: &str) -> io::Result<Option<PipeWireNode>> {
                 .unwrap_or_else(|| node_name.clone()),
             node_name,
             is_default: listing.is_default,
+            volume_percent: listing.volume_percent,
         };
         if property(&details, "alsa.device").as_deref() == Some("0") {
             return Ok(Some(node));
@@ -804,6 +806,7 @@ fn wait_for_alsa_playback_closed(card_index: i32) -> io::Result<()> {
 struct NodeListing {
     id: u32,
     is_default: bool,
+    volume_percent: Option<u16>,
 }
 
 fn parse_status_node_list(output: &str, nodes: &str) -> Vec<NodeListing> {
@@ -840,9 +843,27 @@ fn parse_status_node_list(output: &str, nodes: &str) -> Vec<NodeListing> {
         else {
             continue;
         };
-        listings.push(NodeListing { id, is_default });
+        listings.push(NodeListing {
+            id,
+            is_default,
+            volume_percent: parse_node_volume_percent(line),
+        });
     }
     listings
+}
+
+fn parse_node_volume_percent(line: &str) -> Option<u16> {
+    let value = line
+        .split_once("[vol:")?
+        .1
+        .trim_start()
+        .split(|character: char| character.is_whitespace() || character == ']')
+        .next()?
+        .parse::<f64>()
+        .ok()?;
+    let percent = (value * 100.0).round();
+    (percent.is_finite() && (0.0..=f64::from(u16::MAX)).contains(&percent))
+        .then_some(percent as u16)
 }
 
 fn property(output: &str, name: &str) -> Option<String> {
@@ -883,10 +904,12 @@ Audio
                 NodeListing {
                     id: 48,
                     is_default: false,
+                    volume_percent: Some(100),
                 },
                 NodeListing {
                     id: 49,
                     is_default: true,
+                    volume_percent: Some(40),
                 },
             ]
         );
@@ -895,8 +918,15 @@ Audio
             vec![NodeListing {
                 id: 50,
                 is_default: true,
+                volume_percent: Some(100),
             }]
         );
+        assert_eq!(parse_node_volume_percent("87. ae5 [vol: 0.43]"), Some(43));
+        assert_eq!(
+            parse_node_volume_percent("87. ae5 [vol: 1.50 MUTED]"),
+            Some(150)
+        );
+        assert_eq!(parse_node_volume_percent("87. ae5"), None);
 
         let details = r#"
 id 58, type PipeWire:Interface:Node

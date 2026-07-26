@@ -63,6 +63,17 @@ A second boot without an override returned automatically to Fedora
 empty `next_entry`. The guest shut down cleanly and `qemu-img check` found no
 disk errors. Nothing was installed or loaded on the host.
 
+The fail-closed installation helper later repeated that complete cardless
+cycle from a clean package state. Its simulation first proved that a package
+script may change the saved entry, that the original stock entry is restored
+exactly, that only the candidate becomes `next_entry`, and that an existing
+one-shot override blocks installation. In the recoverable guest, the helper
+then installed the exact RPM, preserved Fedora
+`6.19.10-300.fc44.x86_64` as `saved_entry`, selected the candidate once,
+booted the signed CA0132 module with taint `0`, zero failed units, and clean
+relevant logs, and returned automatically to stock on the next boot. The
+guest shut down cleanly and its disk again passed `qemu-img check`.
+
 The exact source RPM can be obtained without root:
 
 ```sh
@@ -179,6 +190,32 @@ scripts/check-host-kernel-rpm.sh \
   /path/to/kernel-RPM \
   EXPECTED-KERNEL-RELEASE
 ```
+
+The staging helper runs that verifier by default and makes no changes:
+
+```sh
+scripts/install-ae5-kernel-test.sh \
+  /path/to/kernel-RPM \
+  EXPECTED-KERNEL-RELEASE
+```
+
+Only its explicit root mode installs:
+
+```sh
+sudo scripts/install-ae5-kernel-test.sh --install \
+  /path/to/kernel-RPM \
+  EXPECTED-KERNEL-RELEASE
+```
+
+Before installation it requires a disabled or unavailable Secure Boot path,
+`GRUB_DEFAULT=saved`, an existing stock saved BLS entry and module tree, no
+pending `next_entry`, at least 512 MiB free in `/boot`, an absent candidate
+package, and a successful RPM install-only test. It then installs only the
+verified main RPM, restores the exact original `saved_entry`, identifies the
+new BLS entry by its expected release, schedules that entry with
+`grub2-reboot`, and reads back both GRUB variables. It never reboots. A failed
+post-install check restores the stock saved entry and clears `next_entry`; it
+does not guess whether a partially installed RPM is safe to erase.
 
 Do not install the generated `kernel-headers` RPM. Keep at least two stock
 Nobara kernels and the stock saved boot default. A custom kernel should first

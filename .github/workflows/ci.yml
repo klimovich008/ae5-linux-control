@@ -24,6 +24,7 @@ jobs:
       - run: bash scripts/collect-linux-report.sh --self-test
       - run: bash scripts/collect-routing-state.sh --self-test
       - run: bash scripts/check-vfio-host.sh --self-test
+      - run: bash scripts/install-ae5-kernel-test.sh --self-test
       - run: desktop-file-validate packaging/*.desktop
       - run: udevadm verify --resolve-names=never packaging/udev/*.rules
       - run: appstreamcli validate --no-net --strict packaging/io.github.klimovich008.ae5control.metainfo.xml

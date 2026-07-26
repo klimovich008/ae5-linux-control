@@ -16,7 +16,7 @@ produced a verified `7.1.4-ae5-current` side-by-side RPM. A one-shot cardless
 full-root boot loaded its signed CA0132 module with zero taint, zero failed
 units, clean audio-related logs, and automatic return to the saved Fedora
 kernel. It was not installed on the host. The fail-closed update and rebuild
-workflow is in
+workflow and one-shot installation helper are in
 [docs/KERNEL_MAINTENANCE.md](docs/KERNEL_MAINTENANCE.md).
 
 ## Current milestone: desktop profiles, synchronized routing, and onboard lighting

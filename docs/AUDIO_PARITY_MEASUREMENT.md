@@ -172,9 +172,13 @@ resampling, trimming, fades, denoising, or effects. Record every setting in
 
 An isolated Windows comparison VM now also has Command `3.5.10.0` installed
 and the exact saved AE-5 setting tree imported and startup-checked. The VM has
-no emulated audio device and cannot perform the capture until the physical
-AE-5 is assigned through the authenticated system libvirt domain. Its
-installed state, recovery hashes, and passthrough boundary are recorded in
+no emulated audio device; managed system-libvirt passthrough has already
+validated the physical AE-5 and Creative driver. The latest playback-free
+readiness retry stopped because the private test-account credential was stale,
+then restored the exact host mixer and route hashes with every PCM closed.
+Repair that login interactively and preserve a fresh powered-off recovery
+point before transferring or playing a fixture. The installed state, recovery
+hashes, and passthrough boundary are recorded in
 [`VFIO_TEST_PLAN.md`](VFIO_TEST_PLAN.md).
 
 ## Analyze and compare

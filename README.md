@@ -531,7 +531,15 @@ appeared 16.50 dB below Windows, but the levels were not matched: ALSA's
 virtual Master attenuation was stacked with low Front and PCM values. Kernel
 source review and a repeatable Master 19/20 A/B explain the result, so it is
 not evidence of a 16.50 dB driver-performance gap. Full matched electrical
-response/noise parity is still pending.
+response/noise parity is still pending. A later playback-free readiness cycle
+confirmed that Windows still loaded the exact Creative controller, codec, and
+render endpoints through VFIO, but stopped when the private test account
+rejected its stale unattended credential. No fixture entered the guest and no
+audio stream opened. Clean shutdown returned the raw mixer, simple mixer, and
+desktop route to their exact pre-cycle hashes with every PCM closed; the
+powered-off VM again has no host device attached. The next Windows cycle
+therefore starts with an interactive account repair and a fresh powered-off
+recovery point, not another automated credential guess.
 No source NTFS volume, Windows image, Creative binary, private setting, or
 credential is stored in the repository.
 

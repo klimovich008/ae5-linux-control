@@ -204,12 +204,14 @@ as `ae5-windows-compare-system.qcow2`. A streamed download matched SHA-256
 `a3a3f3caddacc55ad47ab1b9905ee4ed9258a751fe4a43bd4ef6c3ca2ece1183`
 and passed `qemu-img check`.
 
-The corresponding `qemu:///system` domain is now defined with autostart
-disabled and exactly one managed hostdev: the audited
+The corresponding `qemu:///system` domain is defined with autostart disabled
+and no persistent host device. Each guarded cycle temporarily adds exactly one
+managed hostdev to its powered-off configuration: the audited
 `1102:0012/1102:0051` AE-5 function. Starting it detached the card to
 `vfio-pci` without assigning the FiFine microphone, GPU, storage, or another
 IOMMU-group member. Linux PipeWire and WirePlumber were intentionally stopped
-while Windows owned the card.
+while Windows owned the card, and the hostdev was removed again after clean
+shutdown.
 
 Windows installed the latest Creative-signed AE-Series driver
 `6.0.105.65`. Both physical Creative PnP nodes report healthy status, the
@@ -236,6 +238,36 @@ After the comparison, the guest must shut down cleanly, the inactive hostdev
 must be removed, and the host must prove `snd_hda_intel`, ALSA, PipeWire,
 WirePlumber, routes, mixer hashes, and closed PCMs recovered before another
 cycle.
+
+### Windows playback-readiness retry
+
+A later cycle re-ran the complete non-mutating VFIO preflight, saved the host
+state, stopped the Linux audio services, attached only the audited AE-5, and
+booted the system Windows guest. QEMU Guest Agent reported Windows
+`10.0.26200`, the Creative controller, HDA codec, Speakers, SPDIF, and What U
+Hear endpoints all healthy, and no audio player running. The cycle stopped
+before fixture transfer or playback because the private test account rejected
+the unattended credential retained outside the repository. The credential
+was tried once and was neither printed nor copied into project evidence.
+
+Guest Agent performed a clean Windows shutdown. The AE-5 rebound to
+`snd_hda_intel`; PipeWire, PipeWire Pulse, and WirePlumber became active; the
+VM returned to an off state with no hostdev and no QEMU process. The recovered
+raw mixer, simple mixer, and desktop-route SHA-256 values exactly matched the
+pre-cycle values:
+
+```text
+raw mixer    743e602e8066bea0aed9145669584497289fdb459c4c8450913513dbb7e15bc1
+simple mixer 26a75bb94621e15023ebb28bb3a3da92c63d210f0e657b74478187256d39142c
+route status 59cb50175ab2858fc7146fd33ddcd8b01627c7bd1344eb89cc9a1c5f6e5d838e
+```
+
+All four AE-5 PCM substreams were closed, Headphone and Microphone routing
+remained healthy, Low headphone gain and the 20% PipeWire ceiling remained in
+force, and the post-cycle VFIO preflight passed. No audio was played. Before
+another Windows capture, repair the local test-account login interactively,
+shut down, preserve a fresh powered-off recovery point, and verify the exact
+fixture inside the guest. Do not retry or weaken the stale credential.
 
 ### Candidate kernel smoke test
 

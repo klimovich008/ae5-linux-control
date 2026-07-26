@@ -42,8 +42,26 @@ indexing, package scripts, and no conflicts or obsoletes. The boot-image
 SHA-256 is
 `462b8a0d85558c9a4c4c7146a548d6ff16204a1a966b1af46793c6b864585599`;
 a Q35/TCG guest with no audio or network reached the expected no-root
-filesystem panic while reporting `7.1.4-ae5-current`. Nothing was installed
-or loaded on the host.
+filesystem panic while reporting `7.1.4-ae5-current`.
+
+The same RPM then passed a full-root test in a recoverable Fedora 44 guest
+with no Creative PCI device or emulated audio. An install-only RPM test passed
+before installation. Fedora's kernel-install script selected the new kernel as
+the saved default, so the test explicitly restored
+`6.19.10-300.fc44.x86_64` as `saved_entry` and selected the custom BLS entry
+only through `next_entry`. The one-shot boot:
+
+- reported release `7.1.4-ae5-current`;
+- loaded `snd-hda-codec-ca0132` from the matching module tree with exact
+  `vermagic` and the build-time module signature;
+- had kernel taint `0`, zero failed systemd units, and no CA0132, HDA, Creative,
+  or audio messages in the kernel journal;
+- consumed `next_entry` while preserving the stock Fedora `saved_entry`.
+
+A second boot without an override returned automatically to Fedora
+`6.19.10-300.fc44.x86_64`, again with taint `0`, zero failed units, and an
+empty `next_entry`. The guest shut down cleanly and `qemu-img check` found no
+disk errors. Nothing was installed or loaded on the host.
 
 The exact source RPM can be obtained without root:
 
@@ -155,7 +173,10 @@ scripts/check-host-kernel-rpm.sh \
 
 Do not install the generated `kernel-headers` RPM. Keep at least two stock
 Nobara kernels and the stock saved boot default. A custom kernel should first
-be selected for one boot only.
+be selected for one boot only. Distribution kernel-install scripts may select
+a newly installed kernel as the saved default; inspect the boot-loader
+environment immediately after installation, restore the stock saved entry,
+and only then schedule the custom entry as a one-shot boot.
 
 ## Update and test sequence
 

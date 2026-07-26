@@ -312,7 +312,12 @@ explains that Flat must be selected first. The shared backend applies the same
 guards to CLI and profile writes, so those constraints cannot be bypassed
 outside the GUI. It listens for native ALSA mixer events, so changes made by
 another mixer application or command-line process are reflected without a
-polling loop while the selected page remains open:
+polling loop while the selected page remains open. The installed native
+Wayland build passed this on the physical card: with Surround disabled, an
+external CLI changed only its latent level from 0 to 1 and the GUI exposed
+the synchronized state through AT-SPI. Ten external 1-to-0 cycles retained
+exactly one watcher thread, restored the complete mixer hash, and opened no
+PCM:
 
 ```sh
 sudo dnf install gtk4-devel

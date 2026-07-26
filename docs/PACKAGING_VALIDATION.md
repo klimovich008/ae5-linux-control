@@ -709,6 +709,24 @@ profiles and complete mixer SHA-256
 were identical before and after the upgrade; every AE-5 PCM remained closed
 and no audio was played.
 
+## Native ALSA event synchronization
+
+The same installed native Wayland GUI passed a real-card external-change
+test. `FX: Surround` was already disabled at latent level `0`, so changing
+only that inactive level could not enable the effect. An independent
+installed CLI write changed it to `1`. The GUI's blocking ALSA mixer watcher
+received the event, rebuilt the selected view, and exposed
+`Synchronized after an ALSA mixer event.` through AT-SPI. Independent CLI
+readback simultaneously reported the disabled switch and level `1`.
+
+The CLI restored level `0`, then repeated ten `1`/`0` cycles while the GUI
+remained open. Exactly one `ae5-mixer-event` thread remained after the
+refreshes; no polling worker or duplicate watcher appeared. The final raw
+mixer SHA-256 returned exactly to
+`743e602e8066bea0aed9145669584497289fdb459c4c8450913513dbb7e15bc1`.
+Headphone output, Low gain, and the 20% PipeWire ceiling remained selected,
+and all four AE-5 PCM substreams stayed closed. No audio was played.
+
 ## Remaining release gate
 
 This proves clean Fedora dependency resolution and package ownership/removal,

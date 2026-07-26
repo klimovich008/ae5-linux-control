@@ -254,6 +254,19 @@ Master 20 minus Master 19 deltas were +0.05 and -0.01 dB, within the repeat
 spread. This is expected virtual-master clamping, not a stuck 43% hardware
 volume or evidence that Linux playback is intrinsically 16.50 dB quieter.
 
+The final 20% safety-ceiling check repeated the same two-second, -18 dBFS,
+997 Hz fixture with the headphones unworn beside the Fifine. PipeWire was
+exactly 20% and initially muted, Master and Front were 19/99 and on, PCM was
+51/255, and headphone gain was Low. The quiet capture measured -116.11 dBFS
+in the 987-1007 Hz band; the playback capture measured -117.02 dBFS. Playback
+completed, but there was no acoustic tone rise. The sink was immediately
+remuted, every PCM closed, the complete mixer returned to SHA-256
+`da1bb179b43584844826b8950653fd2fd9b6a78994c47a039ffd782db06497bc`,
+and no relevant kernel warning appeared. This is a gain-staging failure at
+the 20% operating point, not a route or transport regression: the virtual
+Master keeps Front at its effective floor while PCM and PipeWire add further
+attenuation.
+
 This comparison found and fixed the Linux silent-transport path: use raw
 `hw:%f` rather than HDA's `front:` softvol, S16 rather than S32, ALSA
 read/write rather than mmap, 6016-frame periods with four periods, and

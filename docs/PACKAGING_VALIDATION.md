@@ -762,6 +762,51 @@ Fedora 44 RPM also built successfully and repeated the release tests and
 metadata validation. Its root-only install/remove lifecycle remains delegated
 to CI because the development account has no authenticated sudo access.
 
+## Fixed-stage headphone-volume upgrade
+
+The rootless package now installs a card-specific headphone path that keeps
+Master 99/99, Front 90/99, and PCM 255/255 at their reported 0 dB points.
+Master and Front remain on; the already-required PipeWire soft mixer owns the
+only user-facing volume and mute. The native GUI identifies Master as `0 dB`
+instead of presenting the raw 99/99 value as a percentage.
+
+A guarded physical ramp kept Low gain and never exceeded 20% PipeWire volume.
+At the final 20% point, a two-second -18 dBFS 997 Hz fixture measured
+14.34 dB above the matched Fifine baseline. The sink was immediately remuted.
+The generated fixture and ambient recordings were deleted after the derived
+measurements were recorded.
+
+Two negative persistence tests then injected the old Master/Front/PCM
+19/19/51 attenuation while output was muted. Restarting WirePlumber restored
+99/90/255, both required hardware switches, the matched
+Headphone/Microphone duplex route, and the still-muted 20% sink. Repeating the
+injection on Speakers and activating Headphone through the installed CLI
+restored the same exact state.
+
+The updated playback preflight accepts only those exact audited 0 dB stages
+on a healthy card-specific PipeWire route; direct ALSA still requires every
+hardware playback stage at or below 20%. The routing preflight reports the
+fixed stages as safe and retains the Low-gain, closed-PCM, 20%-sink, and clean
+kernel-warning gates.
+
+The final all-feature release passed 86 Rust/GTK tests, strict Clippy and
+formatting, shell syntax, the changed-script ShellCheck set, feature/ACP/audio/
+routing/diagnostics self-tests, and the complete transactional rootless
+install/upgrade/remove check. The real installed binaries are byte-identical
+to the release inputs:
+
+- GUI SHA-256:
+  `4648fd55d7349d702e4a0b9030b2ce657ecbd34437a7028b1461806806f8e753`;
+- CLI SHA-256:
+  `50d8ae906682d04b05c39aee35e2794be98830c4e49649e5c1a09e703756bedc`.
+
+The final raw mixer SHA-256 is
+`35e468edb8e2461948715144c273b8a7b8c133a6bc67a7561ab60ee8a294102f`;
+the simple-mixer SHA-256 is
+`5f34f195af67156b9ef028c7ffa80149bf9101b8026af6a5235587039aa2be9b`.
+Kernel `7.1.4-ae5-current` remained untainted, every AE-5 PCM closed, and no
+relevant kernel warning appeared.
+
 ## Remaining release gate
 
 This proves clean Fedora dependency resolution and package ownership/removal,

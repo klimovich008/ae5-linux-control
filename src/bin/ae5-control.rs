@@ -365,7 +365,7 @@ fn status_rail(status: &gtk::Label, card_index: i32, controls: &[ControlSnapshot
         .map(
             |control| match (&control.playback_level, control.playback_switch) {
                 (_, Some(false)) => "OUTPUT MUTED".to_owned(),
-                (Some(level), _) => format!("HARDWARE {}%", level.value),
+                (Some(level), _) => format!("HARDWARE {}", hardware_level_label(level)),
                 _ => "OUTPUT ACTIVE".to_owned(),
             },
         )
@@ -380,6 +380,14 @@ fn status_rail(status: &gtk::Label, card_index: i32, controls: &[ControlSnapshot
         rail.append(&footer_output_selector(card_index, status, route));
     }
     rail
+}
+
+fn hardware_level_label(level: &Level) -> String {
+    if level.value == level.max {
+        "0 dB".to_owned()
+    } else {
+        format!("{}/{} raw", level.value, level.max)
+    }
 }
 
 fn hero(device: &Ae5Device, controls: &[ControlSnapshot]) -> gtk::Box {
@@ -1609,10 +1617,10 @@ fn mixer_page(
     title.add_css_class("page-title");
     heading.append(&title);
     if let Some(master) = controls.iter().find(|control| control.name == "Master") {
-        let level = master.playback_level.as_ref().map_or_else(
-            || "LEVEL UNKNOWN".to_owned(),
-            |level| format!("{}%", level.value),
-        );
+        let level = master
+            .playback_level
+            .as_ref()
+            .map_or_else(|| "LEVEL UNKNOWN".to_owned(), hardware_level_label);
         let summary = gtk::Label::new(Some(&format!(
             "MASTER {} · {level}",
             if master.playback_switch == Some(false) {
@@ -4754,6 +4762,26 @@ mod tests {
         assert_eq!(control_display_name("EQ Band9"), "EQ Band9 · 16 kHz");
         assert_eq!(control_display_name("EQ Band10"), "EQ Band10");
         assert_eq!(control_display_name("Master"), "Master");
+    }
+
+    #[test]
+    fn labels_the_fixed_hardware_stage_as_zero_db() {
+        assert_eq!(
+            hardware_level_label(&Level {
+                value: 99,
+                min: 0,
+                max: 99,
+            }),
+            "0 dB"
+        );
+        assert_eq!(
+            hardware_level_label(&Level {
+                value: 19,
+                min: 0,
+                max: 99,
+            }),
+            "19/99 raw"
+        );
     }
 
     #[test]

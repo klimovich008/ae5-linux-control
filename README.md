@@ -76,8 +76,10 @@ finds a problem. Nothing repairs or unmutes a route automatically at login.
 The default-device actions invoke `wpctl` directly without a shell and verify
 the new default. They do not change the card's ALSA mixer controls. CLI status
 and the GTK System audio page also show the PipeWire node volume separately;
-with the installed soft-mixer profile, a restored value such as 43% is
-software attenuation and does not rewrite Master, Front, or PCM.
+with the installed soft-mixer profile, it is the only user-facing playback
+volume. The card-specific Headphone path pins Master, Front, and PCM to their
+0 dB values so their attenuation cannot stack underneath PipeWire. The GUI
+labels that fixed Master stage as `0 dB`, not `100%`.
 
 The optional native-rate configuration lets PipeWire switch the global graph
 between 44.1, 48, and 96 kHz after its next restart:

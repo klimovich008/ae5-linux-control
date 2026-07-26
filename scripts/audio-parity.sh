@@ -144,6 +144,19 @@ validate_playback_volume_snapshot() {
 	done < <(tr ',' '\n' <<< "$channel_list")
 }
 
+validate_pipewire_playback_volume_snapshot() {
+	local control=$1 snapshot=$2
+
+	case "$control|$snapshot" in
+	'Master|Master | playback on | playback level 99 [0..99]' | \
+	'Front|Front | playback on | playback level 90 [0..99] | playback Front Left=90, Front Right=90' | \
+	'PCM|PCM | playback level 255 [0..255] | playback Front Left=255, Front Right=255')
+		return
+		;;
+	esac
+	validate_playback_volume_snapshot "$control" "$snapshot"
+}
+
 validate_gain_snapshot() {
 	[[ $1 == 'AE-5: Headphone Gain: Low ('* ]] || {
 		printf 'error: AE-5 headphone gain must be Low for playback tests\n' >&2
@@ -182,7 +195,13 @@ playback_preflight() {
 	need_tool "$ae5ctl"
 	for control in "${playback_volume_controls[@]}"; do
 		if snapshot=$("$ae5ctl" get "$control"); then
-			validate_playback_volume_snapshot "$control" "$snapshot" || failed=1
+			if [[ $mode == pipewire ]]; then
+				validate_pipewire_playback_volume_snapshot \
+					"$control" "$snapshot" || failed=1
+			else
+				validate_playback_volume_snapshot \
+					"$control" "$snapshot" || failed=1
+			fi
 		else
 			failed=1
 		fi
@@ -195,6 +214,7 @@ playback_preflight() {
 
 	if [[ $mode == pipewire ]]; then
 		need_tool wpctl
+		"$ae5ctl" route-status >/dev/null || failed=1
 		if snapshot=$("$ae5ctl" output-status); then
 			validate_default_output_snapshot "$snapshot" || failed=1
 		else
@@ -208,8 +228,11 @@ playback_preflight() {
 	fi
 
 	((failed == 0)) || return 1
-	printf 'playback preflight passed: %s path, fixture and volumes at or below 20%%, Low gain\n' \
-		"$mode"
+	if [[ $mode == pipewire ]]; then
+		printf 'playback preflight passed: PipeWire at or below 20%%, fixed 0 dB hardware stages or legacy-safe attenuation, Low gain\n'
+	else
+		printf 'playback preflight passed: direct path, fixture and hardware volumes at or below 20%%, Low gain\n'
+	fi
 }
 
 make_marker_and_gap() {
@@ -728,6 +751,20 @@ self_test() (
 	if validate_playback_volume_snapshot Master \
 		'Master | playback level -1 [0..100]' >/dev/null 2>&1; then
 		printf 'self-test: out-of-range hardware volume unexpectedly passed\n' >&2
+		return 1
+	fi
+	validate_pipewire_playback_volume_snapshot Master \
+		'Master | playback on | playback level 99 [0..99]' >/dev/null
+	validate_pipewire_playback_volume_snapshot Front \
+		'Front | playback on | playback level 90 [0..99] | playback Front Left=90, Front Right=90' \
+		>/dev/null
+	validate_pipewire_playback_volume_snapshot PCM \
+		'PCM | playback level 255 [0..255] | playback Front Left=255, Front Right=255' \
+		>/dev/null
+	if validate_pipewire_playback_volume_snapshot Front \
+		'Front | playback on | playback level 91 [0..99] | playback Front Left=91, Front Right=91' \
+		>/dev/null 2>&1; then
+		printf 'self-test: non-zero-dB PipeWire Front stage unexpectedly passed\n' >&2
 		return 1
 	fi
 	validate_gain_snapshot \

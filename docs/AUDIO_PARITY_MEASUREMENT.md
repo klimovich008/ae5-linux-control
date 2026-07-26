@@ -113,11 +113,13 @@ AE5CTL=target/release/ae5ctl \
 The direct check requires the fixture and every channel of the AE-5 Master,
 Front, Surround, Center, LFE, and PCM playback stages to be at or below 20% of
 its advertised raw range, and headphone gain to be Low. The PipeWire check
-additionally requires the AE-5 to be the default sink and its sink volume to
-be at or below 20%. It only reads state and never lowers a value
-automatically; a missing or unparseable safety control also fails closed. Any
-failure forbids playback until the operator deliberately establishes and
-later restores a safe snapshot.
+instead accepts the installed soft-mixer model's exact fixed stages—Master
+99/99, Front 90/99, and PCM 255/255, all 0 dB—or the earlier at-or-below-20%
+attenuated state. It also requires a healthy card-specific route, the AE-5 as
+the default sink, and its user-facing software volume at or below 20%. It only
+reads state and never lowers a value automatically; a missing or unparseable
+safety control also fails closed. Any failure forbids playback until the
+operator deliberately establishes and later restores a safe snapshot.
 
 Do not change gain between captures. Record at least half a second before
 starting playback and at least half a second after it ends. Preserve the
@@ -267,10 +269,28 @@ PipeWire, ALSA transport, and the DSP received samples and isolates the
 failure to final analog gain staging. The sink was immediately remuted, every
 PCM closed, the complete mixer returned to SHA-256
 `da1bb179b43584844826b8950653fd2fd9b6a78994c47a039ffd782db06497bc`,
-and no relevant kernel warning appeared. This is a gain-staging failure at
-the 20% operating point, not a route or transport regression: the virtual
-Master keeps Front at its effective floor while PCM and PipeWire add further
-attenuation.
+and no relevant kernel warning appeared. This is a gain-staging failure in
+the legacy attenuated state at the 20% operating point, not a route or
+transport regression: the virtual Master keeps Front at its effective floor
+while PCM and PipeWire add further attenuation.
+
+After explicit approval to separate internal calibration from the 20% user
+volume ceiling, Master was set to 99/99 (0 dB), Front to 90/99 (0 dB), and PCM
+to 255/255 (0 dB). Headphone gain remained Low, the headphones remained
+unworn, and PipeWire was ramped through 1, 2, 4, 8, 12, 16, and 20% with the
+hardware Master muted between every exposure. A final matched-window FFT
+screen at 20% measured mean 987-1007 Hz power `0.000652222222222` in the quiet
+capture and `0.0177011666667` during the fixture, a +14.34 dB detection.
+
+The installed card-specific ACP path now holds those three internal stages at
+0 dB and keeps Master and Front on while PipeWire's software mixer owns volume
+and mute. A negative persistence check deliberately restored the old
+19/19/51 state and muted Master; restarting WirePlumber recovered
+99/90/255, both hardware switches on, the matched Headphone/Microphone route,
+and the still-muted 20% sink. A separate Speakers-to-Headphone activation
+recovered the same state from the same injected attenuation. One later
+acoustic repeat was rejected because its quiet microphone capture had a
+substantially elevated 997 Hz baseline; it is not used as acceptance evidence.
 
 This comparison found and fixed the Linux silent-transport path: use raw
 `hw:%f` rather than HDA's `front:` softvol, S16 rather than S32, ALSA

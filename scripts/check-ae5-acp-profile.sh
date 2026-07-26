@@ -67,12 +67,21 @@ for mapping in \
 	[[ $paths == "$input_paths" ]]
 done
 
-front=$(awk '
-	$0 == "[Element Front]" { found = 1; next }
+for element in Master Front; do
+	settings=$(awk -v section="[Element $element]" '
+		$0 == section { found = 1; next }
+		found && /^\[/ { exit }
+		found && /^(switch|volume) = / { print }
+	' "$path")
+	[[ $settings == $'switch = on\nvolume = zero' ]]
+done
+
+pcm=$(awk '
+	$0 == "[Element PCM]" { found = 1; next }
 	found && /^\[/ { exit }
 	found && /^(switch|volume) = / { print }
 ' "$path")
-[[ $front == $'switch = mute\nvolume = ignore' ]]
+[[ $pcm == $'switch = mute\nvolume = zero' ]]
 
 for input in microphone front-microphone line-in; do
 	input_path=$repo_root/packaging/alsa-card-profile/mixer/paths/sound-blaster-ae5-input-$input.conf

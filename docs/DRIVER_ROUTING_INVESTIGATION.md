@@ -447,8 +447,29 @@ The live repair was exercised while PipeWire remained muted at 20% and no
 sink input or AE-5 PCM was open. It changed only `Master` from off to on;
 `Front` remained on, the Headphone/Microphone routes remained matched, and
 the final route-health check passed. This closes the hidden hardware-mute
-fault without claiming that the conservative 19/19/51 gain staging matches
-Windows loudness.
+fault.
+
+### Fixed hardware stages under the software mixer
+
+The remaining silent-at-20% report was independent of routing. `Master` is a
+virtual master over `Front`; raw Master 19 and Front 19 clamp effective Front
+to its floor, while PCM 51 and PipeWire 20% add two more attenuations. The
+card's internal What U Hear tap captured the PipeWire fixture while the
+external Fifine did not, isolating the failure to final analog gain staging.
+
+The custom Headphone ACP path now keeps Master 99/99, Front 90/99, and PCM
+255/255—their reported 0 dB points—and keeps the two hardware switches on.
+`api.alsa.soft-mixer=true` leaves user volume and mute in PipeWire, still
+capped at 20% during unattended tests. A guarded acoustic screen with Low
+gain and an -18 dBFS fixture measured the 997 Hz band 14.34 dB above baseline
+without exceeding that software ceiling.
+
+Two no-stream persistence checks injected the old 19/19/51 state while muted.
+Both a WirePlumber restart and a Speakers-to-Headphone route activation
+restored 99/90/255, Master and Front on, the card-specific duplex route, and
+the still-muted 20% sink. The safety preflights accept these exact audited
+0 dB values only for the healthy soft-mixed PipeWire path; direct ALSA retains
+the at-or-below-20% hardware-stage rule.
 
 ## Safe cold-boot probe
 

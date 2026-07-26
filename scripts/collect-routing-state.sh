@@ -146,10 +146,11 @@ collect_playback_safety() {
 			printf 'playback_volume=%s;percent=unknown;safe=no\n' "$control"
 			continue
 		fi
-		if metrics=$(awk '
+		if metrics=$(awk -v control="$control" '
 			/^[[:space:]]*Limits: Playback -?[0-9]+ - -?[0-9]+$/ {
 				minimum = $3
 				maximum = $5
+				next
 			}
 			/: Playback -?[0-9]+/ {
 				value = $0
@@ -157,13 +158,22 @@ collect_playback_safety() {
 				sub(/ .*/, "", value)
 				if (!found || value > highest)
 					highest = value
+				if (!found || value < lowest)
+					lowest = value
 				found = 1
 			}
 			END {
 				if (!found || maximum <= minimum)
 					exit 1
+				fixed_zero_db = (control == "Master" && minimum == 0 &&
+				     maximum == 99 && lowest == 99 && highest == 99) ||
+				    (control == "Front" && minimum == 0 &&
+				     maximum == 99 && lowest == 90 && highest == 90) ||
+				    (control == "PCM" && minimum == 0 &&
+				     maximum == 255 && lowest == 255 && highest == 255)
 				printf "%.1f;%s\n",
 				    (highest - minimum) * 100 / (maximum - minimum),
+				    fixed_zero_db ||
 				    (highest - minimum) * 100 <= (maximum - minimum) * 20 ?
 				    "yes" : "no"
 			}
@@ -412,7 +422,7 @@ summarize_history() {
 					reject("a PCM substream is open")
 				for (item in required_safety)
 					if (safety[item] != "yes")
-						reject(item " exceeds the 20% safety ceiling")
+						reject(item " fails the playback-stage safety policy")
 				if (gain !~ /^Low [(]/)
 					reject("headphone gain is not Low")
 				if (sink_volume == "" || sink_volume + 0 > 0.20)
@@ -868,7 +878,7 @@ run_self_test() (
 		printf 'self-test failed: unsafe suspend state was accepted\n' >&2
 		return 1
 	fi
-	grep -q 'exceeds the 20% safety ceiling' <<< "$output" || {
+	grep -q 'fails the playback-stage safety policy' <<< "$output" || {
 		printf 'self-test failed: unsafe suspend state was not diagnosed\n' >&2
 		return 1
 	}

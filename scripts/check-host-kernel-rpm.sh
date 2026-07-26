@@ -121,6 +121,7 @@ for marker in \
 	'AE-5: Direct Mode Playback Switch' \
 	'%s:rgb:ae5-%u' \
 	'FX: Equalizer Preset Switch' \
+	'out_svm_set_values' \
 	'Invalid DSP image'; do
 	grep -Fq -- "$marker" <<< "$module_strings" ||
 		fail "CA0132 feature marker is missing: $marker"

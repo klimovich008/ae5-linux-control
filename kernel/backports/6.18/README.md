@@ -33,15 +33,28 @@ git apply /path/to/ae5-linux-control/kernel/backports/6.18/ca0132-ae5-onboard-le
 git diff --check
 ```
 
-For the separately reviewable Direct Mode extension, apply this last:
+For the separately reviewable Direct Mode extension, apply:
 
 ```sh
 git apply /path/to/ae5-linux-control/kernel/ca0132-ae5-direct-mode.patch
 git diff --check
 ```
 
-The complete host-package workflow for the production, RGB, and Direct Mode
-stack is in
+For the Smart Volume resume fix, apply the 6.18 context adapter last:
+
+```sh
+git apply /path/to/ae5-linux-control/kernel/backports/6.18/ca0132-restore-smart-volume-resume.patch
+git diff --check
+```
+
+The adapter applies both directly after the production stack and after the
+complete RGB/Direct Mode stack. Its functional C changes are identical to the
+main [`ca0132-restore-smart-volume-resume.patch`](../../ca0132-restore-smart-volume-resume.patch);
+only the context around `ca0132_init()` accounts for the RGB restore already
+present in the complete 6.18 stack.
+
+The complete host-package workflow for the production, RGB, Direct Mode, and
+Smart Volume stack is in
 [`docs/HOST_KERNEL_BUILD.md`](../../../docs/HOST_KERNEL_BUILD.md).
 
 The first two commits are already upstream but were not present in 6.18.40:
@@ -56,6 +69,10 @@ A separate 6.18 context adapter for the onboard-LED candidate has SHA-256
 `05cbcb09a12c5b3a46491ff0d1192f2c36c6fe7766ae1343168be300be4900e4`;
 its C changes are identical to the upstream patch, while its Kconfig hunk
 accounts for 6.18 lacking the later `SND_HDA_GENERIC` selection.
+A separate 6.18 context adapter for the Smart Volume resume candidate has
+SHA-256
+`29af4c56ada3b74070c7f47e88bf973dfbcfd409103a318bf76f7d11802cf1e3`.
+Strict `checkpatch.pl` reports zero findings across its 155 lines.
 A clean-worktree replay of the sequence above produced byte-identical
 `Kconfig`, `Makefile`, `ca0132.c`, parser, and parser-test files to the source
 used for the tested kernels.
@@ -72,11 +89,14 @@ kernel/module build, a card-less boot, and a managed physical cycle with five
 multicolor LED devices, bounded color/brightness writes, unchanged mixer
 state, and exact host recovery.
 
-The Direct Mode-extended source was also rebuilt as the side-by-side
+The Direct Mode-extended source was rebuilt as the side-by-side
 `6.18.40-ae5-lts-rgb-direct-host+` RPM using the target Nobara host
 configuration. Its package and module tree passed non-installing static
-verification and an exact-image no-audio QEMU smoke boot. It has not been
-installed or booted on bare metal.
+verification and an exact-image no-audio QEMU smoke boot. A newer
+`6.18.40-ae5-lts-rgb-direct-svm-host+` candidate adds the Smart Volume adapter;
+its current complete-stack source SHA-256 is
+`01ab8448b258a24046ad59f279270eff4706d9315f616a39debf79b6432a7f71`.
+Neither candidate has been installed or booted on bare metal.
 
 The full build, hardware, package, and recovery evidence is in
 [`docs/LTS_KERNEL_VALIDATION.md`](../../../docs/LTS_KERNEL_VALIDATION.md).

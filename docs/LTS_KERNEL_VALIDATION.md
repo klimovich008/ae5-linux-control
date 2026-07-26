@@ -306,6 +306,37 @@ rollback path, and hard 20% first-boot gate are in
 [`HOST_KERNEL_BUILD.md`](HOST_KERNEL_BUILD.md). Bare-metal installation and
 boot remain a separate authorization checkpoint.
 
+## Host-installable Smart Volume candidate
+
+The complete production, onboard-RGB, Direct Mode, and Smart Volume resume
+stack was then rebuilt from Linux `6.18.40` with the migrated target-host
+configuration. The 6.18 Smart Volume adapter has SHA-256
+`29af4c56ada3b74070c7f47e88bf973dfbcfd409103a318bf76f7d11802cf1e3`;
+the resulting `ca0132.c` has SHA-256
+`01ab8448b258a24046ad59f279270eff4706d9315f616a39debf79b6432a7f71`.
+Its host-configured CA0132 object passed `W=1 KCFLAGS=-Werror`.
+
+The resulting release is
+`6.18.40-ae5-lts-rgb-direct-svm-host+`. The main RPM has SHA-256
+`9ee52be8e9afbe13bd6052be656bb9c0dd47e8f11f73e22161735e23338b7fa6`.
+Non-installing extraction verified 6,326 signed, zstd-compressed modules,
+successful `depmod` indexing, boot-critical host configuration, and CA0132
+markers for all five feature groups. The exact image entered x86-64 with
+audio and networking disabled and reached the intentional no-root-filesystem
+boundary after reporting the expected release.
+
+The RPM was installed only inside the cardless Fedora guest. Its Btrfs BLS
+paths were correct, and a one-shot boot loaded the signed CA0132 and
+multicolor LED modules with matching vermagic. The candidate had zero kernel
+taint, zero failed units, and no relevant kernel warning. No Creative device
+was present. The next reboot automatically returned to the saved
+`6.18.40-ae5-lts+` guest kernel, after which the guest was shut down.
+
+This proves packaging, full-root boot, module loading, and rollback without
+claiming physical Smart Volume behavior. The host package has not been
+installed or booted on bare metal. Exact hashes, commands, and the guarded
+20% physical gate are in [`HOST_KERNEL_BUILD.md`](HOST_KERNEL_BUILD.md).
+
 ## Remaining limits
 
 This maintained-LTS cycle proves buildability, parser safety, bootability,

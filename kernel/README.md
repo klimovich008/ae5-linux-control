@@ -13,13 +13,15 @@ produced the bounded negative result described below. None changes the running
 host kernel merely by being present in this repository.
 
 The Smart Volume resume candidate was validated later against the exact
-running source and in the cardless kernel-build guest. It has not been loaded
-on the physical card; its bare-metal suspend and acoustic acceptance gate is
-documented in its section below.
+running source, packaged with the complete Linux 6.18 stack, and booted in the
+cardless kernel-build guest. It has not been loaded on the physical card; its
+bare-metal suspend and acoustic acceptance gate is documented in its section
+below.
 
-The complete production, onboard-RGB, and Direct Mode stack has also been
-packaged as a side-by-side host kernel and passed non-installing verification
-plus a no-audio QEMU smoke boot. It has not been installed. The exact build,
+The complete production, onboard-RGB, Direct Mode, and Smart Volume stack has
+also been packaged as a side-by-side host kernel and passed non-installing
+verification, a no-audio QEMU smoke boot, and a cardless full-root boot with
+automatic fallback. It has not been installed on the host. The exact build,
 artifact hashes, rollback path, and hard 20% first-boot gate are in
 [`HOST_KERNEL_BUILD.md`](../docs/HOST_KERNEL_BUILD.md).
 
@@ -332,7 +334,28 @@ build guest, `sound/hda/codecs/ca0132.o` compiles with
 `a9a6373512886ed98a76ad2d26002002f13edfc223808fbb6f0de7bfd1333ac0`;
 the resulting object has SHA-256
 `e27add747d76de41de6c582eeef6114f7b884dcf74f92d3947aa691328291a38`.
-No module was loaded and the physical card remained on the host driver.
+
+Linux 6.18 uses
+[`backports/6.18/ca0132-restore-smart-volume-resume.patch`](backports/6.18/ca0132-restore-smart-volume-resume.patch),
+a universal context adapter with the same functional C changes. It applies
+after either the production-only stack or the complete onboard-RGB/Direct
+Mode stack. Its SHA-256 is
+`29af4c56ada3b74070c7f47e88bf973dfbcfd409103a318bf76f7d11802cf1e3`;
+strict `checkpatch.pl` reports zero findings across 155 lines. The complete
+Linux 6.18.40 RGB/Direct/Smart Volume source has SHA-256
+`01ab8448b258a24046ad59f279270eff4706d9315f616a39debf79b6432a7f71`.
+Using the migrated Nobara host configuration, its CA0132 object passed
+`W=1 KCFLAGS=-Werror` and has SHA-256
+`642fbe1eea31dc0d1224ec117a35d674d723bfd8fbb564c8d62ef06101034f69`.
+The complete side-by-side kernel RPM has SHA-256
+`9ee52be8e9afbe13bd6052be656bb9c0dd47e8f11f73e22161735e23338b7fa6`.
+Its 6,326-module tree passed non-installing verification, and the exact image
+passed a no-audio/no-network QEMU smoke boot. The RPM was then installed only
+inside the cardless Fedora guest. A one-shot full-root boot loaded the signed
+CA0132 and multicolor LED modules with matching vermagic, zero taint, zero
+failed units, and no relevant warning; the next reboot automatically returned
+to the saved guest kernel. No module was loaded on the host and the physical
+card remained on the host driver.
 
 ### Remaining physical acceptance
 

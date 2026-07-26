@@ -381,13 +381,13 @@ therefore use `hw:%f` for stereo and every supported 2.1-through-5.1 layout.
 PipeWire additionally had to ignore the driver's dB metadata. The exact-card
 rule now combines `api.alsa.soft-mixer=true` with
 `api.alsa.ignore-dB=true`; a separate analog-profile-only sink rule requests
-`S32LE`, disables mmap, and fixes the period geometry to 6016 frames times
+`S16LE`, disables mmap, and fixes the period geometry to 6016 frames times
 four. IEC958 remains outside that transport rule. The Rust route-health path
 rejects an installation where `ignore-dB` is absent. The live node read back:
 
 ```text
 api.alsa.path = hw:0
-audio.format = S32LE
+audio.format = S16LE
 api.alsa.disable-mmap = true
 api.alsa.period-size = 6016
 api.alsa.period-num = 4
@@ -417,6 +417,14 @@ the 20% PipeWire ceiling. The Fifine capture measured mean 987-1007 Hz power
 Front and Master off, a +6.30 dB detection. This confirms that the corrected
 S32 transport reaches the analog headphone output. Every run ended at 5%,
 PipeWire muted, and both physical playback switches off.
+
+That continuous-fixture result was not sufficient for deployment. During a
+later real music track change, S32 produced a loud buzz that ignored the
+desktop mute and stopped only after the playback PCM suspended. A guarded
+60-stream 44.1/48/96 kHz recreation did not reproduce the fault and logged no
+XRUN or driver warning, so the exact trigger remains unknown. The managed
+desktop sink was rolled back to the previously stable S16 transport; S32 is
+not eligible again until physical track-transition stress passes safely.
 
 The earlier 43% observation is connected, but it is not a hidden hardware
 limit. WirePlumber had restored a saved route volume of 43%. PipeWire's cubic

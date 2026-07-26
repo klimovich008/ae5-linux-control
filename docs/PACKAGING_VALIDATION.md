@@ -636,8 +636,9 @@ open, restored Headphone/2.0/Microphone and the profile's X-Bass state, and
 reproduced complete mixer SHA-256
 `26a75bb94621e15023ebb28bb3a3da92c63d210f0e657b74478187256d39142c`.
 
-A guarded follow-up separated format from geometry. The packaged rule now
-selects `S32LE` while retaining raw RW transport and 6016-by-four buffering.
+A guarded follow-up separated format from geometry. The packaged rule
+temporarily selected `S32LE` while retaining raw RW transport and
+6016-by-four buffering.
 At the 20% PipeWire ceiling, the S32 What U Hear capture matched direct DSP
 response within 0.01 dB at every measured band; the prior S16 capture differed
 by as much as 5.81 dB at the same low software volume. A safe 997 Hz acoustic
@@ -645,6 +646,11 @@ check was 6.30 dB above its Front-muted control, confirming that S32 reaches
 the headphone DAC rather than only the digital loopback. Zero-amplitude
 2.0, 2.1, 4.0, 4.1, 5.0, and 5.1 streams then negotiated exact 2/3/4/5/5/6
 channel S32 hardware PCMs with the same 6016/24064 geometry.
+
+A subsequent real music track change produced a loud buzz that lasted until
+the playback PCM suspended. Because the guarded continuous and 60-stream
+transition probes did not reproduce it, the managed rule was returned to the
+previously stable `S16LE` transport pending a physical S32 transition gate.
 
 ## Smart Volume mode user upgrade
 

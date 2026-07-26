@@ -106,9 +106,9 @@ grep -Fq 'api.alsa.ignore-dB = true' "$rule"
 grep -Fq 'node.name = "~alsa_output.*"' "$rule"
 grep -Fq 'device.profile.name = "~analog-.*"' "$rule"
 grep -Fq 'alsa.components = "~HDA:11020011,11020051,.*"' "$rule"
-grep -Fq 'audio.format = "S32LE"' "$rule"
+grep -Fq 'audio.format = "S16LE"' "$rule"
 grep -Fq 'api.alsa.disable-mmap = true' "$rule"
 grep -Fq 'api.alsa.period-size = 6016' "$rule"
 grep -Fq 'api.alsa.period-num = 4' "$rule"
 
-printf 'AE-5 ACP profile: raw S32 playback, stable managed route order, and shared Front DAC validated\n'
+printf 'AE-5 ACP profile: raw S16 playback, stable managed route order, and shared Front DAC validated\n'

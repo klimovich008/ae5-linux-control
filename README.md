@@ -15,8 +15,11 @@ source. The exact Nobara 7.1.4 queue passed its external-module gate and
 produced a verified `7.1.4-ae5-current` side-by-side RPM. A one-shot cardless
 full-root boot loaded its signed CA0132 module with zero taint, zero failed
 units, clean audio-related logs, and automatic return to the saved Fedora
-kernel. It was not installed on the host. The fail-closed update and rebuild
-workflow and one-shot installation helper are in
+kernel. That exact RPM is now installed side by side on the host. The stock
+Nobara kernel remains the saved and persistent default, and the custom entry
+is scheduled through `next_entry` for one physical boot; it has not yet been
+loaded on the host. The fail-closed update, rebuild, first-boot runtime gate,
+and one-shot installation workflow are in
 [docs/KERNEL_MAINTENANCE.md](docs/KERNEL_MAINTENANCE.md).
 
 ## Current milestone: desktop profiles, synchronized routing, and onboard lighting
@@ -445,8 +448,14 @@ rejects any playback stage above 20%, non-Low headphone gain, open PCM, wrong
 route, unreadable evidence, changed mixer state, changed boot/kernel, or new
 audio warning; it never suspends or plays audio itself. Run its paired
 `--before-suspend campaign-01` and `--after-resume campaign-01` captures, then
-check progress with `--suspend-summary 20`. The Rust CLI and GTK diagnostics
-also read PipeWire's live Route parameters: deliberately recreated
+check progress with `--suspend-summary 20`. A standalone read-only snapshot is
+available through `--preflight ID`; it validates the same safety conditions
+without appending campaign state. After the one-shot custom-kernel boot, run
+`bash scripts/check-ae5-kernel-runtime.sh 7.1.4-ae5-current` before changing
+any control. It additionally requires the exact untainted kernel, signed
+matching CA0132 module, AE-5 PCI identity and driver, Direct Mode off, and all
+five onboard LED interfaces. The Rust CLI and GTK diagnostics also read
+PipeWire's live Route parameters: deliberately recreated
 Headphone-versus-Line-Out and Microphone-versus-Line-In splits failed
 `route-status`, while the normal setters repaired both and restored the exact
 mixer hash. Route health also rejects normal-mode Headphone output when the

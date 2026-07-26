@@ -61,7 +61,22 @@ only through `next_entry`. The one-shot boot:
 A second boot without an override returned automatically to Fedora
 `6.19.10-300.fc44.x86_64`, again with taint `0`, zero failed units, and an
 empty `next_entry`. The guest shut down cleanly and `qemu-img check` found no
-disk errors. Nothing was installed or loaded on the host.
+disk errors.
+
+The exact main RPM is now installed side by side on the target host. The stock
+`7.1.4-200.nobara.fc44.x86_64` BLS entry remains both the saved and default
+kernel, while the `7.1.4-ae5-current` entry is scheduled only through
+`next_entry`. The candidate boot image, initramfs, module tree, CA0132
+`vermagic`, and build-time signature were read back successfully; no custom
+code has yet been loaded on the host.
+
+RPM post-processing attempted `akmods@7.1.4-ae5-current.service`, which cannot
+build without a matching kernel-devel tree. This host has no installed
+`akmod-*` package, so there is no third-party module to build and the service
+failure is harmless for this candidate. Do not generalize that exception to a
+host with real akmod packages: such a host needs a matching devel package and
+successful external-module builds before booting. The AE-5 candidate itself
+contains its signed in-tree modules.
 
 The fail-closed installation helper later repeated that complete cardless
 cycle from a clean package state. Its simulation first proved that a package
@@ -236,7 +251,17 @@ For every future kernel:
 6. Build and non-installingly verify a side-by-side kernel RPM.
 7. Smoke-boot without the AE-5, then boot a cardless full guest.
 8. Retain the stock boot default and perform one physical test boot.
-9. Keep playback at or below 20% for the first physical matrix; validate
+9. Before changing a control, run the fail-closed read-only runtime gate:
+
+   ```sh
+   bash scripts/check-ae5-kernel-runtime.sh EXPECTED-KERNEL-RELEASE
+   ```
+
+   It requires the exact untainted release, AE-5 PCI identity and
+   `snd_hda_intel` binding, matching signed CA0132 module, Direct Mode off,
+   all five onboard LED interfaces, closed PCMs, Low gain, and the existing
+   routing/20% safety preflight.
+10. Keep playback at or below 20% for the first physical matrix; validate
    headphone/speaker routing, Direct Mode, DSP controls, suspend/resume,
    Smart Volume restoration, logs, shutdown, and exact state recovery.
 

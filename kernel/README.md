@@ -21,9 +21,13 @@ below.
 The complete production, onboard-RGB, Direct Mode, and Smart Volume stack has
 also been packaged as a side-by-side host kernel and passed non-installing
 verification, a no-audio QEMU smoke boot, and a cardless full-root boot with
-automatic fallback. It has not been installed on the host. The exact build,
-artifact hashes, rollback path, and hard 20% first-boot gate are in
-[`HOST_KERNEL_BUILD.md`](../docs/HOST_KERNEL_BUILD.md).
+automatic fallback. The earlier Linux 6.18 artifact has not been installed on
+the host; its build details are in
+[`HOST_KERNEL_BUILD.md`](../docs/HOST_KERNEL_BUILD.md). The exact-host Nobara
+7.1.4 build is installed side by side and scheduled for one boot without
+changing the stock saved default. It has not yet been loaded on the host. Its
+artifact hashes, rollback path, and fail-closed 20% first-boot gate are in
+[`KERNEL_MAINTENANCE.md`](../docs/KERNEL_MAINTENANCE.md).
 
 ## Current upstream validation
 

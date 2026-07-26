@@ -2,7 +2,7 @@
 set -uo pipefail
 
 usage() {
-	printf 'usage: %s [--self-test | --summary [required-boots] | --suspend-summary [required-cycles] | --before-suspend CYCLE | --after-resume CYCLE | [label] [--append]]\n' "$0" >&2
+	printf 'usage: %s [--self-test | --summary [required-boots] | --suspend-summary [required-cycles] | --preflight ID | --before-suspend CYCLE | --after-resume CYCLE | [label] [--append]]\n' "$0" >&2
 }
 
 section() {
@@ -943,6 +943,30 @@ if [[ ${1:-} == --suspend-summary ]]; then
 		exit 1
 	}
 	summarize_suspend_history "$input" "$required_cycles"
+	exit
+fi
+
+if [[ ${1:-} == --preflight ]]; then
+	[[ $# -eq 2 ]] || {
+		usage
+		exit 2
+	}
+	cycle=$2
+	[[ $cycle =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ && ${#cycle} -le 64 ]] || {
+		printf 'ID must be 1-64 letters, digits, dots, underscores, or dashes\n' >&2
+		exit 2
+	}
+	label=before-suspend-preflight-$cycle
+	snapshot=$(collect "$label")
+	collect_status=$?
+	printf '%s\n' "$snapshot"
+	if ((collect_status != 0)) ||
+		! validation=$(validate_suspend_snapshot "$label" "$snapshot"); then
+		printf '%s\n' "${validation:-preflight snapshot collection failed}" >&2
+		printf 'preflight rejected; no state was appended or changed\n' >&2
+		exit 1
+	fi
+	printf 'preflight passed; no state was appended or changed\n' >&2
 	exit
 fi
 

@@ -23,6 +23,7 @@ jobs:
       - run: for rate in 44100 48000 96000; do AE5_SAMPLE_RATE=$rate bash scripts/audio-parity.sh --self-test; done
       - run: bash scripts/collect-linux-report.sh --self-test
       - run: bash scripts/collect-routing-state.sh --self-test
+      - run: bash scripts/check-ae5-kernel-runtime.sh --self-test
       - run: bash scripts/check-vfio-host.sh --self-test
       - run: bash scripts/install-ae5-kernel-test.sh --self-test
       - run: desktop-file-validate packaging/*.desktop

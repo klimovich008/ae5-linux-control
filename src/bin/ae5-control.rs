@@ -165,6 +165,7 @@ fn content(
         message.unwrap_or("Ready — every change is verified against the hardware."),
     ));
     status.set_xalign(0.0);
+    status.set_hexpand(true);
     status.set_ellipsize(gtk::pango::EllipsizeMode::End);
     status.add_css_class("operation-status");
 
@@ -229,7 +230,7 @@ fn content(
     main.add_css_class("main-panel");
     main.append(&hero(device, controls));
     main.append(&stack);
-    main.append(&status_rail(&status, controls));
+    main.append(&status_rail(&status, device.card_index, controls));
 
     root.append(&sidebar_panel);
     root.append(&main);
@@ -259,6 +260,9 @@ fn populate_page(
         "scout" => scout_page().upcast(),
         "mixer" => mixer_page(device.card_index, status, controls).upcast(),
         "equalizer" => equalizer_page(device.card_index, status, controls).upcast(),
+        "effects" => sound_effects_page(window, device.card_index, status, controls).upcast(),
+        "playback" => playback_page(device.card_index, status, controls).upcast(),
+        "recording" => recording_page(device.card_index, status, controls).upcast(),
         "lighting" => lighting_page(window, status).upcast(),
         "profiles" => profile_page(window, device.card_index, status).upcast(),
         _ => {
@@ -307,7 +311,7 @@ fn sidebar_brand(device: &Ae5Device) -> gtk::Box {
     brand
 }
 
-fn status_rail(status: &gtk::Label, controls: &[ControlSnapshot]) -> gtk::Box {
+fn status_rail(status: &gtk::Label, card_index: i32, controls: &[ControlSnapshot]) -> gtk::Box {
     let rail = gtk::Box::new(gtk::Orientation::Horizontal, 12);
     rail.add_css_class("status-rail");
 
@@ -330,6 +334,12 @@ fn status_rail(status: &gtk::Label, controls: &[ControlSnapshot]) -> gtk::Box {
     let output = gtk::Label::new(Some(&output));
     output.add_css_class("output-state");
     rail.append(&output);
+    if let Some(route) = controls
+        .iter()
+        .find(|control| control.name == "Output Select")
+    {
+        rail.append(&footer_output_selector(card_index, status, route));
+    }
     rail
 }
 
@@ -375,9 +385,15 @@ fn device_page(
     let page = gtk::Box::new(gtk::Orientation::Vertical, 18);
     page.add_css_class("profile-page");
 
-    let heading = gtk::Label::new(Some("Device & diagnostics"));
-    heading.set_xalign(0.0);
-    heading.add_css_class("page-title");
+    let heading = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    let title = gtk::Label::new(Some("Device & diagnostics"));
+    title.set_xalign(0.0);
+    title.set_hexpand(true);
+    title.add_css_class("page-title");
+    heading.append(&title);
+    let matched = gtk::Label::new(Some("PCI DEVICE MATCHED"));
+    matched.add_css_class("status-pill");
+    heading.append(&matched);
     page.append(&heading);
 
     let identity = gtk::Box::new(gtk::Orientation::Vertical, 4);
@@ -668,16 +684,12 @@ fn scout_page() -> gtk::ScrolledWindow {
     let heading = gtk::Box::new(gtk::Orientation::Horizontal, 12);
     let title = gtk::Label::new(Some("Scout Mode"));
     title.set_xalign(0.0);
+    title.set_hexpand(true);
     title.add_css_class("page-title");
-    let toggle = gtk::Switch::builder()
-        .active(false)
-        .sensitive(false)
-        .build();
-    toggle.set_tooltip_text(Some(
-        "The proprietary Scout Mode processing path is not available through the Linux driver.",
-    ));
-    heading.append(&toggle);
     heading.append(&title);
+    let status = gtk::Label::new(Some("UNAVAILABLE IN LINUX"));
+    status.add_css_class("unavailable-pill");
+    heading.append(&status);
     page.append(&heading);
 
     let explanation = gtk::Label::new(Some(
@@ -702,12 +714,549 @@ fn scout_page() -> gtk::ScrolledWindow {
         alternatives.append(&row);
     }
     page.append(&profile_card(
-        "—",
+        "STATUS",
         "Linux status: unavailable",
         "AE-5 Control does not present a decorative switch as working hardware support.",
         &alternatives,
     ));
 
+    gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .child(&page)
+        .build()
+}
+
+fn sound_effects_page(
+    window: &gtk::ApplicationWindow,
+    card_index: i32,
+    status: &gtk::Label,
+    controls: &[ControlSnapshot],
+) -> gtk::ScrolledWindow {
+    let page = gtk::Box::new(gtk::Orientation::Vertical, 18);
+    page.add_css_class("profile-page");
+
+    let header = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    let title = gtk::Label::new(Some("Sound effects"));
+    title.set_xalign(0.0);
+    title.set_hexpand(true);
+    title.add_css_class("page-title");
+    header.append(&title);
+    if let Some(engine) = controls
+        .iter()
+        .find(|control| control.name == "Enable OutFX")
+        && let Some(enabled) = engine.playback_switch
+    {
+        let engine_label = gtk::Label::new(Some("Acoustic engine"));
+        engine_label.add_css_class("dim-label");
+        header.append(&engine_label);
+        header.append(&switch_editor(
+            card_index,
+            status,
+            &engine.name,
+            enabled,
+            false,
+            None,
+        ));
+    }
+    page.append(&header);
+
+    let profile_heading = gtk::Label::new(Some("Profiles"));
+    profile_heading.set_xalign(0.0);
+    profile_heading.add_css_class("mixer-section");
+    page.append(&profile_heading);
+
+    let profile_strip = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    profile_strip.append(&sound_profile_card(
+        "LIVE",
+        "Current hardware",
+        &format!("{} controls read from the AE-5", controls.len()),
+        None,
+    ));
+    match profile_library() {
+        Ok(library) => {
+            for entry in library.profiles {
+                let card = sound_profile_card(
+                    "PROFILE",
+                    &entry.profile.name,
+                    &format!("{} validated controls", entry.profile.controls.len()),
+                    Some("Preview & apply"),
+                );
+                if let Some(button) = find_widget(card.clone().upcast(), |widget| {
+                    widget.has_css_class("profile-card-action")
+                })
+                .and_then(|widget| widget.downcast::<gtk::Button>().ok())
+                {
+                    let path = entry.path;
+                    let window = window.clone();
+                    let status = status.clone();
+                    button.connect_clicked(move |_| {
+                        let path = path.clone();
+                        let window = window.clone();
+                        let status = status.clone();
+                        gtk::glib::spawn_future_local(async move {
+                            match apply_profile_path(&window, card_index, &path).await {
+                                Ok(Some(message)) => {
+                                    let _ = refresh_window(&window, Some(&message));
+                                }
+                                Ok(None) => {}
+                                Err(error) => {
+                                    set_status(&status, false, &format!("Apply failed: {error}"))
+                                }
+                            }
+                        });
+                    });
+                }
+                profile_strip.append(&card);
+            }
+        }
+        Err(error) => {
+            profile_strip.append(&sound_profile_card(
+                "PROFILES",
+                "Library unavailable",
+                &error.to_string(),
+                None,
+            ));
+        }
+    }
+    let profiles = gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Automatic)
+        .vscrollbar_policy(gtk::PolicyType::Never)
+        .min_content_height(148)
+        .child(&profile_strip)
+        .build();
+    profiles.add_css_class("profile-carousel");
+    page.append(&profiles);
+
+    let effects_heading = gtk::Label::new(Some("Acoustic engine"));
+    effects_heading.set_xalign(0.0);
+    effects_heading.add_css_class("mixer-section");
+    page.append(&effects_heading);
+
+    let effects = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+    effects.set_homogeneous(true);
+    for name in [
+        "FX: Surround",
+        "FX: Crystalizer",
+        "FX: X-Bass",
+        "FX: Smart Volume",
+        "FX: Dialog Plus",
+    ] {
+        if let Some(control) = controls.iter().find(|control| control.name == name) {
+            effects.append(&effect_control_card(card_index, status, control, controls));
+        }
+    }
+    page.append(&effects);
+
+    let secondary_controls = ["FX: Smart Volume Setting", "FX: X-Bass Crossover"]
+        .into_iter()
+        .filter_map(|name| controls.iter().find(|control| control.name == name))
+        .collect::<Vec<_>>();
+    if !secondary_controls.is_empty() {
+        let advanced = gtk::Expander::new(Some("Advanced effect tuning"));
+        advanced.set_child(Some(&control_list(
+            card_index,
+            status,
+            controls,
+            secondary_controls.into_iter(),
+        )));
+        page.append(&advanced);
+    }
+
+    gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .child(&page)
+        .build()
+}
+
+fn sound_profile_card(kicker: &str, title: &str, detail: &str, action: Option<&str>) -> gtk::Box {
+    let card = gtk::Box::new(gtk::Orientation::Vertical, 6);
+    card.set_size_request(178, 126);
+    card.add_css_class("sound-profile-card");
+    if action.is_none() {
+        card.add_css_class("sound-profile-card-active");
+    }
+
+    let kicker = gtk::Label::new(Some(kicker));
+    kicker.set_xalign(0.0);
+    kicker.add_css_class("profile-card-kicker");
+    let title = gtk::Label::new(Some(title));
+    title.set_xalign(0.0);
+    title.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    title.add_css_class("profile-card-title");
+    let detail = gtk::Label::new(Some(detail));
+    detail.set_xalign(0.0);
+    detail.set_wrap(true);
+    detail.set_lines(2);
+    detail.add_css_class("dim-label");
+
+    card.append(&kicker);
+    card.append(&title);
+    card.append(&detail);
+    if let Some(action) = action {
+        let button = gtk::Button::with_label(action);
+        button.set_halign(gtk::Align::Start);
+        button.add_css_class("profile-card-action");
+        card.append(&button);
+    } else {
+        let active = gtk::Label::new(Some("ACTIVE"));
+        active.set_halign(gtk::Align::Start);
+        active.add_css_class("profile-card-active-label");
+        card.append(&active);
+    }
+    card
+}
+
+fn effect_control_card(
+    card_index: i32,
+    status: &gtk::Label,
+    control: &ControlSnapshot,
+    all_controls: &[ControlSnapshot],
+) -> gtk::Box {
+    let card = gtk::Box::new(gtk::Orientation::Vertical, 10);
+    card.set_size_request(152, 176);
+    card.add_css_class("effect-card");
+
+    let header = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    let title = gtk::Label::new(Some(match control.name.as_str() {
+        "FX: X-Bass" => "Bass",
+        "FX: Dialog Plus" => "Dialog+",
+        name => name.strip_prefix("FX: ").unwrap_or(name),
+    }));
+    title.set_xalign(0.0);
+    title.set_hexpand(true);
+    title.add_css_class("effect-card-title");
+    header.append(&title);
+    if let Some(enabled) = control.playback_switch {
+        header.append(&switch_editor(
+            card_index,
+            status,
+            &control.name,
+            enabled,
+            false,
+            playback_switch_block_reason(&control.name, true, all_controls),
+        ));
+    }
+    card.append(&header);
+
+    if let Some(level) = &control.playback_level {
+        let value = gtk::Label::new(Some(&level.value.to_string()));
+        value.set_halign(gtk::Align::Center);
+        value.add_css_class("effect-dial-value");
+        card.append(&value);
+
+        let editor = level_editor(
+            card_index,
+            status,
+            &control.name,
+            level,
+            false,
+            None,
+            direct_mode_block_reason(&control.name, all_controls)
+                .or_else(|| smart_volume_level_block_reason(&control.name, all_controls)),
+        );
+        if let Ok(scale) = editor.clone().downcast::<gtk::Scale>() {
+            scale.set_width_request(126);
+            scale.set_hexpand(true);
+        }
+        card.append(&editor);
+    }
+
+    card
+}
+
+fn playback_page(card_index: i32, status: &gtk::Label, controls: &[ControlSnapshot]) -> gtk::Box {
+    let page = gtk::Box::new(gtk::Orientation::Vertical, 0);
+
+    let header = gtk::Box::new(gtk::Orientation::Vertical, 10);
+    header.add_css_class("settings-header");
+    let title = gtk::Label::new(Some("Playback"));
+    title.set_xalign(0.0);
+    title.add_css_class("page-title");
+    header.append(&title);
+
+    let stack = gtk::Stack::builder()
+        .transition_type(gtk::StackTransitionType::Crossfade)
+        .hexpand(true)
+        .vexpand(true)
+        .build();
+    stack.add_titled(
+        &analog_playback_page(card_index, status, controls),
+        Some("analog"),
+        "Analog",
+    );
+    stack.add_titled(
+        &digital_playback_page(card_index, status, controls),
+        Some("digital"),
+        "Digital",
+    );
+    let switcher = gtk::StackSwitcher::builder()
+        .stack(&stack)
+        .halign(gtk::Align::Start)
+        .build();
+    switcher.add_css_class("page-tabs");
+    header.append(&switcher);
+
+    page.append(&header);
+    page.append(&stack);
+    page
+}
+
+fn analog_playback_page(
+    card_index: i32,
+    status: &gtk::Label,
+    controls: &[ControlSnapshot],
+) -> gtk::ScrolledWindow {
+    let page = gtk::Box::new(gtk::Orientation::Vertical, 16);
+    page.add_css_class("profile-page");
+
+    if let Some(warning) = front_vmaster_clamp_warning(controls) {
+        let notice = gtk::Label::new(Some(&format!("Gain staging\n{warning}")));
+        notice.set_xalign(0.0);
+        notice.set_wrap(true);
+        notice.add_css_class("gain-stage-notice");
+        page.append(&notice);
+    }
+
+    if let Some(output) = controls
+        .iter()
+        .find(|control| control.name == "Output Select")
+    {
+        let route = gtk::Label::new(Some(&format!(
+            "Active route: {} · change Speakers / Headphones from the footer",
+            output.selected.as_deref().unwrap_or("unknown")
+        )));
+        route.set_xalign(0.0);
+        route.set_wrap(true);
+        route.add_css_class("playback-route-note");
+        page.append(&route);
+    }
+
+    let settings_title = gtk::Label::new(Some("Playback setup"));
+    settings_title.set_xalign(0.0);
+    settings_title.add_css_class("mixer-section");
+    page.append(&settings_title);
+
+    let grid = gtk::Grid::builder()
+        .column_spacing(12)
+        .row_spacing(12)
+        .column_homogeneous(true)
+        .build();
+    for (index, name) in [
+        "AE-5: Headphone Gain",
+        "AE-5: Sound Filter",
+        "Surround Channel Config",
+        "HP/Speaker Auto Detect",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        if let Some(control) = controls.iter().find(|control| control.name == name) {
+            grid.attach(
+                &playback_setting_tile(card_index, status, control, controls),
+                (index % 2) as i32,
+                (index / 2) as i32,
+                1,
+                1,
+            );
+        }
+    }
+
+    let direct_tile = if let Some(control) = controls
+        .iter()
+        .find(|control| control.name == DIRECT_MODE_CONTROL)
+    {
+        playback_setting_tile(card_index, status, control, controls)
+    } else {
+        playback_unavailable_tile(
+            "Direct Mode",
+            "Available after booting the installed 7.1.4-ae5-current test kernel.",
+        )
+    };
+    grid.attach(&direct_tile, 0, 2, 1, 1);
+    grid.attach(
+        &playback_unavailable_tile(
+            "Audio quality",
+            "Native PipeWire rates: 44.1, 48, and 96 kHz. Linux exposes the transport format separately from Creative's Windows label.",
+        ),
+        1,
+        2,
+        1,
+        1,
+    );
+    page.append(&grid);
+
+    let advanced_controls = [
+        "Full-Range Front Speakers",
+        "Full-Range Rear Speakers",
+        "Bass Redirection",
+        "Bass Redirection Crossover",
+    ]
+    .into_iter()
+    .filter_map(|name| controls.iter().find(|control| control.name == name))
+    .collect::<Vec<_>>();
+    if !advanced_controls.is_empty() {
+        let advanced = gtk::Expander::new(Some("Advanced speaker controls"));
+        advanced.set_child(Some(&control_list(
+            card_index,
+            status,
+            controls,
+            advanced_controls.into_iter(),
+        )));
+        page.append(&advanced);
+    }
+
+    gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .child(&page)
+        .build()
+}
+
+fn footer_output_selector(
+    card_index: i32,
+    status: &gtk::Label,
+    control: &ControlSnapshot,
+) -> gtk::Box {
+    let choices = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    choices.add_css_class("footer-output-selector");
+    let label = gtk::Label::new(Some("ROUTE"));
+    label.add_css_class("footer-route-label");
+    choices.append(&label);
+
+    let speakers = gtk::ToggleButton::with_label("Speakers");
+    let headphones = gtk::ToggleButton::with_label("Headphones");
+    headphones.set_group(Some(&speakers));
+    for button in [&speakers, &headphones] {
+        button.add_css_class("footer-output-choice");
+    }
+
+    let selected_index = if control.selected.as_deref() == Some("Headphone") {
+        1
+    } else {
+        0
+    };
+    if selected_index == 0 {
+        speakers.set_active(true);
+    } else {
+        headphones.set_active(true);
+    }
+    let buttons = [speakers.clone(), headphones.clone()];
+    let verified = Rc::new(Cell::new(selected_index));
+    let updating = Rc::new(Cell::new(false));
+    for (index, (button, requested)) in [
+        (speakers.clone(), "Speakers"),
+        (headphones.clone(), "Headphone"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let buttons = buttons.clone();
+        let verified = verified.clone();
+        let updating = updating.clone();
+        let status = status.clone();
+        let control_name = control.name.clone();
+        button.connect_toggled(move |button| {
+            if updating.get() || !button.is_active() {
+                return;
+            }
+            match with_mixer(card_index, |mixer| {
+                mixer.set_choice_checked(&control_name, requested, false)
+            }) {
+                Ok(actual) => {
+                    verified.set(index);
+                    set_status(
+                        &status,
+                        true,
+                        &format!("Applied and verified: {}", control_summary(&actual)),
+                    );
+                }
+                Err(error) => {
+                    updating.set(true);
+                    buttons[verified.get()].set_active(true);
+                    updating.set(false);
+                    set_status(&status, false, &format!("Output change failed: {error}"));
+                }
+            }
+        });
+    }
+    choices.append(&speakers);
+    choices.append(&headphones);
+    choices
+}
+
+fn playback_setting_tile(
+    card_index: i32,
+    status: &gtk::Label,
+    control: &ControlSnapshot,
+    all_controls: &[ControlSnapshot],
+) -> gtk::Box {
+    let tile = gtk::Box::new(gtk::Orientation::Vertical, 8);
+    tile.add_css_class("playback-setting-tile");
+    let title = gtk::Label::new(Some(&control_display_name(&control.name)));
+    title.set_xalign(0.0);
+    title.add_css_class("section-title");
+    tile.append(&title);
+
+    let block = direct_mode_block_reason(&control.name, all_controls);
+    let permission = if control.name == "AE-5: Headphone Gain" {
+        let permission = gtk::CheckButton::with_label("Allow 150–600 Ω");
+        permission.set_tooltip_text(Some(
+            "Enable only when high-impedance headphones are connected.",
+        ));
+        tile.append(&permission);
+        Some(permission)
+    } else {
+        None
+    };
+    if control.selected.is_some() {
+        tile.append(&choice_editor(
+            card_index, status, control, permission, block,
+        ));
+    }
+    if let Some(enabled) = control.playback_switch {
+        let editor = switch_editor(card_index, status, &control.name, enabled, false, block);
+        editor.set_halign(gtk::Align::Start);
+        tile.append(&editor);
+    }
+    tile
+}
+
+fn playback_unavailable_tile(title: &str, detail: &str) -> gtk::Box {
+    let tile = gtk::Box::new(gtk::Orientation::Vertical, 8);
+    tile.add_css_class("playback-setting-tile");
+    let title = gtk::Label::new(Some(title));
+    title.set_xalign(0.0);
+    title.add_css_class("section-title");
+    let detail = gtk::Label::new(Some(detail));
+    detail.set_xalign(0.0);
+    detail.set_wrap(true);
+    detail.add_css_class("dim-label");
+    tile.append(&title);
+    tile.append(&detail);
+    tile
+}
+
+fn digital_playback_page(
+    card_index: i32,
+    status: &gtk::Label,
+    controls: &[ControlSnapshot],
+) -> gtk::ScrolledWindow {
+    let page = gtk::Box::new(gtk::Orientation::Vertical, 16);
+    page.add_css_class("profile-page");
+    let intro = gtk::Label::new(Some(
+        "Digital output controls are separate from the analog Speakers / Headphones path.",
+    ));
+    intro.set_xalign(0.0);
+    intro.set_wrap(true);
+    intro.add_css_class("dim-label");
+    page.append(&intro);
+    page.append(&control_list(
+        card_index,
+        status,
+        controls,
+        ["IEC958", "IEC958 Default PCM"]
+            .into_iter()
+            .filter_map(|name| controls.iter().find(|control| control.name == name)),
+    ));
     gtk::ScrolledWindow::builder()
         .hscrollbar_policy(gtk::PolicyType::Never)
         .child(&page)
@@ -722,9 +1271,29 @@ fn equalizer_page(
     let page = gtk::Box::new(gtk::Orientation::Vertical, 18);
     page.add_css_class("profile-page");
 
-    let heading = gtk::Label::new(Some("Equalizer"));
-    heading.set_xalign(0.0);
-    heading.add_css_class("page-title");
+    let heading = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    let title = gtk::Label::new(Some("Equalizer"));
+    title.set_xalign(0.0);
+    title.set_hexpand(true);
+    title.add_css_class("page-title");
+    heading.append(&title);
+    let enabled = controls
+        .iter()
+        .find(|control| control.name == "FX: Equalizer")
+        .and_then(|control| control.playback_switch)
+        .is_some_and(|enabled| enabled);
+    let preset = controls
+        .iter()
+        .find(|control| control.name == "FX: Equalizer Preset")
+        .and_then(|control| control.selected.as_deref())
+        .unwrap_or("custom");
+    let summary = gtk::Label::new(Some(&format!(
+        "EQ {} · {}",
+        if enabled { "ON" } else { "OFF" },
+        preset.to_uppercase()
+    )));
+    summary.add_css_class("status-pill");
+    heading.append(&summary);
     page.append(&heading);
 
     let intro = gtk::Label::new(Some(
@@ -788,6 +1357,124 @@ fn equalizer_page(
         .build()
 }
 
+fn recording_page(
+    card_index: i32,
+    status: &gtk::Label,
+    controls: &[ControlSnapshot],
+) -> gtk::ScrolledWindow {
+    let page = gtk::Box::new(gtk::Orientation::Vertical, 18);
+    page.add_css_class("profile-page");
+
+    let heading = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    let title = gtk::Label::new(Some("Recording"));
+    title.set_xalign(0.0);
+    title.set_hexpand(true);
+    title.add_css_class("page-title");
+    heading.append(&title);
+
+    if let Some(source) = controls
+        .iter()
+        .find(|control| control.name == "Input Source")
+    {
+        let current = gtk::Label::new(Some(&format!(
+            "INPUT · {}",
+            source.selected.as_deref().unwrap_or("UNKNOWN")
+        )));
+        current.add_css_class("status-pill");
+        heading.append(&current);
+    }
+    page.append(&heading);
+
+    let intro = gtk::Label::new(Some(
+        "Select the physical input first, then configure capture gain and the CA0132 \
+         recording processor. Every available change is written and read back immediately.",
+    ));
+    intro.set_xalign(0.0);
+    intro.set_wrap(true);
+    intro.add_css_class("dim-label");
+    page.append(&intro);
+
+    if let Some(source) = controls
+        .iter()
+        .find(|control| control.name == "Input Source")
+    {
+        let source_panel = gtk::Box::new(gtk::Orientation::Horizontal, 18);
+        source_panel.add_css_class("recording-source-panel");
+        let labels = gtk::Box::new(gtk::Orientation::Vertical, 4);
+        labels.set_hexpand(true);
+        let title = gtk::Label::new(Some("Recording source"));
+        title.set_xalign(0.0);
+        title.add_css_class("section-title");
+        let detail = gtk::Label::new(Some(
+            "This selects the card input; desktop application routing remains on the Mixer page.",
+        ));
+        detail.set_xalign(0.0);
+        detail.set_wrap(true);
+        detail.add_css_class("dim-label");
+        labels.append(&title);
+        labels.append(&detail);
+        source_panel.append(&labels);
+        source_panel.append(&choice_editor(card_index, status, source, None, None));
+        page.append(&source_panel);
+    }
+
+    let capture = gtk::Label::new(Some("Capture path"));
+    capture.set_xalign(0.0);
+    capture.add_css_class("mixer-section");
+    page.append(&capture);
+    page.append(&control_list(
+        card_index,
+        status,
+        controls,
+        ["Capture", "Mic Boost"]
+            .into_iter()
+            .filter_map(|name| controls.iter().find(|control| control.name == name)),
+    ));
+
+    let processing_controls = [
+        "Enable InFX",
+        "FX: Noise Reduction",
+        "FX: Mic SVM",
+        "SVM Level",
+        "FX: Voice Focus",
+        "VoiceFX",
+    ]
+    .into_iter()
+    .filter_map(|name| controls.iter().find(|control| control.name == name))
+    .collect::<Vec<_>>();
+    if !processing_controls.is_empty() {
+        let processing = gtk::Label::new(Some("Recording processor"));
+        processing.set_xalign(0.0);
+        processing.add_css_class("mixer-section");
+        page.append(&processing);
+        page.append(&control_list(
+            card_index,
+            status,
+            controls,
+            processing_controls.into_iter(),
+        ));
+    }
+
+    if let Some(loopback) = controls
+        .iter()
+        .find(|control| control.name == "What U Hear")
+    {
+        let advanced = gtk::Expander::new(Some("Desktop loopback"));
+        advanced.set_child(Some(&control_list(
+            card_index,
+            status,
+            controls,
+            std::iter::once(loopback),
+        )));
+        page.append(&advanced);
+    }
+
+    gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .child(&page)
+        .build()
+}
+
 fn mixer_page(
     card_index: i32,
     status: &gtk::Label,
@@ -796,9 +1483,28 @@ fn mixer_page(
     let page = gtk::Box::new(gtk::Orientation::Vertical, 18);
     page.add_css_class("profile-page");
 
-    let heading = gtk::Label::new(Some("Mixer"));
-    heading.set_xalign(0.0);
-    heading.add_css_class("page-title");
+    let heading = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    let title = gtk::Label::new(Some("Mixer"));
+    title.set_xalign(0.0);
+    title.set_hexpand(true);
+    title.add_css_class("page-title");
+    heading.append(&title);
+    if let Some(master) = controls.iter().find(|control| control.name == "Master") {
+        let level = master.playback_level.as_ref().map_or_else(
+            || "LEVEL UNKNOWN".to_owned(),
+            |level| format!("{}%", level.value),
+        );
+        let summary = gtk::Label::new(Some(&format!(
+            "MASTER {} · {level}",
+            if master.playback_switch == Some(false) {
+                "MUTED"
+            } else {
+                "ACTIVE"
+            }
+        )));
+        summary.add_css_class("status-pill");
+        heading.append(&summary);
+    }
     page.append(&heading);
 
     let intro = gtk::Label::new(Some(
@@ -809,6 +1515,14 @@ fn mixer_page(
     intro.set_wrap(true);
     intro.add_css_class("dim-label");
     page.append(&intro);
+
+    if let Some(warning) = front_vmaster_clamp_warning(controls) {
+        let notice = gtk::Label::new(Some(&format!("Gain staging\n{warning}")));
+        notice.set_xalign(0.0);
+        notice.set_wrap(true);
+        notice.add_css_class("gain-stage-notice");
+        page.append(&notice);
+    }
 
     let playback = gtk::Label::new(Some("Playback"));
     playback.set_xalign(0.0);
@@ -868,9 +1582,18 @@ fn compatibility_page() -> gtk::ScrolledWindow {
     let page = gtk::Box::new(gtk::Orientation::Vertical, 18);
     page.add_css_class("profile-page");
 
-    let heading = gtk::Label::new(Some("Sound Blaster Command compatibility"));
-    heading.set_xalign(0.0);
-    heading.add_css_class("page-title");
+    let heading = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    let title = gtk::Label::new(Some("Sound Blaster Command compatibility"));
+    title.set_xalign(0.0);
+    title.set_hexpand(true);
+    title.add_css_class("page-title");
+    heading.append(&title);
+    let count = gtk::Label::new(Some(&format!(
+        "{} FEATURES TRACKED",
+        feature_parity().count()
+    )));
+    count.add_css_class("status-pill");
+    heading.append(&count);
     page.append(&heading);
 
     let summary = gtk::Box::new(gtk::Orientation::Vertical, 4);
@@ -954,9 +1677,24 @@ fn lighting_page(window: &gtk::ApplicationWindow, status: &gtk::Label) -> gtk::S
     let page = gtk::Box::new(gtk::Orientation::Vertical, 18);
     page.add_css_class("profile-page");
 
-    let heading = gtk::Label::new(Some("Onboard lighting"));
-    heading.set_xalign(0.0);
-    heading.add_css_class("page-title");
+    let heading = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    let title = gtk::Label::new(Some("Onboard lighting"));
+    title.set_xalign(0.0);
+    title.set_hexpand(true);
+    title.add_css_class("page-title");
+    heading.append(&title);
+    let available = Ae5Lighting::discover().is_ok();
+    let state = gtk::Label::new(Some(if available {
+        "5 LEDS ONLINE"
+    } else {
+        "KERNEL SUPPORT REQUIRED"
+    }));
+    state.add_css_class(if available {
+        "status-pill"
+    } else {
+        "unavailable-pill"
+    });
+    heading.append(&state);
     page.append(&heading);
 
     let intro = gtk::Label::new(Some(
@@ -1433,9 +2171,21 @@ fn profile_page(
     let page = gtk::Box::new(gtk::Orientation::Vertical, 18);
     page.add_css_class("profile-page");
 
-    let heading = gtk::Label::new(Some("Profiles & migration"));
-    heading.set_xalign(0.0);
-    heading.add_css_class("page-title");
+    let heading = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    let title = gtk::Label::new(Some("Profiles & migration"));
+    title.set_xalign(0.0);
+    title.set_hexpand(true);
+    title.add_css_class("page-title");
+    heading.append(&title);
+    if let Ok(library) = profile_library() {
+        let summary = gtk::Label::new(Some(&format!(
+            "{} SAVED PROFILE{}",
+            library.profiles.len(),
+            if library.profiles.len() == 1 { "" } else { "S" }
+        )));
+        summary.add_css_class("status-pill");
+        heading.append(&summary);
+    }
     page.append(&heading);
 
     let intro = gtk::Label::new(Some(
@@ -1641,6 +2391,7 @@ fn saved_profile_actions(
                 let buttons = gtk::Box::new(gtk::Orientation::Horizontal, 8);
                 buttons.set_halign(gtk::Align::End);
                 let apply = gtk::Button::with_label("Preview & apply");
+                apply.add_css_class("suggested-action");
                 let export = gtk::Button::with_label("Export copy");
                 let rename = gtk::Button::with_label("Rename");
                 let trash = gtk::Button::with_label("Move to Trash");
@@ -3266,8 +4017,8 @@ fn install_css() {
             padding: 0;
         }
         .status-rail {
-            min-height: 30px;
-            padding: 6px 14px;
+            min-height: 34px;
+            padding: 5px 14px;
             background: #0d1828;
             border-top: 1px solid alpha(#ffffff, 0.08);
         }
@@ -3282,8 +4033,46 @@ fn install_css() {
             font-size: 10px;
             font-weight: 700;
         }
+        .footer-output-selector {
+            border: 1px solid alpha(#ffffff, 0.14);
+            border-radius: 2px;
+        }
+        .footer-route-label {
+            padding: 0 8px;
+            color: #8da0b2;
+            background: #162238;
+            font-family: monospace;
+            font-size: 9px;
+            font-weight: 700;
+        }
+        .footer-output-choice {
+            min-width: 72px;
+            min-height: 26px;
+            padding: 2px 8px;
+            color: #aab7c4;
+            background: #252a38;
+            border: 0;
+            border-left: 1px solid alpha(#ffffff, 0.10);
+            border-radius: 0;
+            font-size: 10px;
+        }
+        .footer-output-choice:checked {
+            color: #f8fbfc;
+            background: #147e88;
+            box-shadow: inset 0 -2px #35d3de;
+        }
         .operation-ok { color: #72d9c0; }
         .operation-error, .warning-label, .warning-value { color: #ffb4a9; }
+        .unavailable-pill {
+            padding: 6px 10px;
+            color: #ffd19a;
+            background: alpha(#ffad42, 0.08);
+            border: 1px solid alpha(#ffbd66, 0.30);
+            border-radius: 3px;
+            font-family: monospace;
+            font-size: 10px;
+            font-weight: 700;
+        }
         stacksidebar.navigation-sidebar,
         stacksidebar.navigation-sidebar scrolledwindow,
         stacksidebar.navigation-sidebar viewport,
@@ -3303,6 +4092,9 @@ fn install_css() {
             border-left: 3px solid transparent;
         }
         .navigation-sidebar row:hover { background: alpha(#ffffff, 0.035); }
+        .navigation-sidebar row:focus-visible {
+            box-shadow: inset 0 0 0 2px #57dce5;
+        }
         .navigation-sidebar row:selected {
             background: #49536e;
             color: #43d5df;
@@ -3349,6 +4141,98 @@ fn install_css() {
             font-family: monospace;
             font-size: 11px;
             font-weight: 700;
+        }
+        .profile-carousel {
+            padding-bottom: 4px;
+            background: transparent;
+        }
+        .sound-profile-card {
+            padding: 12px;
+            background-image: linear-gradient(145deg, #292747, #1b2e45);
+            border: 1px solid alpha(#aebbd0, 0.16);
+            border-radius: 3px;
+        }
+        .sound-profile-card:hover {
+            background-image: linear-gradient(145deg, #302e54, #1f384f);
+            border-color: alpha(#4dd8e1, 0.42);
+        }
+        .sound-profile-card-active {
+            border: 2px solid #21c6d4;
+            background-image: linear-gradient(145deg, #32305a, #184253);
+        }
+        .profile-card-kicker {
+            color: #52d8e1;
+            font-family: monospace;
+            font-size: 9px;
+            font-weight: 800;
+        }
+        .profile-card-title {
+            color: #f4f7fa;
+            font-size: 15px;
+            font-weight: 750;
+        }
+        .profile-card-action {
+            min-height: 24px;
+            padding: 3px 8px;
+            font-size: 10px;
+        }
+        .profile-card-active-label {
+            color: #55dce5;
+            font-family: monospace;
+            font-size: 9px;
+            font-weight: 800;
+        }
+        .effect-card {
+            padding: 12px;
+            background: #242238;
+            border: 1px solid alpha(#c1c7d0, 0.12);
+            border-top: 2px solid alpha(#22c7d4, 0.50);
+            border-radius: 3px;
+        }
+        .effect-card:hover {
+            background: #292640;
+            border-top-color: #2fd0dc;
+        }
+        .effect-card scale.horizontal {
+            min-width: 116px;
+        }
+        .effect-card-title {
+            color: #edf2f7;
+            font-size: 13px;
+            font-weight: 700;
+        }
+        .effect-dial-value {
+            min-width: 52px;
+            min-height: 52px;
+            padding: 7px;
+            color: #f7fbfd;
+            background: #1b2940;
+            border: 5px solid #22c7d4;
+            border-radius: 999px;
+            font-size: 18px;
+            font-weight: 800;
+        }
+        .playback-route-note {
+            padding: 9px 12px;
+            color: #b8c5d0;
+            background: alpha(#22c7d4, 0.06);
+            border: 1px solid alpha(#22c7d4, 0.18);
+            border-left: 3px solid #22c7d4;
+            border-radius: 2px;
+        }
+        .playback-setting-tile {
+            min-height: 92px;
+            padding: 12px 14px;
+            background: #242238;
+            border: 1px solid alpha(#c1c7d0, 0.10);
+            border-radius: 3px;
+        }
+        .recording-source-panel {
+            padding: 14px 16px;
+            background: #242238;
+            border: 1px solid alpha(#22c7d4, 0.26);
+            border-left: 3px solid #22c7d4;
+            border-radius: 3px;
         }
         .profile-card {
             background: #242238;
@@ -3402,6 +4286,23 @@ fn install_css() {
             background: #147e88;
             color: #ffffff;
             border-color: #22b8c5;
+        }
+        button.destructive-action {
+            color: #ffc3bd;
+            background: alpha(#d95c5c, 0.12);
+            border-color: alpha(#ff8d83, 0.35);
+        }
+        button.destructive-action:hover {
+            color: #ffffff;
+            background: alpha(#d95c5c, 0.28);
+        }
+        button:focus-visible,
+        switch:focus-visible,
+        dropdown:focus-visible,
+        entry:focus-visible,
+        scale:focus-visible {
+            outline: 2px solid #57dce5;
+            outline-offset: 2px;
         }
         switch {
             min-width: 34px;

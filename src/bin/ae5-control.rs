@@ -18,6 +18,7 @@ use gtk::prelude::*;
 use gtk::{gdk::Display, gio};
 use std::cell::{Cell, RefCell};
 use std::ffi::OsString;
+use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -46,6 +47,13 @@ const EQ_BAND_LABELS: [&str; 10] = [
     "8 kHz (Treble in Command)",
     "16 kHz",
 ];
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum KernelReadiness {
+    Ready,
+    Stock,
+    Attention,
+}
 
 fn main() -> gtk::glib::ExitCode {
     if std::env::var_os("GSK_RENDERER").is_none() {
@@ -339,6 +347,36 @@ fn device_page(
         &identity,
     ));
 
+    let release = fs::read_to_string("/proc/sys/kernel/osrelease")
+        .map(|value| value.trim().to_owned())
+        .unwrap_or_else(|_| "unavailable".to_owned());
+    let taint = fs::read_to_string("/proc/sys/kernel/tainted")
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok());
+    let direct_mode = controls
+        .iter()
+        .any(|control| control.name == DIRECT_MODE_CONTROL);
+    let lighting = Ae5Lighting::discover().is_ok();
+    let (kernel_summary, kernel_readiness) =
+        kernel_readiness_summary(&release, taint, direct_mode, lighting);
+    let kernel_status = gtk::Label::new(Some(&kernel_summary));
+    kernel_status.set_xalign(0.0);
+    kernel_status.set_wrap(true);
+    kernel_status.set_selectable(true);
+    kernel_status.add_css_class(match kernel_readiness {
+        KernelReadiness::Ready => "operation-ok",
+        KernelReadiness::Stock => "dim-label",
+        KernelReadiness::Attention => "warning-value",
+    });
+    let kernel_details = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    kernel_details.append(&kernel_status);
+    page.append(&profile_card(
+        "02",
+        "Kernel & project interfaces",
+        "Read-only boot readiness. Interface detection does not replace physical driver acceptance.",
+        &kernel_details,
+    ));
+
     let warnings = driver_range_warnings(controls);
     let capability_summary = gtk::Box::new(gtk::Orientation::Vertical, 4);
     let selectable = controls
@@ -382,7 +420,7 @@ fn device_page(
         capability_summary.append(&label);
     }
     page.append(&profile_card(
-        "02",
+        "03",
         "Live capabilities",
         "Only controls exposed by the running ALSA driver appear in the application.",
         &capability_summary,
@@ -434,7 +472,7 @@ fn device_page(
         });
     }
     page.append(&profile_card(
-        "03",
+        "04",
         "Desktop route health",
         "The check is read-only. The repair action is explicit and may unmute Front when Headphone output requires it.",
         &route_actions,
@@ -444,7 +482,7 @@ fn device_page(
     let save_report = gtk::Button::with_label("Save diagnostics report");
     report_actions.append(&save_report);
     page.append(&profile_card(
-        "04",
+        "05",
         "Private diagnostics",
         "Create a local report without root. Hostname, user, storage, network data, and unrelated PipeWire devices are omitted by default. Review the file before sharing it.",
         &report_actions,
@@ -475,6 +513,51 @@ fn device_page(
         .hscrollbar_policy(gtk::PolicyType::Never)
         .child(&page)
         .build()
+}
+
+fn kernel_readiness_summary(
+    release: &str,
+    taint: Option<u64>,
+    direct_mode: bool,
+    lighting: bool,
+) -> (String, KernelReadiness) {
+    let taint_text = match taint {
+        Some(0) => "0 (clean)".to_owned(),
+        Some(value) => format!("{value} (review before driver testing)"),
+        None => "unavailable".to_owned(),
+    };
+    let readiness = match taint {
+        Some(0) if direct_mode && lighting => KernelReadiness::Ready,
+        Some(0) => KernelReadiness::Stock,
+        _ => KernelReadiness::Attention,
+    };
+    let direct_mode_text = if direct_mode {
+        "available"
+    } else {
+        "unavailable"
+    };
+    let lighting_text = if lighting {
+        "available (five LEDs)"
+    } else {
+        "unavailable"
+    };
+    let conclusion = match readiness {
+        KernelReadiness::Ready => {
+            "Project interfaces detected; physical acceptance is still pending."
+        }
+        KernelReadiness::Stock => {
+            "Stock-compatible control path active; project-only interfaces are not all present."
+        }
+        KernelReadiness::Attention => "Kernel state needs review before physical driver testing.",
+    };
+
+    (
+        format!(
+            "Running kernel: {release}\nKernel taint: {taint_text}\n\
+             Direct Mode: {direct_mode_text}\nOnboard lighting: {lighting_text}\n{conclusion}"
+        ),
+        readiness,
+    )
 }
 
 fn compatibility_page() -> gtk::ScrolledWindow {
@@ -3184,6 +3267,40 @@ mod tests {
 
         assert_eq!(argv[0], std::ffi::OsStr::new("ae5-collect-report"));
         assert_eq!(argv[1], path.as_os_str());
+    }
+
+    #[test]
+    fn summarizes_clean_project_kernel_readiness() {
+        let (summary, readiness) =
+            kernel_readiness_summary("7.1.4-ae5-current", Some(0), true, true);
+
+        assert_eq!(readiness, KernelReadiness::Ready);
+        assert!(summary.contains("Running kernel: 7.1.4-ae5-current"));
+        assert!(summary.contains("Kernel taint: 0 (clean)"));
+        assert!(summary.contains("Direct Mode: available"));
+        assert!(summary.contains("Onboard lighting: available (five LEDs)"));
+        assert!(summary.contains("physical acceptance is still pending"));
+    }
+
+    #[test]
+    fn distinguishes_the_clean_stock_kernel_path() {
+        let (summary, readiness) =
+            kernel_readiness_summary("7.1.4-200.nobara.fc44.x86_64", Some(0), false, false);
+
+        assert_eq!(readiness, KernelReadiness::Stock);
+        assert!(summary.contains("Direct Mode: unavailable"));
+        assert!(summary.contains("Onboard lighting: unavailable"));
+        assert!(summary.contains("Stock-compatible control path active"));
+    }
+
+    #[test]
+    fn warns_when_the_kernel_is_tainted() {
+        let (summary, readiness) =
+            kernel_readiness_summary("7.1.4-ae5-current", Some(512), true, true);
+
+        assert_eq!(readiness, KernelReadiness::Attention);
+        assert!(summary.contains("Kernel taint: 512"));
+        assert!(summary.contains("needs review before physical driver testing"));
     }
 
     #[test]

@@ -72,6 +72,11 @@ collect() {
 		)
 	fi
 	printf 'kernel=%s\n' "$(uname -srmv)"
+	if [[ -r /proc/sys/kernel/tainted ]]; then
+		printf 'kernel_tainted=%s\n' "$(< /proc/sys/kernel/tainted)"
+	else
+		printf 'kernel_tainted=unavailable\n'
+	fi
 
 	run 'Creative PCI devices' lspci -nnk -d 1102:
 	run 'ALSA cards' sh -c 'cat /proc/asound/cards'
@@ -83,6 +88,12 @@ collect() {
 	run 'CA0132 module information' modinfo snd_hda_codec_ca0132
 	run 'Loaded sound modules' sh -c \
 		'lsmod | grep -E "^(snd|soundcore)" || true'
+	run 'Failed system units' systemctl --failed --no-legend --plain
+	run 'Failed user units' systemctl --user --failed --no-legend --plain
+	run 'Relevant warning-level kernel log' sh -c \
+		'journalctl -k -b -p warning..alert -o cat --no-pager 2>/dev/null |
+		 grep -Ei "ca0132|sound blaster|snd_hda|hdaudio|firmware" ||
+		 true'
 	run 'Relevant kernel log' sh -c \
 		'journalctl -k -b -o cat --no-pager 2>/dev/null |
 		 grep -Ei "ca0132|sound blaster|snd_hda|hdaudio|firmware" ||
@@ -128,6 +139,10 @@ self_test() {
 	grep -q '^## Creative PipeWire objects$' "$report"
 	grep -q '^## AE-5 Control route health$' "$report"
 	grep -q '^## AE-5 onboard lighting$' "$report"
+	grep -q '^kernel_tainted=' "$report"
+	grep -q '^## Failed system units$' "$report"
+	grep -q '^## Failed user units$' "$report"
+	grep -q '^## Relevant warning-level kernel log$' "$report"
 	! grep -Fq "$HOME" "$report"
 	if [[ -r /proc/sys/kernel/hostname ]]; then
 		read -r hostname_value < /proc/sys/kernel/hostname

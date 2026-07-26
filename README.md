@@ -319,6 +319,11 @@ sudo dnf install gtk4-devel
 cargo run --features gui --bin ae5-control
 ```
 
+The Device page also reports the running kernel release and taint state, then
+distinguishes the normal stock-compatible path from the project kernel's
+Direct Mode and five-device onboard-lighting interfaces. This is a read-only
+readiness summary, not a substitute for physical kernel acceptance.
+
 The release GUI has reproducible startup, hardware-refresh, idle CPU, and
 resident-memory budgets. Run the read-only measurement with:
 
@@ -385,9 +390,9 @@ a dedicated confirmation.
 
 ## Hardware audit
 
-Collect the actual card identity, driver state, ALSA controls, onboard
-LED-class state, codec data, and relevant kernel log with the installed
-package:
+Collect the actual card identity, kernel taint and failed-unit state, driver
+and module metadata, ALSA controls, onboard LED-class state, codec data, and
+relevant kernel log with the installed package:
 
 ```sh
 ae5-collect-report

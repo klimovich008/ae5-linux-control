@@ -84,3 +84,9 @@ capture showed the refined hardware console with the exact AE-5 online and all
 48 controls detected. The only GTK diagnostic was the distribution's
 unrecognized global `gtk-modules` setting; the application itself emitted no
 error.
+
+The later kernel-readiness Device card was measured in the same native Wayland
+session from the release binary. Its read-only kernel release, taint, Direct
+Mode, and onboard-lighting checks completed with the normal hardware refresh:
+209 ms startup, 68 ms refresh, 0.00% sampled idle CPU, and 70,844 KiB peak idle
+RSS. Every Version 1 budget passed.

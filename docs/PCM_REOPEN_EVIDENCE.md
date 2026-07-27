@@ -134,6 +134,55 @@ The verified RPM is now installed side by side on the host. Stock
 `7.1.4-ae5-stable` is selected for the next boot only. No host reboot occurred
 during this qualification.
 
+## Reproducible host acceptance harness
+
+[`scripts/check-ae5-playback-stability.sh`](../scripts/check-ae5-playback-stability.sh)
+turns the packaged-kernel matrix into one fail-closed command. It:
+
+- runs the exact kernel identity, taint, signed-module, PCI, LED, Direct Mode,
+  and OutFX-off runtime gate before changing state;
+- requires `AE5_ANALOG_OUTPUTS_UNPLUGGED=1` as an explicit physical-topology
+  acknowledgement;
+- hard-mutes Master and Front, selects Low headphone gain, and stops only the
+  desktop audio services that were active before the run;
+- generates a four-second 1000 Hz S16 fixture at −30 dBFS and captures the
+  exact What U Hear PCM as S32;
+- opens and closes the exact normal analog playback PCM with the qualified
+  6016/24064 frame geometry;
+- rejects silence, clipping, or THD above 1%; and
+- discovers the unique raw `Enable OutFX Playback Switch`, requires an enable
+  request to fail with `EOPNOTSUPP`, and verifies simple-control readback
+  remains off.
+
+The companion [`tools/tone-thd.py`](../tools/tone-thd.py) analyzer has a
+cardless self-test that distinguishes a clean generated fixture from one with
+an injected 20% second harmonic.
+
+A fresh managed-VFIO boot of the physical card into
+`7.1.4-ae5-stable` first passed a shortened first-open/warm/idle/rejected-OutFX
+smoke. The final harness was then run from a second fresh managed boot and
+produced:
+
+| Harness group | Captures | THD range |
+|---|---:|---:|
+| First open | 1 | 0.003327% |
+| Immediate warm reopens | 12 | 0.003304–0.003352% |
+| Reopen after 20 seconds closed | 1 | 0.003335% |
+| Reopens after rejected OutFX enable | 8 | 0.003331–0.003335% |
+
+All 22 final-run captures had the same 3.130257% internal peak. Kernel taint
+remained zero. The first playback emitted one generic HDA controller
+information line activating its existing IRQ timing workaround and suggesting
+a larger `bdl_pos_adj`; it did not recur during the following 21 captures. No
+waveform fault accompanied it.
+
+After clean guest shutdown, the card rebound to host `snd_hda_intel`, both
+system guests were off, all user audio services were active, the AE-5 sink was
+5% and muted, Master and Front were off, gain was Low, and both playback PCMs
+were closed. The host raw and simple mixer snapshots were byte-identical to
+their pre-cycle files. This remains cold-like managed PCI reset evidence, not
+a physical motherboard power-removal cold boot.
+
 ## Host keepalive proof
 
 The installed exact-card WirePlumber rule sets
@@ -165,7 +214,8 @@ failed before writing; the complete ALSA mixer SHA-256 remained
 ## Remaining acceptance
 
 1. Complete the scheduled one-shot host boot into `7.1.4-ae5-stable` and run
-   the fail-closed runtime gate before changing controls.
+   the fail-closed runtime and playback-stability gates before changing other
+   controls.
 2. Run a true power-removal cold boot and bare-metal suspend/resume.
 3. Capture the reconnected AE-5 analog output safely.
 4. Complete a runtime Windows/Linux same-settings capture. Static disassembly

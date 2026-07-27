@@ -313,6 +313,7 @@ cargo test --all-features
 bash scripts/check-ae5-acp-profile.sh
 bash scripts/check-feature-parity.sh
 bash scripts/audio-parity.sh --self-test
+bash scripts/check-ae5-playback-stability.sh --self-test
 bash scripts/check-user-install.sh
 ```
 
@@ -335,6 +336,8 @@ The latest checkpoint passed:
 - Rust formatting, strict Clippy, and all tests;
 - ACP and 54-row feature-ledger validators;
 - audio-parity self-test;
+- fail-closed stable-playback instrument self-test and a 22/22 clean
+  physical-card passthrough matrix at 0.003304–0.003352% THD;
 - transactional rootless install lifecycle;
 - hosted Rust, RPM lifecycle, and ALSA `for-next` compatibility jobs.
 
@@ -357,6 +360,8 @@ The latest checkpoint passed:
 | `scripts/build-transition-helper.sh` | Builds the development-only native PipeWire renegotiation client |
 | `tools/pipewire-format-renegotiate.c` | Silent client-owned in-place format/rate probe |
 | `scripts/hda-position-trace.sh` | Root-only consumer for upstream HDA lifecycle/position tracepoints |
+| `scripts/check-ae5-playback-stability.sh` | Hard-muted first-open, warm, idle, and rejected-OutFX physical acceptance |
+| `tools/tone-thd.py` | Internal steady-tone THD analyzer used by the playback gate |
 | `PORT_PLAN.md` | Original scope, architecture, phases and acceptance plan |
 | `docs/` | Detailed investigation and validation records |
 

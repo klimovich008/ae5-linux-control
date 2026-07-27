@@ -30,6 +30,15 @@ boot, first-open capture, 12 warm reopens, a 20-second idle transition, and
 eight captures after an exact rejected OutFX write. The WirePlumber no-suspend
 rule remains defense in depth.
 
+The committed fail-closed host harness independently repeated that physical
+card matrix in the stable-kernel passthrough guest. Its final-code run accepted
+22 internal captures at 0.003304–0.003352% THD: first open, 12 immediate
+reopens, one reopen after 20 seconds idle, and eight after OutFX enable was
+rejected with `EOPNOTSUPP`. It requires an explicit confirmation that every
+AE-5 analog output is unplugged, enforces Master and Front off plus Low gain,
+uses a −30 dBFS fixture, and treats 1% THD as corruption. The host mixer
+recovered byte-for-byte after shutdown.
+
 This is an internally captured digital result. The AE-5 analog outputs were
 unplugged and the user's headphones were connected to the motherboard
 line-out. A physical power-removal cold boot, safe AE-5 analog capture, and
@@ -77,6 +86,13 @@ that are unavailable or still waiting for physical acceptance:
 cargo run -- features
 cargo run -- features unsupported
 cargo run -- features deferred
+```
+
+Self-test the physical playback acceptance instrument without touching the
+card:
+
+```sh
+bash scripts/check-ae5-playback-stability.sh --self-test
 ```
 
 The output names the Linux mechanism, current evidence, and remaining gate for

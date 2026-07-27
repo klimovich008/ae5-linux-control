@@ -318,6 +318,19 @@ For every future kernel:
 10. Keep playback at or below 20% for the first physical matrix; validate
    boot stability, signed-module state, LEDs, logs, rejected OutFX enable,
    harmless redundant OutFX-off requests, and a managed persistent S16 stream.
+   With every AE-5 analog output physically unplugged, the reproducible
+   internal-capture gate is:
+
+   ```sh
+   AE5_ANALOG_OUTPUTS_UNPLUGGED=1 \
+       bash scripts/check-ae5-playback-stability.sh EXPECTED-KERNEL-RELEASE
+   ```
+
+   It independently hard-mutes Master and Front, selects Low gain, uses a
+   −30 dBFS exact-card fixture, and restores only desktop services that were
+   active before the run. Do not set the acknowledgement merely to bypass the
+   topology check.
+
    Do not test Direct Mode or hardware OutFX enable as a listening mode.
    Keep hardware EQ/effects and output transitions blocked until the rebuilt
    kernel passes its cold-start and analog-output acceptance gate. Treat

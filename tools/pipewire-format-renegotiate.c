@@ -148,7 +148,7 @@ static void log_format(const char *event, const struct format_spec *spec)
 static const struct spa_pod *
 build_format(struct spa_pod_builder *builder, const struct format_spec *spec)
 {
-	const struct spa_audio_info_raw info = SPA_AUDIO_INFO_RAW_INIT(
+	struct spa_audio_info_raw info = SPA_AUDIO_INFO_RAW_INIT(
 		.format = spec->format,
 		.rate = spec->rate,
 		.channels = CHANNELS,

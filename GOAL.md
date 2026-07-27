@@ -19,8 +19,11 @@ maintainer can pick it up from the repository alone.
 
 ## Invariants (never traded away for progress)
 
-1. The 20% PipeWire ceiling and Low headphone gain hold for every test.
-   Enforced mechanically by `.claude/hooks/volume-guard.py`.
+1. Low headphone gain holds for every acoustic test, and the sink stays at
+   ordinary listening levels. `.claude/hooks/volume-guard.py` refuses runaway
+   writes above 60% — a guard against a fat-fingered full scale, not a
+   listening limit. The original 20% ceiling belonged to high-gain testing
+   that is now finished.
 2. Evidence before recovery. A reproducible fault is worth more than a
    fast fix — see `/incident-evidence`.
 3. No fake controls. If a feature has no safe Linux mechanism, the UI says
@@ -36,7 +39,7 @@ maintainer can pick it up from the repository alone.
 Project-scoped `CLAUDE.md`, the volume-guard PreToolUse hook, and the
 `/audio-safety-preflight`, `/validate-gate`, `/incident-evidence` skills
 are installed. Future sessions inherit the rules automatically and cannot
-raise the sink past 20% from a shell.
+write a runaway volume from a shell.
 
 ## Phase 1 — Restore working audio on this host
 
@@ -45,11 +48,11 @@ sink is unmuted — the documented hidden-mute split. Sound is dead right
 now for that reason.
 
 - Run `route-status`, then the existing `route-repair` transaction.
-- Confirm audible output at or below 20% on the stable S16 path.
+- Confirm audible output at an ordinary level on the stable S16 path.
 - Confirm the mixer hash and route state match the handover snapshot.
 
-**Done when:** Maks confirms normal desktop audio works, at ≤20%, with all
-PCMs closing cleanly afterward.
+**Done when:** Maks confirms normal desktop audio works, with all PCMs
+closing cleanly afterward.
 
 ## Phase 2 — Root-cause the loud-buzz fault · **release blocker**
 
@@ -375,7 +378,7 @@ violet gradient, and the tabs grew to 36px.
 ## Phase 5 — Physical acceptance · **needs Maks**
 
 These cannot progress without hardware participation. Each is a short,
-scripted session at ≤20% with Low gain:
+scripted session at an ordinary listening level with Low gain:
 
 - Ten cold boots and twenty bare-metal suspend/resume cycles — this also
   validates the CA0132 resume patch now that the custom kernel runs on the

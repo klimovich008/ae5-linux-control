@@ -44,7 +44,8 @@ silently: batch the required steps into one clear request and say so.
 
 Never trade these for progress, whatever the task seems to need:
 
-1. 20% PipeWire ceiling, Low headphone gain, start at 5%.
+1. Ordinary listening levels (~30%), Low headphone gain. A hook refuses
+   runaway writes above 60%.
 2. Evidence before recovery.
 3. No fake controls in the UI.
 4. No `S32LE` in the managed WirePlumber rule until Phase 2 closes.

@@ -376,7 +376,8 @@ Read these next according to the task:
   [`docs/SOFTWARE_EFFECTS_PLAN.md`](docs/SOFTWARE_EFFECTS_PLAN.md);
 - Windows comparison:
   [`docs/WINDOWS_MIGRATION_VALIDATION.md`](docs/WINDOWS_MIGRATION_VALIDATION.md)
-  and [`docs/VFIO_TEST_PLAN.md`](docs/VFIO_TEST_PLAN.md);
+  [`docs/VFIO_TEST_PLAN.md`](docs/VFIO_TEST_PLAN.md), and
+  [`docs/windows-capture/VM-OUTFX-A-B.md`](docs/windows-capture/VM-OUTFX-A-B.md);
 - kernel work:
   [`kernel/README.md`](kernel/README.md),
   [`docs/SOURCE_INVENTORY.md`](docs/SOURCE_INVENTORY.md), and

@@ -34,6 +34,12 @@ Because the render APO properties belong to a user render session, that
 logged-out state was not used as an OutFX measurement. The cycle played no
 audio and returned the card safely to Linux.
 
+The runtime acceptance procedure is now fixed in
+[`windows-capture/VM-OUTFX-A-B.md`](windows-capture/VM-OUTFX-A-B.md). It
+separates Equalizer from the five-child OutFX group and requires a
+counterbalanced proof that Windows `What U Hear` includes the APO result
+before using that endpoint for any same-settings comparison.
+
 | Installed binary | SHA-256 |
 |---|---|
 | `CtxHda.sys` | `4be35390a2de694041cd20317ed5a148d4852e46f201945a346a8b2a2c79dccf` |

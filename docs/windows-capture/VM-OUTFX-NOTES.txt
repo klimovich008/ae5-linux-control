@@ -1,0 +1,48 @@
+Capture date/time:
+Windows version/build:
+AE-5 driver version:
+Sound Blaster Command version:
+Interactive Windows user reported by Guest Agent:
+Sound Blaster Command process verified in that user session:
+AE-5 controller status:
+Creative render endpoint identity:
+Creative What U Hear endpoint identity:
+Playback application/version:
+Windows master volume (must be <=20%):
+Player session volume (must be <=20%):
+Creative playback volume(s) (must be <=20%):
+20% cap and mute independently reverified after every transition:
+Output route:
+Headphone gain (must be Low):
+Channel mode:
+Sample rate:
+DAC filter:
+Windows enhancements:
+Spatial Sound:
+Scout Mode:
+Direct Mode:
+Imported profile visible name:
+Neutral state:
+EQ-only ten visible band values:
+Full-profile OutFX master state:
+Full-profile Surround state/value:
+Full-profile Dialog+ state/value:
+Full-profile Smart Volume state/value:
+Full-profile Crystalizer state/value:
+Full-profile Bass state/value:
+Equalizer state:
+Profile screenshot filename:
+Playback screenshot filename:
+Equalizer screenshot filename:
+Sound Effects screenshot filename:
+Audacity recording device:
+Recording channels:
+Recording sample rate:
+Recording export format:
+Fixture SHA256SUMS verified:
+Neutral repeat comparison:
+Counterbalanced neutral/full capture-boundary comparison:
+Capture-boundary gate verdict:
+Windows/Linux neutral comparison:
+Windows/Linux EQ-only comparison:
+Notes:

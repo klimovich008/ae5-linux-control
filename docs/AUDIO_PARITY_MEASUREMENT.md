@@ -183,6 +183,12 @@ point before transferring or playing a fixture. The installed state, recovery
 hashes, and passthrough boundary are recorded in
 [`VFIO_TEST_PLAN.md`](VFIO_TEST_PLAN.md).
 
+For the VM's digital OutFX and equalizer comparison, follow
+[`windows-capture/VM-OUTFX-A-B.md`](windows-capture/VM-OUTFX-A-B.md). It first
+requires a counterbalanced proof that the Windows `What U Hear` endpoint
+contains the Creative render APO output. Without that proof, the internal tap
+cannot support a Windows/Linux effects claim.
+
 ## Analyze and compare
 
 Inspect one tone capture:

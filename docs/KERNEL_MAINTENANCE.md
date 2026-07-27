@@ -2,10 +2,11 @@
 
 > **Current queue (2026-07-27):** the authoritative `kernel/series` excludes
 > Direct Mode and includes both the fail-closed AE-5 OutFX guard and the
-> qualified stable-playback fix. The installed `7.1.4-ae5-guarded` release
-> predates the final fix and is historical; do not select it for physical
-> testing. Rebuild the current eight-patch queue under a new release name.
-> The stock Nobara kernel remains the running and saved/default entry.
+> qualified stable-playback fix. Its verified `7.1.4-ae5-stable` RPM is
+> installed side by side and selected for the next boot only. The installed
+> `7.1.4-ae5-guarded` release predates the final fix and is historical; do not
+> select it for physical testing. The stock Nobara kernel remains the running
+> and saved/default entry.
 
 The AE-5 changes are maintained as an ordered patch queue, not as one frozen
 kernel binary. The same queue can be checked against every new kernel source
@@ -85,10 +86,11 @@ running_kernel=7.1.4-200.nobara.fc44.x86_64
 
 The obsolete one-shot selection was cleared after the stable-playback fix was
 qualified because this artifact lacks
-`ca0132-ae5-stable-playback-stream.patch`. `next_entry` is now absent, and both
-the saved/default entry and `grubby --default-kernel` resolve to stock
-`7.1.4-200.nobara.fc44.x86_64`. A new build must use a distinct release name
-and pass the full gate below before it is scheduled.
+`ca0132-ae5-stable-playback-stream.patch`. That historical `next_entry` was
+removed before the distinct `7.1.4-ae5-stable` build below passed its full
+gate. The saved/default entry and `grubby --default-kernel` still resolve to
+stock `7.1.4-200.nobara.fc44.x86_64`; the current one-shot entry names only
+`7.1.4-ae5-stable`.
 
 ## Current stable-playback queue
 
@@ -106,6 +108,40 @@ strict checkpatch with no findings for the new patch, and an upstream
 candidate passed the same warning gate and physical-card VFIO qualification;
 see
 [`PCM_REOPEN_EVIDENCE.md`](PCM_REOPEN_EVIDENCE.md).
+
+### Exact stable package and staged host boot
+
+The complete build from the current queue produced:
+
+```text
+release: 7.1.4-ae5-stable
+package: kernel-7.1.4_ae5_stable-1.x86_64
+RPM SHA-256: a295451e29ee936095068b47da7c34d565a21fdc0079bc3555b0ad9bd18fbda9
+base config SHA-256: 2da93a68ccd892892f96334b0a48a807963437d7ffa5e3edb7f1710eee360eb6
+build config SHA-256: 9a04016620ae6a3d5b15965ce628bf9c4d3179748fd142a54e9ce5c247297bed
+```
+
+The package verifier extracted 6,469 modules and accepted the required
+configuration, compressed signed CA0132 module, exact vermagic, dependency
+indexes, and all current AE-5 source markers. The exact RPM then passed a
+physical-card Fedora passthrough boot: zero taint, signed matching module,
+clean DSP initialization, a clean first-open capture, 12/12 warm reopens, a
+clean 20-second-idle reopen, exact `EOPNOTSUPP` OutFX rejection with off
+readback, and 8/8 clean subsequent reopens.
+
+The guarded installer installed this package side by side without rebooting.
+The boot loader readback is:
+
+```text
+running_kernel=7.1.4-200.nobara.fc44.x86_64
+default_kernel=/boot/vmlinuz-7.1.4-200.nobara.fc44.x86_64
+saved_entry=fca8dc3f5d9347008f0dfcd322dbdcd8-7.1.4-200.nobara.fc44.x86_64
+next_entry=fca8dc3f5d9347008f0dfcd322dbdcd8-7.1.4-ae5-stable
+```
+
+After the next reboot, run
+`scripts/check-ae5-kernel-runtime.sh 7.1.4-ae5-stable` before changing any
+audio control. The one-shot selection leaves stock as the saved/default entry.
 
 The exact source RPM can be obtained without root:
 

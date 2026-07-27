@@ -25,7 +25,10 @@ that lifetime error and prevents AE-5 runtime autosuspend from invalidating
 the retained assignment. It completed 50/50 clean reopens after a fresh
 host-driver-to-VFIO boot, plus clean warm, idle, 48/96 kHz, and 2/6-channel
 matrices. A rejected hardware-OutFX enable attempt left eight further captures
-clean. The WirePlumber no-suspend rule remains defense in depth.
+clean. The exact `7.1.4-ae5-stable` RPM then passed a fresh packaged-kernel
+boot, first-open capture, 12 warm reopens, a 20-second idle transition, and
+eight captures after an exact rejected OutFX write. The WirePlumber no-suspend
+rule remains defense in depth.
 
 This is an internally captured digital result. The AE-5 analog outputs were
 unplugged and the user's headphones were connected to the motherboard
@@ -41,11 +44,12 @@ not be installed: they contain Direct Mode and predate the OutFX guard. See
 evidence.
 
 The current eight-patch queue applies cleanly to ALSA `for-next`, excludes
-Direct Mode, and includes both the OutFX guard and stable-playback fix. The
-previously installed `7.1.4-ae5-guarded` artifact predates the stable-playback
-patch and is historical; it must be rebuilt before physical use. The machine
-still runs the stock Nobara kernel. Reproducible hashes, validation evidence,
-and the physical acceptance sequence are in
+Direct Mode, and includes both the OutFX guard and stable-playback fix. Its
+verified `7.1.4-ae5-stable` RPM is installed side by side and scheduled for
+the next boot only; the stock Nobara kernel remains the running and saved
+default. The previously installed `7.1.4-ae5-guarded` artifact predates the
+stable-playback patch and is historical. Reproducible hashes, validation
+evidence, and the physical acceptance sequence are in
 [docs/KERNEL_MAINTENANCE.md](docs/KERNEL_MAINTENANCE.md).
 
 ## Current milestone: guarded persistent playback, profiles, and onboard lighting
@@ -520,9 +524,9 @@ audio warning; it never suspends or plays audio itself. Run its paired
 `--before-suspend campaign-01` and `--after-resume campaign-01` captures, then
 check progress with `--suspend-summary 20`. A standalone read-only snapshot is
 available through `--preflight ID`; it validates the same safety conditions
-without appending campaign state. After the scheduled one-shot guarded-kernel
+without appending campaign state. After the scheduled one-shot stable-kernel
 boot, run
-`bash scripts/check-ae5-kernel-runtime.sh 7.1.4-ae5-guarded` before changing
+`bash scripts/check-ae5-kernel-runtime.sh 7.1.4-ae5-stable` before changing
 any control. It additionally requires the exact untainted kernel, signed
 matching CA0132 module, AE-5 PCI identity and driver, Direct Mode absent,
 OutFX off, and all five onboard LED interfaces. The Rust CLI and GTK

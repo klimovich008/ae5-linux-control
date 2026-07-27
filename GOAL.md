@@ -283,6 +283,22 @@ worth reporting once characterised, not a local regression. And the
 bypass premise the software-effects plan rests on holds on a stock
 kernel: with OutFX off the tap sits at the floor.
 
+### PCM-reopen corruption — fixed 2026-07-27
+
+Waveform-qualified VFIO tests separated a second failure from the OutFX
+oscillation. Generic CA0132 cleanup cleared the AE-5 HDA playback converter on
+PCM close, and reassigning it could produce approximately 26.4% THD. HDA
+runtime autosuspend also cleared a retained assignment after idle.
+
+The eighth production patch retains the converter across AE-5 PCM close and
+holds a balanced AE-5 codec runtime-PM reference. It passed 50/50 clean
+reopens after a fresh host-driver-to-VFIO cycle, plus warm, repeated-idle,
+48/96 kHz, 2/6-channel, and rejected-OutFX matrices. The exact packaged kernel
+also passed a fresh passthrough boot, first-open capture, warm/idle reopen
+matrix, and exact rejected-OutFX matrix. The scheduled physical-host
+cold-start and suspend gates remain; S32 does not return merely because this
+one failure is fixed.
+
 ### Still open
 
 - Which parameter values push the chain unstable, at n>=5 per cell.

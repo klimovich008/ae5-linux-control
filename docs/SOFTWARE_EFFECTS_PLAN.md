@@ -102,8 +102,9 @@ routes at 20%. The mechanism works; what remains is engineering.
 - CPU cost under the same geometry. Expected negligible; state the number.
 - Stability and response of the normal CA0132 route with every effect module
   disabled and the playback PCM held open.
-- The kernel cause of the normal-route PCM-reopen corruption. Direct Mode must
-  remain unavailable until this is resolved.
+- Physical-host qualification of the fixed normal-route PCM lifecycle. Direct
+  Mode remains unavailable until the rebuilt stable-playback kernel passes and
+  the bypass transition is reevaluated on that exact base.
 - Whether S32 becomes viable again once nothing is generating signal after
   the mute point. Do not assume it does.
 

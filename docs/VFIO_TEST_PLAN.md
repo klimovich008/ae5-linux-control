@@ -269,6 +269,16 @@ another Windows capture, repair the local test-account login interactively,
 shut down, preserve a fresh powered-off recovery point, and verify the exact
 fixture inside the guest. Do not retry or weaken the stale credential.
 
+A later readiness retry after the `7.1.4-ae5-stable` Linux package
+qualification reached the same boundary. Guest Agent reported zero logged-in
+users, while `Win32_SoundDevice` reported `Sound BlasterX AE-5` status `OK`
+and both `AudioEndpointBuilder` and `Audiosrv` were running automatically.
+Sound Blaster Command was not running because no user session existed.
+Therefore no OutFX property was changed and no Windows audio was played or
+captured. The guest then shut down, its temporary hostdev was removed, the
+post-cycle VFIO preflight passed, both system guests remained off, the AE-5
+rebound to `snd_hda_intel`, and the user audio services were restored.
+
 ### Candidate kernel smoke test
 
 The Wedge Angle patch was applied to `sound.git` `for-next` commit

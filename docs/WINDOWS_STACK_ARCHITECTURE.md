@@ -27,6 +27,13 @@ A/B. The prepared Windows VM still requires interactive login, and the AE-5
 analog outputs are currently unplugged. Runtime parity must be recorded
 separately before any Windows/Linux sound-quality claim.
 
+A 2026-07-27 runtime-readiness retry confirmed that the passed-through AE-5
+device was healthy and the two Windows audio services were running, but Guest
+Agent reported zero logged-in users and Sound Blaster Command was absent.
+Because the render APO properties belong to a user render session, that
+logged-out state was not used as an OutFX measurement. The cycle played no
+audio and returned the card safely to Linux.
+
 | Installed binary | SHA-256 |
 |---|---|
 | `CtxHda.sys` | `4be35390a2de694041cd20317ed5a148d4852e46f201945a346a8b2a2c79dccf` |

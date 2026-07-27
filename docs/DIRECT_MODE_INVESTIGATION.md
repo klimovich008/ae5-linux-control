@@ -7,7 +7,8 @@
 > 26.4% THD. Direct-to-normal transitions exercise that same unsafe boundary.
 > The application now rejects the Direct Mode control and
 > `kernel/series` does not include the candidate. Do not install or expose it
-> until the normal-route PCM-reopen defect is understood and fixed.
+> until the rebuilt stable-playback kernel passes physical-host acceptance and
+> Direct Mode is reevaluated on top of that exact base in isolated VFIO.
 
 ## Status
 

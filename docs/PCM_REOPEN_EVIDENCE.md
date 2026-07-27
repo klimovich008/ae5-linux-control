@@ -101,6 +101,39 @@ Hardware OutFX remains deliberately fail-closed. Its enable request returns
 master for a software APO effect chain, so the rejected Linux hardware
 control is not an active-effects parity test.
 
+## Packaged-kernel qualification
+
+The complete side-by-side build produced
+`kernel-7.1.4_ae5_stable-1.x86_64.rpm`, SHA-256
+`a295451e29ee936095068b47da7c34d565a21fdc0079bc3555b0ad9bd18fbda9`.
+Non-installing extraction verified release `7.1.4-ae5-stable`, 6,469 modules,
+the required boot, storage, graphics, and HDA configuration, matching signed
+CA0132 vermagic, and all current AE-5 source markers.
+
+That exact RPM was installed in the Fedora passthrough guest and booted with
+the physical card. Kernel taint was zero, the signed module loaded, the DSP
+initialized, global `snd_hda_intel power_save=10` remained in force, and the
+AE-5 runtime state remained active. Bounded internal captures then produced:
+
+| Packaged-kernel matrix | Result |
+|---|---|
+| First playback after full guest reboot | clean, 0.004283% THD |
+| Immediate playback reopens | 12/12 clean, 0.004245% THD |
+| Playback after 20 seconds idle | clean, 0.004245% THD |
+| Exact `numid=25` OutFX enable | rejected with `EOPNOTSUPP`; readback off |
+| Reopens after exact rejection | 8/8 clean, 0.004520% THD |
+
+The different absolute THD from the module-development fixture reflects a
+newly generated lower-level test tone; every result remains well below the
+1% corruption threshold and the reopen groups are internally identical. The
+AE-5 outputs remained unplugged. This is a packaged-kernel, fresh-driver VFIO
+test, not a physical motherboard power-removal test.
+
+The verified RPM is now installed side by side on the host. Stock
+`7.1.4-200.nobara.fc44.x86_64` remains running and saved/default, while
+`7.1.4-ae5-stable` is selected for the next boot only. No host reboot occurred
+during this qualification.
+
 ## Host keepalive proof
 
 The installed exact-card WirePlumber rule sets
@@ -131,8 +164,8 @@ failed before writing; the complete ALSA mixer SHA-256 remained
 
 ## Remaining acceptance
 
-1. Build and install a new host kernel containing the eight-patch queue. The
-   already installed `7.1.4-ae5-guarded` artifact predates this fix.
+1. Complete the scheduled one-shot host boot into `7.1.4-ae5-stable` and run
+   the fail-closed runtime gate before changing controls.
 2. Run a true power-removal cold boot and bare-metal suspend/resume.
 3. Capture the reconnected AE-5 analog output safely.
 4. Complete a runtime Windows/Linux same-settings capture. Static disassembly

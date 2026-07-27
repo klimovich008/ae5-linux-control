@@ -3536,6 +3536,12 @@ fn format_profile_channels(channels: &std::collections::BTreeMap<String, i64>) -
         .join(", ")
 }
 
+/// How long to wait for the mixer to go quiet before rebuilding the window.
+const REFRESH_SETTLE_TICK: Duration = Duration::from_millis(120);
+/// How many consecutive quiet ticks count as settled. 120 ms x 3 keeps the
+/// window responsive while absorbing the burst a route change produces.
+const REFRESH_SETTLE_TICKS: u32 = 3;
+
 fn start_mixer_watch(window: &gtk::ApplicationWindow, card_index: i32) -> Result<(), String> {
     let mixer = Ae5Mixer::open(card_index).map_err(|error| error.to_string())?;
     let running = Arc::new(AtomicBool::new(true));
@@ -3570,11 +3576,30 @@ fn start_mixer_watch(window: &gtk::ApplicationWindow, card_index: i32) -> Result
                     Ok(true) if !refresh_queued.swap(true, Ordering::AcqRel) => {
                         ae5_control::gui::tracelog::trace(
                             "watch",
-                            "external mixer event -> queueing window refresh",
+                            "external mixer event -> settling before refresh",
                         );
+                        // Coalesce. A route change, a WirePlumber restore or
+                        // another application walking the mixer emits a burst
+                        // of events, and rebuilding per event replaced the
+                        // whole window roughly once a second — which reads as
+                        // the application hanging, because every widget the
+                        // user reaches for is destroyed under the pointer.
+                        // Drain the burst first, then rebuild once.
+                        let mut settled = 0u32;
+                        while settled < REFRESH_SETTLE_TICKS && running.load(Ordering::Acquire) {
+                            match mixer.wait_for_event(REFRESH_SETTLE_TICK) {
+                                Ok(true) => settled = 0,
+                                Ok(false) => settled += 1,
+                                Err(_) => break,
+                            }
+                        }
                         let refresh_queued = refresh_queued.clone();
                         gtk::glib::MainContext::default().invoke(move || {
                             refresh_queued.store(false, Ordering::Release);
+                            ae5_control::gui::tracelog::trace(
+                                "watch",
+                                "burst settled -> rebuilding window once",
+                            );
                             if let Some(window) = active_main_window() {
                                 let _ = refresh_window(&window, None);
                             }

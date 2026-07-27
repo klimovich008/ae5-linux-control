@@ -651,6 +651,7 @@ pub fn level_editors(
             value: channel.value,
             min: level.min,
             max: level.max,
+            db: level.db.clone(),
         };
         let editor = level_editor(
             card_index,

@@ -1,4 +1,4 @@
-use crate::{Profile, ProfileControl, ProfileError};
+use crate::{EQ_FREQUENCIES, Profile, ProfileControl, ProfileError};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use std::collections::BTreeMap;
@@ -13,7 +13,6 @@ const MAX_SOURCE_BYTES: u64 = 1024 * 1024;
 const MAX_DISCOVERY_ENTRIES: usize = 512;
 const MAX_DRIVERSTORE_ENTRIES: usize = 16_384;
 const MAX_DRIVER_PACKAGES: usize = 16;
-const EQ_FREQUENCIES: [u32; 10] = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
 const SOURCE_METADATA_FIELDS: &[&str] = &[
     "CreatorName",
     "CreatorProfession",

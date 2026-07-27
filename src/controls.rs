@@ -54,6 +54,15 @@ pub struct Level {
     pub value: i64,
     pub min: i64,
     pub max: i64,
+    pub db: Option<DecibelRange>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DecibelRange {
+    /// ALSA represents decibels in hundredths of a dB.
+    pub min: i64,
+    pub max: i64,
+    pub step: i64,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -841,6 +850,7 @@ fn read_control(element: Selem<'_>) -> alsa::Result<ControlSnapshot> {
                 value: channel.value,
                 min,
                 max,
+                db: playback_db_range(&element, min, max),
             }
         }),
         capture_level: capture_channels.first().map(|channel| {
@@ -849,10 +859,29 @@ fn read_control(element: Selem<'_>) -> alsa::Result<ControlSnapshot> {
                 value: channel.value,
                 min,
                 max,
+                db: capture_db_range(&element, min, max),
             }
         }),
         playback_channels,
         capture_channels,
+    })
+}
+
+fn playback_db_range(element: &Selem<'_>, min: i64, max: i64) -> Option<DecibelRange> {
+    let db_min = element.ask_playback_vol_db(min).ok()?.0;
+    Some(DecibelRange {
+        min: db_min,
+        max: element.ask_playback_vol_db(max).ok()?.0,
+        step: element.ask_playback_vol_db((min + 1).min(max)).ok()?.0 - db_min,
+    })
+}
+
+fn capture_db_range(element: &Selem<'_>, min: i64, max: i64) -> Option<DecibelRange> {
+    let db_min = element.ask_capture_vol_db(min).ok()?.0;
+    Some(DecibelRange {
+        min: db_min,
+        max: element.ask_capture_vol_db(max).ok()?.0,
+        step: element.ask_capture_vol_db((min + 1).min(max)).ok()?.0 - db_min,
     })
 }
 
@@ -1030,6 +1059,15 @@ impl fmt::Display for ControlSnapshot {
                 " | playback level {} [{}..{}]",
                 level.value, level.min, level.max
             )?;
+            if let Some(db) = &level.db {
+                write!(
+                    output,
+                    " | playback dB {}..{} ({} step)",
+                    format_db(db.min),
+                    format_db(db.max),
+                    format_db(db.step)
+                )?;
+            }
         }
         if let Some(enabled) = self.capture_switch {
             write!(output, " | capture {}", on_off(enabled))?;
@@ -1040,6 +1078,15 @@ impl fmt::Display for ControlSnapshot {
                 " | capture level {} [{}..{}]",
                 level.value, level.min, level.max
             )?;
+            if let Some(db) = &level.db {
+                write!(
+                    output,
+                    " | capture dB {}..{} ({} step)",
+                    format_db(db.min),
+                    format_db(db.max),
+                    format_db(db.step)
+                )?;
+            }
         }
         if self.playback_channels.len() > 1 {
             write!(
@@ -1057,6 +1104,10 @@ impl fmt::Display for ControlSnapshot {
         }
         Ok(())
     }
+}
+
+fn format_db(hundredths: i64) -> String {
+    format!("{:+.2} dB", hundredths as f64 / 100.0)
 }
 
 fn format_channels(channels: &[ChannelLevel]) -> String {
@@ -1124,7 +1175,12 @@ mod tests {
             choices: Vec::new(),
             playback_switch: None,
             capture_switch: None,
-            playback_level: Some(Level { value, min, max }),
+            playback_level: Some(Level {
+                value,
+                min,
+                max,
+                db: None,
+            }),
             capture_level: None,
             playback_channels: Vec::new(),
             capture_channels: Vec::new(),
@@ -1143,6 +1199,7 @@ mod tests {
                 value: 65,
                 min: 0,
                 max: 100,
+                db: None,
             }),
             capture_level: None,
             playback_channels: vec![ChannelLevel {
@@ -1155,6 +1212,35 @@ mod tests {
         assert_eq!(
             control.to_string(),
             "FX: Crystalizer | playback on | playback level 65 [0..100]"
+        );
+    }
+
+    #[test]
+    fn formats_the_live_alsa_db_mapping() {
+        let control = ControlSnapshot {
+            name: "EQ Band0".to_owned(),
+            selected: None,
+            choices: Vec::new(),
+            playback_switch: None,
+            capture_switch: None,
+            playback_level: Some(Level {
+                value: 24,
+                min: 0,
+                max: 48,
+                db: Some(DecibelRange {
+                    min: -2400,
+                    max: 2400,
+                    step: 100,
+                }),
+            }),
+            capture_level: None,
+            playback_channels: Vec::new(),
+            capture_channels: Vec::new(),
+        };
+
+        assert_eq!(
+            control.to_string(),
+            "EQ Band0 | playback level 24 [0..48] | playback dB -24.00 dB..+24.00 dB (+1.00 dB step)"
         );
     }
 

@@ -280,6 +280,7 @@ mod tests {
                 value: 99,
                 min: 0,
                 max: 99,
+                db: None,
             }),
             ..control("Master")
         }];

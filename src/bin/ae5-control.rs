@@ -3878,6 +3878,7 @@ mod tests {
                 value: 99,
                 min: 0,
                 max: 99,
+                db: None,
             }),
             "0 dB"
         );
@@ -3886,6 +3887,7 @@ mod tests {
                 value: 19,
                 min: 0,
                 max: 99,
+                db: None,
             }),
             "19/99 raw"
         );
@@ -4245,6 +4247,7 @@ mod tests {
                     value: 38,
                     min: 0,
                     max: 100,
+                    db: None,
                 }),
                 capture_level: None,
                 playback_channels: Vec::new(),
@@ -4401,6 +4404,7 @@ mod tests {
                 value: 10,
                 min: 20,
                 max: 180,
+                db: None,
             }),
             playback_channels: Vec::new(),
             capture_channels: Vec::new(),

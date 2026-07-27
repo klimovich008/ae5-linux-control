@@ -1103,6 +1103,7 @@ mod tests {
                 value,
                 min: 0,
                 max: 100,
+                db: None,
             }),
             capture_level: None,
             playback_channels: vec![crate::ChannelLevel {
@@ -1379,6 +1380,7 @@ mod tests {
                 value: 90,
                 min: 0,
                 max: 99,
+                db: None,
             }),
             capture_level: None,
             playback_channels: vec![
@@ -1413,6 +1415,7 @@ mod tests {
                 value: 90,
                 min: 0,
                 max: 99,
+                db: None,
             }),
             playback_channels: Vec::new(),
             capture_channels: vec![
@@ -1643,6 +1646,7 @@ mod tests {
                 value: 10,
                 min: 20,
                 max: 180,
+                db: None,
             }),
             playback_channels: Vec::new(),
             capture_channels: vec![crate::ChannelLevel {

@@ -1,6 +1,7 @@
 pub mod builtin_profiles;
 pub mod controls;
 pub mod device;
+pub mod eq_chain;
 pub mod feature_parity;
 pub mod lighting;
 pub mod pipewire;
@@ -10,12 +11,16 @@ pub mod sbcommand;
 
 pub use builtin_profiles::{BuiltinProfile, COMMAND_DEFAULT_PROFILE_COUNT, builtin_profiles};
 pub use controls::{
-    Ae5Mixer, ChannelLevel, ControlError, ControlSnapshot, DIRECT_MODE_CONTROL, Level,
-    capture_control_block_reason, direct_mode_block_reason, equalizer_band_block_reason,
+    Ae5Mixer, ChannelLevel, ControlError, ControlSnapshot, DIRECT_MODE_CONTROL, DecibelRange,
+    Level, capture_control_block_reason, direct_mode_block_reason, equalizer_band_block_reason,
     front_vmaster_clamp_warning, headphone_playback_issue, playback_switch_block_reason,
     smart_volume_level_block_reason, snapshot_controls,
 };
 pub use device::Ae5Device;
+pub use eq_chain::{
+    EQ_FREQUENCIES, EqBand, EqChainChange, EqChainConfig, EqChainError, bands_from_profile,
+    disable_eq_chain, enable_eq_chain, eq_chain_config,
+};
 pub use feature_parity::{FeatureParity, FeatureSupport, feature_parity};
 pub use lighting::{
     Ae5Lighting, LightingConfig, ONBOARD_LED_COUNT, RgbColor, lighting_config_path,

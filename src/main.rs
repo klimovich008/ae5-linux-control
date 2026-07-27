@@ -1,9 +1,10 @@
 use ae5_control::{
-    Ae5Device, Ae5Lighting, Ae5Mixer, DIRECT_MODE_CONTROL, FeatureSupport,
+    Ae5Device, Ae5Lighting, Ae5Mixer, DIRECT_MODE_CONTROL, EqBand, FeatureSupport,
     LINUX_DRIVER_DEFAULTS_PRESERVED, ONBOARD_LED_COUNT, PipeWireNode, PipeWireRouteState, Profile,
     RgbColor, SbCommandImportReport, SbCommandTarget, ae5_input, ae5_output, ae5_route_state,
-    apply_linux_driver_defaults, discover_sbcommand_installation, export_library_profile,
-    feature_parity, front_vmaster_clamp_warning, headphone_playback_issue,
+    apply_linux_driver_defaults, disable_eq_chain, discover_sbcommand_installation,
+    enable_eq_chain, eq_chain_config, export_library_profile, feature_parity,
+    front_vmaster_clamp_warning, headphone_playback_issue,
     import_active_sbcommand_profile_with_report, import_discovered_sbcommand_profile_with_report,
     import_sbcommand_profile_with_report, lighting_config_path, linux_driver_defaults,
     native_rates_config, profile_library, profile_library_directory, rename_library_profile,
@@ -54,6 +55,9 @@ fn run() -> Result<(), Box<dyn Error>> {
         [command] if command == "native-rates-status" => print_native_rates_status(),
         [command] if command == "native-rates-enable" => set_native_rates(true),
         [command] if command == "native-rates-disable" => set_native_rates(false),
+        [command] if command == "eq-chain-status" => print_eq_chain_status(),
+        [command, path] if command == "eq-chain-enable" => set_eq_chain(path),
+        [command] if command == "eq-chain-disable" => remove_eq_chain(),
         [command] if command == "lighting-status" => print_lighting_status(),
         [command] if command == "lighting-restore" => restore_lighting(),
         [command, red, green, blue] if command == "lighting-set" => set_lighting(red, green, blue),
@@ -371,6 +375,74 @@ fn set_native_rates(enabled: bool) -> Result<(), Box<dyn Error>> {
         config.path.display()
     );
     Ok(())
+}
+
+fn print_eq_chain_status() -> Result<(), Box<dyn Error>> {
+    let config = eq_chain_config()?;
+    println!(
+        "PipeWire software equalizer: {}\n  {}",
+        if config.enabled {
+            "installed"
+        } else {
+            "not installed"
+        },
+        config.path.display()
+    );
+    print_eq_bands(&config.bands);
+    Ok(())
+}
+
+fn set_eq_chain(path: &str) -> Result<(), Box<dyn Error>> {
+    let profile = Profile::load(Path::new(path))?;
+    let device = require_device()?;
+    let change = enable_eq_chain(&profile, &snapshot_controls(device.card_index)?)?;
+    println!(
+        "PipeWire software equalizer {} from profile '{}'.\n  {}",
+        if change.changed {
+            "installed or updated"
+        } else {
+            "unchanged"
+        },
+        profile.name,
+        change.config.path.display()
+    );
+    print_eq_bands(&change.config.bands);
+    if change.changed {
+        print_pipewire_restart_command();
+    }
+    Ok(())
+}
+
+fn remove_eq_chain() -> Result<(), Box<dyn Error>> {
+    let change = disable_eq_chain()?;
+    println!(
+        "PipeWire software equalizer {}.\n  {}",
+        if change.changed {
+            "configuration removed"
+        } else {
+            "was already disabled; no changes made"
+        },
+        change.config.path.display()
+    );
+    if change.changed {
+        print_pipewire_restart_command();
+    }
+    Ok(())
+}
+
+fn print_eq_bands(bands: &[EqBand]) {
+    for (index, band) in bands.iter().enumerate() {
+        println!(
+            "  EQ Band{index}: {} Hz · Q {:.1} · Gain {:+.2} dB",
+            band.frequency, band.q, band.gain_db
+        );
+    }
+}
+
+fn print_pipewire_restart_command() {
+    println!(
+        "Run this yourself to apply the change:\n  systemctl --user restart pipewire.service pipewire-pulse.service"
+    );
 }
 
 fn print_lighting_status() -> Result<(), Box<dyn Error>> {
@@ -874,6 +946,9 @@ fn print_help() {
          \x20 native-rates-status   Show the per-user PipeWire rate configuration\n\
          \x20 native-rates-enable   Allow native 44.1, 48, and 96 kHz after restart\n\
          \x20 native-rates-disable  Remove the managed native-rate configuration\n\
+         \x20 eq-chain-status       Show the managed software equalizer and its bands\n\
+         \x20 eq-chain-enable FILE  Generate the software equalizer from a native profile\n\
+         \x20 eq-chain-disable      Remove the managed software equalizer configuration\n\
          \x20 lighting-status       Show all five onboard LED colors\n\
          \x20 lighting-set RED GREEN BLUE\n\
          \x20 lighting-set-led INDEX RED GREEN BLUE\n\

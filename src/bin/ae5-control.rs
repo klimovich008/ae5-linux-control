@@ -776,7 +776,9 @@ fn sound_effects_page(
     provenance_row.append(&save_current);
     page.append(&provenance_row);
 
-    let profile_heading = gtk::Label::new(Some("Saved profiles"));
+    let profile_heading = gtk::Label::new(Some(&format!(
+        "Profiles · yours first, then {COMMAND_DEFAULT_PROFILE_COUNT} factory presets"
+    )));
     profile_heading.set_xalign(0.0);
     profile_heading.add_css_class("mixer-section");
     page.append(&profile_heading);
@@ -840,24 +842,10 @@ fn sound_effects_page(
             ));
         }
     }
-    let profiles = gtk::ScrolledWindow::builder()
-        .hscrollbar_policy(gtk::PolicyType::Automatic)
-        .vscrollbar_policy(gtk::PolicyType::Never)
-        .min_content_height(174)
-        .child(&profile_strip)
-        .build();
-    profiles.set_widget_name(PERSONAL_PROFILE_CAROUSEL_NAME);
-    profiles.add_css_class("profile-carousel");
-    page.append(&profiles);
-
-    let defaults_heading = gtk::Label::new(Some(&format!(
-        "Sound Blaster Command defaults · {COMMAND_DEFAULT_PROFILE_COUNT}"
-    )));
-    defaults_heading.set_xalign(0.0);
-    defaults_heading.add_css_class("mixer-section");
-    page.append(&defaults_heading);
-
-    let defaults_strip = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    // Yours and the factory set are one library, browsed in one carousel. Two
+    // stacked rows cost twice the vertical space to make a distinction the
+    // kicker on each card already makes.
+    let defaults_strip = &profile_strip;
     match builtin_profiles() {
         Ok(profiles) => {
             for preset in profiles {
@@ -922,15 +910,15 @@ fn sound_effects_page(
             ));
         }
     }
-    let defaults = gtk::ScrolledWindow::builder()
+    let profiles = gtk::ScrolledWindow::builder()
         .hscrollbar_policy(gtk::PolicyType::Automatic)
         .vscrollbar_policy(gtk::PolicyType::Never)
-        .min_content_height(174)
-        .child(&defaults_strip)
+        .min_content_height(178)
+        .child(&profile_strip)
         .build();
-    defaults.set_widget_name(BUILTIN_PROFILE_CAROUSEL_NAME);
-    defaults.add_css_class("profile-carousel");
-    page.append(&defaults);
+    profiles.set_widget_name(PERSONAL_PROFILE_CAROUSEL_NAME);
+    profiles.add_css_class("profile-carousel");
+    page.append(&profiles);
 
     let effects_heading = gtk::Label::new(Some("Acoustic engine"));
     effects_heading.set_xalign(0.0);
@@ -1016,12 +1004,10 @@ fn sound_profile_card(
         let accessible_label = format!("{action} “{accessible_title}”");
         button.update_property(&[gtk::accessible::Property::Label(&accessible_label)]);
         card.append(&button);
-    } else if active {
-        let active = gtk::Label::new(Some("ACTIVE"));
-        active.set_halign(gtk::Align::Start);
-        active.add_css_class("profile-card-active-label");
-        card.append(&active);
     }
+    // The kicker already reads ACTIVE on the live card, and the card carries an
+    // accent border besides. A third statement of the same fact only cost the
+    // row height that clipped the buttons below it.
     card
 }
 

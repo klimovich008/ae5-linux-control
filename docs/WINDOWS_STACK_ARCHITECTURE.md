@@ -15,6 +15,13 @@ Versions examined: `ctxhda.inf` 6.0.105.0065 (2022-11-24),
 `CtxRFX64.dll` (2022-12-20), and `Creative.SBCommand.exe` (2023-10-06,
 .NET Framework 4.6.1, x86).
 
+The mounted Windows installation was rechecked on 2026-07-27. All four live
+binary hashes still match this table. The installed 0065 INF still registers
+the same render APO, and the machine-local Ghidra reports still show the
+master/child registration, endpoint-property write path, APO module chain and
+passthrough branch described below. Those reports remain under
+`~/.cache/ae5-control/ghidra-reports/` and are intentionally not committed.
+
 | Installed binary | SHA-256 |
 |---|---|
 | `CtxHda.sys` | `4be35390a2de694041cd20317ed5a148d4852e46f201945a346a8b2a2c79dccf` |

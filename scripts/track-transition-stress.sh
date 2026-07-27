@@ -10,12 +10,14 @@ proc_root=${AE5_PROCFS_ROOT:-/proc}
 state_root=${XDG_STATE_HOME:-"$HOME/.local/state"}
 evidence_root=${AE5_TRANSITION_ROOT:-"$state_root/ae5-control/transition-stress"}
 trials=${AE5_TRANSITION_TRIALS:-5}
+volume_percent=${AE5_TRANSITION_VOLUME_PERCENT:-5}
 tap_threshold=${AE5_TRANSITION_THRESHOLD:--25}
 ae5ctl=${AE5CTL:-ae5ctl}
 pactl=${AE5_PACTL:-pactl}
 renegotiator=${AE5_TRANSITION_RENEGOTIATOR:-"$script_root/../target/diagnostics/ae5-pw-renegotiate"}
 sink_name=
 card_index=
+suspend_timeout_seconds=
 run_root=
 parent_pid=$$
 declare -a monitor_pids=()
@@ -31,7 +33,7 @@ usage:
 The run command:
   - targets only the exact 1102:0012 / 1102:0051 AE-5 sink;
   - hard-mutes and continuously watches Master and Front;
-  - sets only that sink to 20% and leaves it muted afterward;
+  - sets only that sink to 1-20% (default 5%) and leaves it muted afterward;
   - refuses to change the live hardware format or run fewer than five trials.
 
 Set AE5_TRANSITION_TAP_PROBE=front-muted to sample What U Hear after each
@@ -48,6 +50,18 @@ fail() {
 need_tool() {
 	command -v "$1" >/dev/null 2>&1 ||
 		fail "required tool is unavailable: $1"
+}
+
+valid_test_volume() {
+	local value=$1
+
+	[[ $value =~ ^([1-9]|1[0-9]|20)$ ]]
+}
+
+valid_suspend_timeout() {
+	local value=$1
+
+	[[ $value =~ ^[0-9]+$ ]] && ((value >= 1 && value <= 60))
 }
 
 find_ae5_card() {
@@ -96,7 +110,9 @@ find_ae5_sink() {
 				([.volume[].value] | max | tostring),
 				.properties["api.alsa.soft-mixer"],
 				.properties["audio.format"],
-				.active_port
+				.active_port,
+				(.properties["session.suspend-timeout-seconds"] // 5
+					| tostring)
 			]
 			| @tsv
 		' <<< "$snapshot"
@@ -125,6 +141,27 @@ all_playback_pcms_closed() {
 
 	snapshot=$(pcm_states "$card") || return 1
 	! grep -v '=closed$' <<< "$snapshot" | grep -q .
+}
+
+wait_playback_pcms_closed() {
+	local label=$1 timeout_seconds=$2 deadline states
+
+	deadline=$((SECONDS + timeout_seconds))
+	while ((SECONDS < deadline)); do
+		if all_playback_pcms_closed "$card_index"; then
+			log_event pcm-closed "$label"
+			return 0
+		fi
+		sleep 0.05
+	done
+	if all_playback_pcms_closed "$card_index"; then
+		log_event pcm-closed "$label"
+		return 0
+	fi
+	states=$(pcm_states "$card_index" | paste -sd ' ' -)
+	log_event pcm-close-timeout \
+		"$label timeout=${timeout_seconds}s states=$states"
+	return 1
 }
 
 switch_is_off() {
@@ -334,7 +371,7 @@ abrupt	TERM during playback, immediate new client
 rate-format	44.1 kHz S16 client followed by 48 kHz S32 client
 in-place	one client advertises S16/S32 and 44.1/48/96 kHz in sequence
 gapless	overlapping 48 kHz S32 and 96 kHz S32 clients
-suspend-boundary	short client, one-second idle, new client
+suspend-boundary	short client, wait for policy suspension and PCM close, new client
 EOF
 }
 
@@ -387,12 +424,11 @@ probe_dsp() {
 
 	[[ ${AE5_TRANSITION_TAP_PROBE:-off} == front-muted ]] || return 0
 	"$pactl" set-sink-mute "$sink_name" 1
-	for _ in {1..40}; do
-		all_playback_pcms_closed "$card_index" && break
-		sleep 0.05
-	done
-	all_playback_pcms_closed "$card_index" ||
+	if ! wait_playback_pcms_closed "$label-tap" \
+		"$((suspend_timeout_seconds + 2))"; then
+		save_snapshot "anomaly-$label-tap-pcm-open"
 		fail 'playback PCM did not close before the What U Hear probe'
+	fi
 	switch_is_off Front || fail 'Front is not hard-muted before tap probe'
 	device=$(what_u_hear_device)
 	[[ -n $device ]] || fail 'What U Hear capture device was not found'
@@ -453,7 +489,11 @@ run_scenarios() {
 
 	run_client "$prefix-suspend-a" \
 		"$fixtures/transition-b-48000-s16.wav" 0.35
-	sleep 1
+	if ! wait_playback_pcms_closed "$prefix-suspend-a" \
+		"$((suspend_timeout_seconds + 2))"; then
+		save_snapshot "anomaly-$prefix-suspend-a-pcm-open"
+		fail 'playback PCM did not close at the suspend boundary'
+	fi
 	run_client "$prefix-suspend-b" \
 		"$fixtures/transition-c-48000-s32.wav"
 	probe_dsp "$prefix-suspend-boundary"
@@ -461,11 +501,13 @@ run_scenarios() {
 
 describe_live_state() {
 	local snapshot record node state sample_spec muted volume soft_mixer format port
+	local suspend_timeout
 
 	card_index=$(find_ae5_card)
 	snapshot=$(sink_snapshot)
 	record=$(find_ae5_sink "$card_index" "$snapshot")
 	IFS=$'\t' read -r node state sample_spec muted volume soft_mixer format port \
+		suspend_timeout \
 		<<< "$record"
 	printf 'AE-5 ALSA card: %s\n' "$card_index"
 	printf 'PipeWire target: %s\n' "$node"
@@ -476,6 +518,8 @@ describe_live_state() {
 	printf 'Sink mute: %s\n' "$muted"
 	printf 'Sink volume: %s\n' "$(LC_ALL=C awk -v value="$volume" \
 		'BEGIN { printf "%.1f%%", value * 100 / 65536 }')"
+	printf 'Configured test volume: %s%%\n' "$volume_percent"
+	printf 'PipeWire suspend timeout: %ss\n' "$suspend_timeout"
 	printf 'Active port: %s\n' "$port"
 	printf 'Playback PCMs:\n'
 	pcm_states "$card_index" | sed 's/^/  /'
@@ -497,6 +541,8 @@ run_stress() {
 	if [[ ! $trials =~ ^[0-9]+$ ]] || ((trials < 5)); then
 		fail 'AE5_TRANSITION_TRIALS must be at least 5'
 	fi
+	valid_test_volume "$volume_percent" ||
+		fail 'AE5_TRANSITION_VOLUME_PERCENT must be an integer from 1 to 20'
 	for tool in "$ae5ctl" "$pactl" jq pw-play pw-dump pw-mon pw-top \
 		wpctl amixer journalctl sox arecord sha256sum timeout; do
 		need_tool "$tool"
@@ -514,11 +560,14 @@ run_stress() {
 	snapshot=$(sink_snapshot)
 	record=$(find_ae5_sink "$card_index" "$snapshot")
 	IFS=$'\t' read -r sink_name state sample_spec muted volume soft_mixer format port \
+		suspend_timeout_seconds \
 		<<< "$record"
 	[[ $soft_mixer == true ]] ||
 		fail 'the exact AE-5 sink is not using PipeWire software volume'
 	[[ ${sample_spec%% *} == "$expected" ]] ||
 		fail "live sink is ${sample_spec%% *}; refusing requested $expected run"
+	valid_suspend_timeout "$suspend_timeout_seconds" ||
+		fail 'PipeWire suspend timeout must be an integer from 1 to 60 seconds'
 	all_playback_pcms_closed "$card_index" ||
 		fail 'an AE-5 playback PCM is already open'
 
@@ -530,7 +579,7 @@ run_stress() {
 	save_snapshot original
 	hard_mute || fail 'Master and Front did not enter the hard-muted state'
 	"$pactl" set-sink-mute "$sink_name" 1
-	"$pactl" set-sink-volume "$sink_name" 20%
+	"$pactl" set-sink-volume "$sink_name" "$volume_percent%"
 	"$script_root/audio-parity.sh" generate-transitions "$run_root/fixtures" \
 		> "$run_root/fixture-generation.log"
 
@@ -548,6 +597,8 @@ run_stress() {
 		printf 'managed_audio_format=%s\n' "$format"
 		printf 'expected_format=%s\n' "$expected"
 		printf 'trials=%s\n' "$trials"
+		printf 'test_volume_percent=%s\n' "$volume_percent"
+		printf 'suspend_timeout_seconds=%s\n' "$suspend_timeout_seconds"
 		printf 'tap_probe=%s\n' "${AE5_TRANSITION_TAP_PROBE:-off}"
 		printf 'renegotiator=%s\n' "$renegotiator"
 		printf 'renegotiator_sha256=%s\n' \
@@ -566,10 +617,15 @@ run_stress() {
 		log_event trial-end "$trial"
 	done
 	"$pactl" set-sink-mute "$sink_name" 1
-	hard_mute
+	hard_mute || fail 'Master and Front did not return to hard mute'
+	if ! wait_playback_pcms_closed final-idle \
+		"$((suspend_timeout_seconds + 2))"; then
+		save_snapshot anomaly-final-pcm-open
+		fail 'playback PCM did not close after the final client'
+	fi
 	stop_monitors
 	save_snapshot after
-	log_event run-complete 'sink muted; Master and Front off'
+	log_event run-complete 'sink muted; Master and Front off; playback PCMs closed'
 	printf 'transition stress completed; evidence: %s\n' "$run_root"
 	printf 'the AE-5 sink, Master, and Front were left muted\n'
 }
@@ -622,6 +678,20 @@ self_test() (
 	IFS=$'\t' read -r output _ <<< "$record"
 	[[ $output == alsa_output.pci-ae5.analog-stereo ]]
 	[[ $(transition_plan | wc -l) == 6 ]]
+	valid_test_volume 1
+	valid_test_volume 5
+	valid_test_volume 20
+	if valid_test_volume 0 || valid_test_volume 21 ||
+		valid_test_volume 5.5; then
+		fail 'unsafe transition volume unexpectedly passed'
+	fi
+	valid_suspend_timeout 1
+	valid_suspend_timeout 5
+	valid_suspend_timeout 60
+	if valid_suspend_timeout 0 || valid_suspend_timeout 61 ||
+		valid_suspend_timeout 5.5; then
+		fail 'unsupported suspend timeout unexpectedly passed'
+	fi
 	rms_is_anomaly -6
 	if rms_is_anomaly -38 || rms_is_anomaly -inf; then
 		fail 'clean tap level was classified as an anomaly'
@@ -638,6 +708,8 @@ case ${1:-} in
 	for tool in "$pactl" jq; do
 		need_tool "$tool"
 	done
+	valid_test_volume "$volume_percent" ||
+		fail 'AE5_TRANSITION_VOLUME_PERCENT must be an integer from 1 to 20'
 	describe_live_state
 	;;
 run)

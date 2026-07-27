@@ -625,10 +625,17 @@ live prerequisites without changing state:
 bash scripts/track-transition-stress.sh --dry-run
 ```
 
-No stress playback has been run yet, S32 remains disabled, and the current
-headphones are connected to the motherboard line-out; nothing is connected to
-an AE-5 output. The guarded run, root-only trace companion, evidence schema,
-and remaining exact-target campaign are documented in
+Two exact-target five-trial S16 campaigns have now run at 5%. The first exposed
+that a one-second idle did not cross WirePlumber's five-second suspend deadline;
+the corrected rerun completed 55 accepted client exits, five in-place
+renegotiations, five real suspend-boundary PCM closures, and final PCM closure
+without a PipeWire error/XRUN or journal report. It ended with the sink muted,
+both hardware switches off, and both playback PCMs closed. The run did not have
+privileged HDA position tracing or the optional What U Hear probe, so S32
+remains disabled. The current headphones are connected to the motherboard
+line-out and nothing is connected to an AE-5 output. The guarded run, root-only
+trace companion, evidence schema, and remaining exact-target campaign are
+documented in
 [docs/TRACK_TRANSITION_INVESTIGATION.md](docs/TRACK_TRANSITION_INVESTIGATION.md).
 
 The complete patch stack now also builds, boots, and passes a guarded physical

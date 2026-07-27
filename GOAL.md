@@ -232,6 +232,30 @@ analogue of an APO — and leave the unstable hardware path alone. It trades
 hardware offload for stability, needs its own DSP design and measurement
 work, and is the architecture the vendor themselves chose.
 
+### Kernel A/B — answered 2026-07-27, patches exonerated
+
+Measured on the **stock** Nobara kernel `7.1.4-200.nobara.fc44.x86_64`
+(taint 0), idle, all playback PCMs closed, no audio played since boot,
+Low headphone gain:
+
+| `Enable OutFX` | What U Hear RMS |
+|---|---|
+| on | -3.60 dB |
+| off | **-36.31 dB** |
+| on | -5.05 dB |
+
+The same A/B/A on the patched kernel read -2.80 / -38.33 / -2.80 dB. The
+behaviour is identical, so **the project's patch queue is not the cause**.
+This is upstream `snd_hda_codec_ca0132` driving the hardware DSP, or the
+silicon itself. It also removes the last reason to suspect
+`ca0132-ae5-direct-mode.patch`, which was the only patch touching the
+`PLAY_ENHANCEMENT` path.
+
+Two things follow. The oscillation is a genuine upstream/hardware issue
+worth reporting once characterised, not a local regression. And the
+bypass premise the software-effects plan rests on holds on a stock
+kernel: with OutFX off the tap sits at the floor.
+
 ### Still open
 
 - Which parameter values push the chain unstable, at n>=5 per cell.

@@ -54,10 +54,15 @@ pub fn install_css() {
             background: linear-gradient(160deg, #241f3d 0%, #1d1c2e 46%, #191a2a 100%);
         }
         .hero {
-            min-height: 52px;
-            padding: 12px 26px;
+            min-height: 34px;
+            padding: 6px 26px;
             background: #0d1828;
             border-bottom: 1px solid alpha(#ffffff, 0.08);
+        }
+        .hero-identity {
+            color: #7d8b9a;
+            font-family: monospace;
+            font-size: 11px;
         }
         .hero-kicker, .error-kicker {
             color: #22c7d4;
@@ -230,10 +235,9 @@ pub fn install_css() {
             border-bottom: 2px solid #22c7d4;
             font-weight: 600;
         }
-        .profile-page, .control-page { padding: 24px 30px 28px 30px; }
+        .profile-page, .control-page { padding: 14px 30px 16px 30px; }
         .page-title {
-            margin-bottom: 2px;
-            font-size: 26px;
+            font-size: 22px;
             font-weight: 450;
             letter-spacing: 0.2px;
         }
@@ -383,6 +387,7 @@ pub fn install_css() {
             font-size: 11px;
         }
         .effect-scale-note {
+            min-height: 14px;
             color: #98a7b7;
             font-size: 10px;
         }

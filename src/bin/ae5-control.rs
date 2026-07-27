@@ -370,11 +370,18 @@ fn hardware_level_label(level: &Level) -> String {
     }
 }
 
+/// The top bar: what card this is, on one line.
+///
+/// It used to stack a title over a subtitle and reserve two lines plus generous
+/// padding for four facts that never change while the application is open. On a
+/// 1343x858 window that cost enough height to push the Acoustic engine sliders
+/// under the signal path. The identity is now one line; the full ALSA, PCI,
+/// subsystem and codec detail already lives on the Device page, which is where
+/// someone actually reading it would go.
 fn hero(device: &Ae5Device, controls: &[ControlSnapshot]) -> gtk::Box {
-    let header = gtk::Box::new(gtk::Orientation::Horizontal, 16);
+    let header = gtk::Box::new(gtk::Orientation::Horizontal, 10);
     header.add_css_class("hero");
 
-    let titles = gtk::Box::new(gtk::Orientation::Vertical, 2);
     let title = gtk::Label::new(Some(
         device
             .codec_name
@@ -383,22 +390,23 @@ fn hero(device: &Ae5Device, controls: &[ControlSnapshot]) -> gtk::Box {
     ));
     title.set_xalign(0.0);
     title.add_css_class("hero-title");
-    let subtitle = gtk::Label::new(Some(&format!(
+    header.append(&title);
+
+    let identity = gtk::Label::new(Some(&format!("PCI {}", device.pci_id())));
+    identity.set_xalign(0.0);
+    identity.set_hexpand(true);
+    identity.add_css_class("hero-identity");
+    identity.set_tooltip_text(Some(&format!(
         "{} · PCI {} · subsystem {}",
         device.alsa_name,
         device.pci_id(),
         device.subsystem_id()
     )));
-    subtitle.set_xalign(0.0);
-    subtitle.add_css_class("dim-label");
-    titles.append(&title);
-    titles.append(&subtitle);
-    header.append(&titles);
+    header.append(&identity);
 
     let status = gtk::Label::new(Some(&format!("ONLINE · {} CONTROLS", controls.len())));
     status.add_css_class("status-pill");
     status.set_halign(gtk::Align::End);
-    status.set_hexpand(true);
     header.append(&status);
     header
 }
@@ -1270,7 +1278,7 @@ fn effect_control_card(
     all_controls: &[ControlSnapshot],
 ) -> gtk::Box {
     let card = gtk::Box::new(gtk::Orientation::Vertical, 10);
-    card.set_size_request(158, 198);
+    card.set_size_request(158, 180);
     card.add_css_class("effect-card");
 
     // A switched-off effect used to keep its accent stripe and a live slider,
@@ -1334,14 +1342,17 @@ fn effect_control_card(
         } else {
             None
         };
-        if let Some(note) = scale_note {
-            let hint = gtk::Label::new(Some(&note));
-            hint.set_halign(gtk::Align::Center);
-            hint.set_wrap(true);
-            hint.set_justify(gtk::Justification::Center);
-            hint.add_css_class("effect-scale-note");
-            card.append(&hint);
-        }
+        // The note row is always present, empty when there is nothing to say.
+        // Rendering it conditionally made every card with a note push its slider
+        // one line lower than the cards without one, so the row of sliders
+        // stepped up and down instead of reading as a line.
+        let hint = gtk::Label::new(scale_note.as_deref().or(Some("")));
+        hint.set_halign(gtk::Align::Center);
+        hint.set_wrap(true);
+        hint.set_lines(1);
+        hint.set_justify(gtk::Justification::Center);
+        hint.add_css_class("effect-scale-note");
+        card.append(&hint);
 
         let editor = level_editor(
             card_index,

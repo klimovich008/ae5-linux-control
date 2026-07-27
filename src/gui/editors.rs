@@ -13,6 +13,7 @@ use crate::{
 };
 use gtk::prelude::*;
 
+use crate::gui::tracelog;
 use crate::{ControlError, DIRECT_MODE_CONTROL};
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -451,6 +452,14 @@ pub fn choice_editor(
         }) {
             Ok(actual) => {
                 verified.set(requested_index);
+                tracelog::note_self_write();
+                tracelog::trace(
+                    "mixer",
+                    &format!(
+                        "choice {name} = {requested:?} -> {}",
+                        control_summary(&actual)
+                    ),
+                );
                 set_status(
                     &status,
                     true,
@@ -459,6 +468,7 @@ pub fn choice_editor(
             }
             Err(error) => {
                 revert_dropdown(dropdown, &updating, verified.get());
+                tracelog::trace("mixer", &format!("write FAILED: {error}"));
                 set_status(&status, false, &format!("Change failed: {error}"));
             }
         }
@@ -520,6 +530,11 @@ pub fn dial_switch(
         }) {
             Ok(actual) => {
                 verified.set(requested);
+                tracelog::note_self_write();
+                tracelog::trace(
+                    "mixer",
+                    &format!("write {name} = {requested} -> {}", control_summary(&actual)),
+                );
                 set_status(
                     &status,
                     true,
@@ -530,6 +545,7 @@ pub fn dial_switch(
                 updating.set(true);
                 dial.set_active(verified.get());
                 updating.set(false);
+                tracelog::trace("mixer", &format!("write FAILED: {error}"));
                 set_status(&status, false, &format!("Change failed: {error}"));
             }
         }
@@ -592,6 +608,11 @@ pub fn switch_editor(
         match result {
             Ok(actual) => {
                 verified.set(requested);
+                tracelog::note_self_write();
+                tracelog::trace(
+                    "mixer",
+                    &format!("write {name} = {requested} -> {}", control_summary(&actual)),
+                );
                 set_status(
                     &status,
                     true,
@@ -602,6 +623,7 @@ pub fn switch_editor(
                 updating.set(true);
                 control.set_active(verified.get());
                 updating.set(false);
+                tracelog::trace("mixer", &format!("write FAILED: {error}"));
                 set_status(&status, false, &format!("Change failed: {error}"));
             }
         }
@@ -758,6 +780,11 @@ pub fn level_editor_oriented(
             match result {
                 Ok(actual) => {
                     verified.set(requested);
+                    tracelog::note_self_write();
+                    tracelog::trace(
+                        "mixer",
+                        &format!("level {name} = {requested} -> {}", control_summary(&actual)),
+                    );
                     set_status(
                         &status,
                         true,
@@ -768,6 +795,7 @@ pub fn level_editor_oriented(
                     updating.set(true);
                     scale.set_value(verified.get() as f64);
                     updating.set(false);
+                    tracelog::trace("mixer", &format!("write FAILED: {error}"));
                     set_status(&status, false, &format!("Change failed: {error}"));
                 }
             }

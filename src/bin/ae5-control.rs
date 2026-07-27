@@ -133,6 +133,13 @@ fn start_performance_probe(window: &gtk::ApplicationWindow, started: Instant) {
 
 fn refresh_window(window: &gtk::ApplicationWindow, message: Option<&str>) -> Option<i32> {
     let view_state = capture_refresh_view_state(window);
+    ae5_control::gui::tracelog::trace(
+        "refresh",
+        &format!(
+            "full rebuild: message={message:?} page={:?} scroll={:?}",
+            view_state.visible_page, view_state.page_scroll
+        ),
+    );
     let operation_status =
         operation_status_for_refresh(message, view_state.operation_status.clone());
     match load_hardware() {
@@ -3525,7 +3532,25 @@ fn start_mixer_watch(window: &gtk::ApplicationWindow, card_index: i32) -> Result
             while running.load(Ordering::Acquire) {
                 match mixer.wait_for_event(Duration::from_millis(500)) {
                     Ok(false) => {}
+                    // Our own writes echo back as ALSA events. Rebuilding for
+                    // them meant every click and every step of a slider drag
+                    // repainted the whole window — the "blink" — and a route
+                    // switch raced its own rebuild. The editors already show
+                    // verified readback for our writes, so only changes made
+                    // by someone else warrant a rebuild.
+                    Ok(true) if ae5_control::gui::tracelog::self_event_age_ms().is_some() => {
+                        if let Some(age) = ae5_control::gui::tracelog::self_event_age_ms() {
+                            ae5_control::gui::tracelog::trace(
+                                "watch",
+                                &format!("self-originated event suppressed ({age} ms after write)"),
+                            );
+                        }
+                    }
                     Ok(true) if !refresh_queued.swap(true, Ordering::AcqRel) => {
+                        ae5_control::gui::tracelog::trace(
+                            "watch",
+                            "external mixer event -> queueing window refresh",
+                        );
                         let refresh_queued = refresh_queued.clone();
                         gtk::glib::MainContext::default().invoke(move || {
                             refresh_queued.store(false, Ordering::Release);

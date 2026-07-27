@@ -84,6 +84,12 @@ main() {
                 announced=1
                 printf '\n*** oscillation first detected at uptime %ss (RMS %s dBFS) ***\n' \
                     "$up" "$rms"
+                # Capture the surrounding state the moment the fault appears,
+                # while the trigger is still in the kernel log's tail. Waiting
+                # for a human to notice is how the last three onsets were lost.
+                if [ -x "$(dirname "$0")/ca0132-debug.sh" ]; then
+                    bash "$(dirname "$0")/ca0132-debug.sh" snapshot || true
+                fi
             fi
         fi
         printf '%s,%s,%s,%s,%s\n' \

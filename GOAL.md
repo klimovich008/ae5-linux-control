@@ -179,6 +179,36 @@ would be very unlikely at an 80% rate, so effect *values* — not merely
 having effects enabled — do appear to matter. Repeat every future
 bisection at n>=5 before drawing a conclusion.
 
+### Observability (added 2026-07-27, late session)
+
+A code-and-log review found why every fault in this project has been hard
+to catch, and instrumented all three layers:
+
+- **The application logged nothing.** `AE5_TRACE=1` now emits a monotonic
+  stderr trace of every mixer write with its readback, every ALSA event
+  with its classification, and every window rebuild with its reason.
+- **The GUI rebuilt itself for its own writes.** The mixer watch refreshed
+  on every ALSA event, including echoes of the application's own writes —
+  one full-window rebuild per click and per slider step (the reported
+  "blink"), and a rebuild racing every route switch. Self-originated
+  events (within 400 ms of our own write) are now suppressed and logged;
+  the editors already display verified readback, so only external changes
+  rebuild.
+- **The driver had 121 debug sites, all off.** `scripts/ca0132-debug.sh`
+  toggles `snd_hda_codec_ca0132` dynamic debug at runtime (dspio commands,
+  DSP transfers), streams a filtered kernel log, and collects a full
+  evidence snapshot (kernel tail, mixer readback, codec dump, PCM state,
+  PipeWire graph). `dsp-oscillation-monitor.sh` now snapshots
+  automatically at onset, so the trigger is caught while it is still in
+  the kernel log's tail.
+
+Two facts from the log review worth keeping: the card runs **non-snoop
+DMA** (`Force to non-snoop mode` on every bind) — hardware does not keep
+CPU caches coherent with DMA, which is a plausible mechanism for
+*probabilistic* DSP-state corruption and fits the ~80% trigger rate; and
+WirePlumber logs `wp_properties_get: assertion 'self != NULL'` during our
+session teardowns, worth watching around route faults.
+
 ### Still open
 
 - Which parameter values push the chain unstable, at n>=5 per cell.

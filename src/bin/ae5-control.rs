@@ -56,6 +56,12 @@ struct RefreshViewState {
     builtin_profile: Option<u32>,
     personal_profile_scroll: Option<f64>,
     builtin_profile_scroll: Option<f64>,
+    /// Where the visible page was scrolled to vertically.
+    ///
+    /// Every mixer write rebuilds the page from fresh hardware state, which
+    /// threw the reader back to the top. Changing a control near the bottom of
+    /// a long page therefore lost your place on every single edit.
+    page_scroll: Option<f64>,
     operation_status: Option<OperationStatus>,
 }
 
@@ -1300,27 +1306,32 @@ fn effect_control_card(
     title.set_hexpand(true);
     title.add_css_class("effect-card-title");
     header.append(&title);
-    if let Some(enabled) = control.playback_switch {
-        header.append(&switch_editor(
-            card_index,
-            status,
-            &control.name,
-            enabled,
-            false,
-            playback_switch_block_reason(&control.name, true, all_controls),
-        ));
-    }
+    // The switch used to sit here, apart from the dial, leaving the biggest and
+    // most obvious target on the card inert. The dial is the switch now.
+    let switch_block = playback_switch_block_reason(&control.name, true, all_controls);
     card.append(&header);
 
     if let Some(level) = &control.playback_level {
-        let value = gtk::Label::new(Some(&level.value.to_string()));
-        value.set_halign(gtk::Align::Center);
-        value.add_css_class("effect-dial-value");
-        value.set_tooltip_text(Some(&format!(
-            "{} of {}..{}",
-            level.value, level.min, level.max
-        )));
-        card.append(&value);
+        match control.playback_switch {
+            Some(enabled) => card.append(&ae5_control::gui::editors::dial_switch(
+                card_index,
+                status,
+                &control.name,
+                enabled,
+                &level.value.to_string(),
+                switch_block,
+            )),
+            None => {
+                let value = gtk::Label::new(Some(&level.value.to_string()));
+                value.set_halign(gtk::Align::Center);
+                value.add_css_class("effect-dial-value");
+                value.set_tooltip_text(Some(&format!(
+                    "{} of {}..{}",
+                    level.value, level.min, level.max
+                )));
+                card.append(&value);
+            }
+        }
 
         // An effect switched on while its level sits at the floor applies
         // nothing. The card used to show "on" next to "0" and leave the user to
@@ -1357,6 +1368,7 @@ fn effect_control_card(
                 .or_else(|| smart_volume_level_block_reason(&control.name, all_controls)),
         );
         editor.set_sensitive(effect_enabled);
+        ae5_control::gui::editors::mark_interactive(&editor);
         if !effect_enabled {
             editor.set_tooltip_text(Some(&format!(
                 "Switch {} on to change its level",
@@ -3573,8 +3585,31 @@ fn capture_refresh_view_state(window: &gtk::ApplicationWindow) -> RefreshViewSta
             .map(|picker| picker.selected()),
         personal_profile_scroll: horizontal_scroll_value(window, PERSONAL_PROFILE_CAROUSEL_NAME),
         builtin_profile_scroll: horizontal_scroll_value(window, BUILTIN_PROFILE_CAROUSEL_NAME),
+        page_scroll: visible_page_scroll(window),
         operation_status: current_operation_status(window),
     }
+}
+
+/// The vertical scroll offset of the page the user is currently looking at.
+fn visible_page_scroll(window: &gtk::ApplicationWindow) -> Option<f64> {
+    visible_page_scroller(window).map(|scroll| scroll.vadjustment().value())
+}
+
+/// The scroller belonging to the visible stack page.
+///
+/// Pages are built either as a `ScrolledWindow` or as a box containing one, so
+/// search the visible child rather than assuming a shape.
+fn visible_page_scroller(window: &gtk::ApplicationWindow) -> Option<gtk::ScrolledWindow> {
+    let visible = main_stack(window)?.visible_child()?;
+    if let Ok(scroll) = visible.clone().downcast::<gtk::ScrolledWindow>() {
+        return Some(scroll);
+    }
+    find_widget(visible, |widget| {
+        widget.downcast_ref::<gtk::ScrolledWindow>().is_some()
+            && !widget.has_css_class("profile-carousel")
+    })?
+    .downcast()
+    .ok()
 }
 
 fn restore_refresh_view_state(window: &gtk::ApplicationWindow, state: &RefreshViewState) {
@@ -3603,6 +3638,20 @@ fn restore_refresh_view_state(window: &gtk::ApplicationWindow, state: &RefreshVi
             continue;
         };
         let adjustment = scroll.hadjustment();
+        gtk::glib::idle_add_local_once(move || {
+            let lower = adjustment.lower();
+            let upper = (adjustment.upper() - adjustment.page_size()).max(lower);
+            adjustment.set_value(value.clamp(lower, upper));
+        });
+    }
+
+    // Restore the reader's place last, and on idle: the page has just been
+    // rebuilt, so its adjustment does not know its own extent until GTK has
+    // allocated the new children.
+    if let Some(value) = state.page_scroll
+        && let Some(scroll) = visible_page_scroller(window)
+    {
+        let adjustment = scroll.vadjustment();
         gtk::glib::idle_add_local_once(move || {
             let lower = adjustment.lower();
             let upper = (adjustment.upper() - adjustment.page_size()).max(lower);

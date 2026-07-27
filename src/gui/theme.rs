@@ -323,6 +323,38 @@ pub fn install_css() {
             color: #77828f;
             border-color: alpha(#c1c7d0, 0.16);
         }
+        /* The dial is the switch. Its ring carries the on/off state, so the
+           card needs no separate toggle competing for the same meaning. */
+        .effect-dial {
+            min-width: 56px;
+            min-height: 56px;
+            padding: 0;
+            color: #8b96a3;
+            background: transparent;
+            border: 2px solid alpha(#c1c7d0, 0.20);
+            border-radius: 28px;
+            font-family: monospace;
+            font-size: 17px;
+            font-weight: 700;
+        }
+        .effect-dial:hover {
+            color: #cfd8e0;
+            border-color: alpha(#c1c7d0, 0.34);
+        }
+        .effect-dial:checked {
+            color: #eaf6f8;
+            background: alpha(#22c7d4, 0.13);
+            border-color: #22c7d4;
+        }
+        .effect-dial:checked:hover { border-color: #45d7e1; }
+        .effect-dial:focus-visible {
+            outline: 2px solid #57dce5;
+            outline-offset: 2px;
+        }
+        .effect-dial:disabled {
+            color: #5d6670;
+            border-color: alpha(#c1c7d0, 0.10);
+        }
         /* Every horizontal level slider in the application shares one width, so
            rows read as a column instead of a ragged edge. */
         .effect-card scale.horizontal,

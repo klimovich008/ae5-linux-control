@@ -463,7 +463,93 @@ pub fn choice_editor(
             }
         }
     });
+    mark_interactive(&dropdown);
     dropdown
+}
+
+/// A playback switch rendered as the effect's own dial rather than as a
+/// separate toggle beside it.
+///
+/// The dial already showed the effect's level and the switch sat apart from it,
+/// so the one obvious target — the big circle with the number in it — did
+/// nothing. Pressing the dial now switches the effect, which is what it looks
+/// like it should do.
+///
+/// Shares the verified write path with [`switch_editor`]: the request goes to
+/// the mixer, the readback decides the reported state, and a failed write snaps
+/// the control back to the value the hardware last confirmed.
+pub fn dial_switch(
+    card_index: i32,
+    status: &gtk::Label,
+    name: &str,
+    enabled: bool,
+    reading: &str,
+    block_reason: Option<&str>,
+) -> gtk::ToggleButton {
+    let dial = gtk::ToggleButton::builder()
+        .active(enabled)
+        .halign(gtk::Align::Center)
+        .label(reading)
+        .build();
+    dial.add_css_class("effect-dial");
+    if let Some(reason) = block_reason {
+        dial.set_sensitive(false);
+        dial.set_tooltip_text(Some(reason));
+    } else {
+        dial.set_tooltip_text(Some(&format!(
+            "{name}: press to switch {}",
+            if enabled { "off" } else { "on" }
+        )));
+    }
+    dial.update_property(&[gtk::accessible::Property::Label(&format!(
+        "{name} playback switch, level {reading}"
+    ))]);
+    mark_interactive(&dial);
+
+    let verified = Rc::new(Cell::new(enabled));
+    let updating = Rc::new(Cell::new(false));
+    let name = name.to_owned();
+    let status = status.clone();
+    dial.connect_toggled(move |dial| {
+        if updating.get() {
+            return;
+        }
+        let requested = dial.is_active();
+        match with_mixer(card_index, |mixer| {
+            mixer.set_playback_switch(&name, requested)
+        }) {
+            Ok(actual) => {
+                verified.set(requested);
+                set_status(
+                    &status,
+                    true,
+                    &format!("Applied and verified: {}", control_summary(&actual)),
+                );
+            }
+            Err(error) => {
+                updating.set(true);
+                dial.set_active(verified.get());
+                updating.set(false);
+                set_status(&status, false, &format!("Change failed: {error}"));
+            }
+        }
+    });
+    dial
+}
+
+/// Give a control the cursor that states whether it can be operated.
+///
+/// GTK keeps the default arrow over switches, sliders and dropdowns, so the
+/// interface offered no hover feedback about what was interactive. An
+/// insensitive control gets the blocked cursor, which pairs with its greyed
+/// styling instead of silently swallowing the click.
+pub fn mark_interactive(widget: &impl IsA<gtk::Widget>) {
+    let widget = widget.as_ref();
+    widget.set_cursor_from_name(Some(if widget.is_sensitive() {
+        "pointer"
+    } else {
+        "not-allowed"
+    }));
 }
 
 pub fn switch_editor(
@@ -520,6 +606,7 @@ pub fn switch_editor(
             }
         }
     });
+    mark_interactive(&control);
     control
 }
 
@@ -687,6 +774,7 @@ pub fn level_editor_oriented(
         });
         *pending.borrow_mut() = Some(source);
     });
+    mark_interactive(&scale);
     scale.upcast()
 }
 

@@ -209,11 +209,34 @@ CPU caches coherent with DMA, which is a plausible mechanism for
 WirePlumber logs `wp_properties_get: assertion 'self != NULL'` during our
 session teardowns, worth watching around route faults.
 
+### Why it is Linux-only — answered 2026-07-27
+
+Examining the vendor stack on this host's Windows partition settled the
+question. **Windows does not run the SBX effects on the CA0132 DSP.** The
+driver registers `CtxRFX64.dll`, "Creative Render Audio Effects", as a
+software Audio Processing Object on every render endpoint, and its symbol
+table names the effect implementations — Crystalizer, Smart Volume,
+Surround, Bass Boost, bass management. Those sliders are APO parameters
+computed on the CPU, not DSP register writes.
+
+Linux does the opposite: `snd_hda_codec_ca0132` programs the card's DSP
+through `dspio` commands. So the hardware effect path we drive is one the
+vendor's own stack does not exercise for these effects, which is
+consistent with meeting an instability no Windows user reports.
+
+Full findings, method and limits: [`docs/WINDOWS_STACK_ARCHITECTURE.md`](docs/WINDOWS_STACK_ARCHITECTURE.md).
+
+This opens a third option beyond "fix the DSP path" and "live with the
+reinit": implement the effects as a PipeWire filter chain — the direct
+analogue of an APO — and leave the unstable hardware path alone. It trades
+hardware offload for stability, needs its own DSP design and measurement
+work, and is the architecture the vendor themselves chose.
+
 ### Still open
 
 - Which parameter values push the chain unstable, at n>=5 per cell.
-- Why it is Linux-only. The natural comparison is whether Windows with
-  the same effect values ever oscillates.
+- The DSP initialisation sequence `CtxHda.sys` performs, which would
+  require disassembly and is the natural next question.
 - Whether the original loud track-switch fault is a louder instance of
   this: the mechanism matches, since a DSP-generated signal is exactly
   what survives a software mute under `soft-mixer`.

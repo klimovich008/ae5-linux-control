@@ -1,5 +1,14 @@
 # AE-5 Direct Mode investigation
 
+> **Current status (2026-07-27): unsafe and removed from the production
+> series.** The measurements below are retained as historical transition
+> research, but later waveform-qualified testing showed that closing and
+> reopening the normal analog playback PCM can leave the CA0132 route at about
+> 26.4% THD. Direct-to-normal transitions exercise that same unsafe boundary.
+> The application now rejects the Direct Mode control and
+> `kernel/series` does not include the candidate. Do not install or expose it
+> until the normal-route PCM-reopen defect is understood and fixed.
+
 ## Status
 
 An AE-5-only kernel and application candidate is implemented, statically

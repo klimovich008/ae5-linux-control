@@ -75,9 +75,17 @@ stated tolerance, taken through the existing What U Hear tap and
 **Phase B — substitutes.** Bass, presence and dynamics as honest equivalents,
 each measured and each labelled as a substitute in `feature-parity.tsv`.
 
-**Phase C — the switch.** Software path default; hardware DSP path available
-for anyone who wants it, with the oscillation risk stated. Both readable in
-the signal-path spine, which already has a stage for processing.
+**Phase C — fail closed.** The software path is the only supported output
+effects path. Hardware OutFX and its child output-effect controls are retained
+in imported profile metadata but rejected before an ALSA write. The kernel
+guard initializes the AE-5 output effects off, rejects an OutFX enable with
+`-EOPNOTSUPP`, and treats redundant off replay as a no-op because even an off
+write can disturb hidden DSP state. Direct Mode is also unavailable.
+
+The exact-card WirePlumber path keeps the normal analog playback PCM open.
+This is required independently of OutFX: waveform testing found that a
+playback close/reopen can corrupt the normal route with every output effect
+already off.
 
 ## Validated before writing this
 
@@ -93,9 +101,9 @@ routes at 20%. The mechanism works; what remains is engineering.
   current period geometry (6016 × 4).
 - CPU cost under the same geometry. Expected negligible; state the number.
 - Stability and response of the normal CA0132 route with every effect module
-  disabled, separately from true Direct Mode.
-- Whether software effects should be offered in Direct Mode despite its
-  stereo-only format/rate and software-volume requirements.
+  disabled and the playback PCM held open.
+- The kernel cause of the normal-route PCM-reopen corruption. Direct Mode must
+  remain unavailable until this is resolved.
 - Whether S32 becomes viable again once nothing is generating signal after
   the mute point. Do not assume it does.
 

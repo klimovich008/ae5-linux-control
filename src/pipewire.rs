@@ -37,6 +37,7 @@ pub struct PipeWireRouteState {
     pub profile_set: Option<String>,
     pub soft_mixer: Option<bool>,
     pub ignore_db: Option<bool>,
+    pub persistent_playback: Option<bool>,
     pub active_profile: Option<String>,
     pub input_route: Option<String>,
     pub output_route: Option<String>,
@@ -90,6 +91,13 @@ impl PipeWireRouteState {
         };
         if let Some(issue) = self.profile_issue(required_profile, "output") {
             return Some(issue);
+        }
+        if self.persistent_playback == Some(false) {
+            return Some(
+                "the AE-5 output is missing session.suspend-timeout-seconds=0; restart \
+                 WirePlumber after installing the exact-card policy"
+                    .to_owned(),
+            );
         }
         if output_choice == "Speakers" && speaker_layout != "2.0" {
             return None;
@@ -224,7 +232,15 @@ pub(crate) fn suspend_ae5_output(card_index: i32) -> io::Result<SuspendedAe5Outp
 }
 
 pub fn ae5_route_state(card_index: i32) -> io::Result<PipeWireRouteState> {
-    parse_route_state(&run_pw_dump()?, card_index)
+    let mut state = parse_route_state(&run_pw_dump()?, card_index)?;
+    state.persistent_playback = match ae5_output(card_index)? {
+        Some(node) => {
+            let details = run_wpctl(&["inspect", &node.id.to_string()])?;
+            Some(property(&details, "session.suspend-timeout-seconds").as_deref() == Some("0"))
+        }
+        None => None,
+    };
+    Ok(state)
 }
 
 pub(crate) fn set_ae5_output_profile(
@@ -698,6 +714,7 @@ fn parse_route_state(output: &str, card_index: i32) -> io::Result<PipeWireRouteS
         profile_set,
         soft_mixer,
         ignore_db,
+        persistent_playback: None,
         active_profile,
         input_route,
         output_route,
@@ -1260,6 +1277,7 @@ id 58, type PipeWire:Interface:Node
                 profile_set: Some(AE5_PROFILE_SET.to_owned()),
                 soft_mixer: Some(true),
                 ignore_db: Some(true),
+                persistent_playback: None,
                 active_profile: Some("output:analog-stereo+input:analog-stereo".to_owned()),
                 input_route: Some("sound-blaster-ae5-input-microphone".to_owned()),
                 output_route: Some(
@@ -1310,6 +1328,7 @@ id 58, type PipeWire:Interface:Node
             profile_set: Some("default.conf".to_owned()),
             soft_mixer: Some(true),
             ignore_db: Some(true),
+            persistent_playback: None,
             active_profile: None,
             input_route: None,
             output_route: None,
@@ -1337,6 +1356,15 @@ id 58, type PipeWire:Interface:Node
                 .contains("invalid dB metadata")
         );
         state.ignore_db = Some(true);
+        state.active_profile = Some("output:analog-stereo+input:analog-stereo".to_owned());
+        state.persistent_playback = Some(false);
+        assert!(
+            state
+                .output_issue("Headphone", "2.0")
+                .unwrap()
+                .contains("session.suspend-timeout-seconds=0")
+        );
+        state.persistent_playback = Some(true);
         state.active_profile = Some("output:iec958-stereo".to_owned());
         assert!(
             state
@@ -1358,6 +1386,7 @@ id 58, type PipeWire:Interface:Node
             profile_set: Some(AE5_PROFILE_SET.to_owned()),
             soft_mixer: Some(true),
             ignore_db: Some(true),
+            persistent_playback: Some(true),
             active_profile: Some("output:analog-surround-51+input:analog-stereo".to_owned()),
             input_route: Some("sound-blaster-ae5-input-microphone".to_owned()),
             output_route: None,

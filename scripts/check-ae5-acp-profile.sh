@@ -110,5 +110,6 @@ grep -Fq 'audio.format = "S16LE"' "$rule"
 grep -Fq 'api.alsa.disable-mmap = true' "$rule"
 grep -Fq 'api.alsa.period-size = 6016' "$rule"
 grep -Fq 'api.alsa.period-num = 4' "$rule"
+grep -Fq 'session.suspend-timeout-seconds = 0' "$rule"
 
-printf 'AE-5 ACP profile: raw S16 playback, stable managed route order, and shared Front DAC validated\n'
+printf 'AE-5 ACP profile: persistent raw S16 playback, stable managed route order, and shared Front DAC validated\n'

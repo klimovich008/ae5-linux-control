@@ -23,6 +23,15 @@ const ROUTE_PLAYBACK_CONTROLS: &[&str] = &["Master", "Front", "Surround", "Cente
 
 pub(crate) const EQUALIZER_PRESET_CONTROL: &str = "FX: Equalizer Preset";
 pub const DIRECT_MODE_CONTROL: &str = "AE-5: Direct Mode";
+pub const HARDWARE_OUTFX_CONTROL: &str = "Enable OutFX";
+const UNSAFE_HARDWARE_OUTFX: &str = "Hardware OutFX is disabled because AE-5 tests reproduced \
+    severe stream distortion. Use software effects; recovering an already-corrupted route \
+    requires a driver rebind or cold boot.";
+const UNSAFE_DIRECT_MODE: &str = "Direct Mode is disabled because repeated AE-5 transitions \
+    corrupted normal playback. Reboot into the maintained kernel without Direct Mode.";
+const UNSAFE_OUTPUT_ROUTE_TRANSITION: &str = "Output route changes are disabled because they \
+    suspend and reopen AE-5 playback, which reproduced severe stream distortion. Keep the current \
+    route until the kernel PCM-reopen defect is fixed.";
 const EQUALIZER_BAND_EDIT_BLOCK: &str = "Factory EQ presets use DSP values that the individual \
     1 dB controls cannot represent reliably. Select Flat before editing custom bands.";
 const DIRECT_MODE_DSP_BLOCK: &str = "Direct Mode bypasses the CA0132 DSP, so this control has no \
@@ -107,6 +116,9 @@ pub fn playback_switch_block_reason(
     enabled: bool,
     controls: &[ControlSnapshot],
 ) -> Option<&'static str> {
+    if let Some(reason) = unsafe_playback_control_block_reason(name) {
+        return Some(reason);
+    }
     if !enabled {
         return None;
     }
@@ -114,6 +126,18 @@ pub fn playback_switch_block_reason(
         return Some(reason);
     }
     bass_switch_block_reason(name, controls)
+}
+
+pub fn unsafe_playback_control_block_reason(name: &str) -> Option<&'static str> {
+    if name == DIRECT_MODE_CONTROL {
+        Some(UNSAFE_DIRECT_MODE)
+    } else if is_unsafe_output_route_control(name) {
+        Some(UNSAFE_OUTPUT_ROUTE_TRANSITION)
+    } else if is_unsafe_hardware_playback_control(name) {
+        Some(UNSAFE_HARDWARE_OUTFX)
+    } else {
+        None
+    }
 }
 
 fn bass_switch_block_reason(name: &str, controls: &[ControlSnapshot]) -> Option<&'static str> {
@@ -261,6 +285,28 @@ pub(crate) fn is_equalizer_band(name: &str) -> bool {
         .is_some_and(|band| band.parse::<u8>().is_ok_and(|band| band < 10))
 }
 
+pub(crate) fn is_unsafe_hardware_playback_control(name: &str) -> bool {
+    name == HARDWARE_OUTFX_CONTROL
+        || name == DIRECT_MODE_CONTROL
+        || is_equalizer_band(name)
+        || matches!(
+            name,
+            "FX: Surround"
+                | "FX: Crystalizer"
+                | "FX: Dialog Plus"
+                | "FX: Smart Volume"
+                | "FX: Smart Volume Setting"
+                | "FX: X-Bass"
+                | "FX: X-Bass Crossover"
+                | "FX: Equalizer"
+                | EQUALIZER_PRESET_CONTROL
+        )
+}
+
+pub(crate) fn is_unsafe_output_route_control(name: &str) -> bool {
+    matches!(name, "Output Select" | "Surround Channel Config")
+}
+
 fn is_direct_mode_bypassed_control(name: &str, controls: &[ControlSnapshot]) -> bool {
     let is_playback_effect = controls.iter().any(|control| {
         control.name == name
@@ -342,23 +388,13 @@ impl Ae5Mixer {
             changes.push(format!("reapplied {input} input"));
         }
         if plan.unmute_master || plan.unmute_front {
-            let suspended = suspend_ae5_output(self.card_index)?;
-            let result = (|| {
-                if plan.unmute_master {
-                    self.set_playback_switch("Master", true)?;
-                    changes.push("unmuted hardware Master playback".to_owned());
-                }
-                if plan.unmute_front {
-                    self.set_playback_switch("Front", true)?;
-                    changes.push("unmuted Front playback".to_owned());
-                }
-                Ok(())
-            })();
-            let resumed = suspended.resume().map_err(ControlError::from);
-            match (result, resumed) {
-                (Ok(()), Ok(())) => {}
-                (Err(error), _) => return Err(error),
-                (Ok(()), Err(error)) => return Err(error),
+            if plan.unmute_master {
+                self.set_playback_switch("Master", true)?;
+                changes.push("unmuted hardware Master playback".to_owned());
+            }
+            if plan.unmute_front {
+                self.set_playback_switch("Front", true)?;
+                changes.push("unmuted Front playback".to_owned());
             }
         }
 
@@ -393,6 +429,7 @@ impl Ae5Mixer {
         requested: &str,
         allow_high_gain: bool,
     ) -> Result<ControlSnapshot, ControlError> {
+        self.ensure_safe_playback_control(name)?;
         if is_high_headphone_gain(name, requested) && !allow_high_gain {
             return Err(ControlError::Invalid(
                 "high headphone gain requires explicit approval".to_owned(),
@@ -524,10 +561,7 @@ impl Ae5Mixer {
                 "'{name}' has no playback switch"
             )));
         }
-        if enabled
-            && matches!(name, "Bass Redirection" | "FX: X-Bass")
-            && let Some(reason) = playback_switch_block_reason(name, true, &self.snapshots()?)
-        {
+        if let Some(reason) = playback_switch_block_reason(name, enabled, &self.snapshots()?) {
             return Err(ControlError::Invalid(reason.to_owned()));
         }
         if name == DIRECT_MODE_CONTROL {
@@ -581,6 +615,7 @@ impl Ae5Mixer {
         name: &str,
         value: i64,
     ) -> Result<ControlSnapshot, ControlError> {
+        self.ensure_safe_playback_control(name)?;
         self.ensure_equalizer_band_editable(name)?;
         let element = self.find(name)?;
         if !element.has_playback_volume() {
@@ -602,6 +637,7 @@ impl Ae5Mixer {
         channel: &str,
         value: i64,
     ) -> Result<ControlSnapshot, ControlError> {
+        self.ensure_safe_playback_control(name)?;
         self.ensure_equalizer_band_editable(name)?;
         let element = self.find(name)?;
         if !element.has_playback_volume() {
@@ -674,6 +710,13 @@ impl Ae5Mixer {
         if is_equalizer_band(name)
             && let Some(reason) = equalizer_band_block_reason(name, &self.snapshots()?)
         {
+            return Err(ControlError::Invalid(reason.to_owned()));
+        }
+        Ok(())
+    }
+
+    fn ensure_safe_playback_control(&self, name: &str) -> Result<(), ControlError> {
+        if let Some(reason) = unsafe_playback_control_block_reason(name) {
             return Err(ControlError::Invalid(reason.to_owned()));
         }
         Ok(())
@@ -1262,7 +1305,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_incompatible_bass_features_but_always_allows_disabling() {
+    fn rejects_incompatible_bass_management_and_blocks_hardware_xbass() {
         let controls = vec![
             playback_switch("FX: X-Bass", true),
             playback_switch("Bass Redirection", false),
@@ -1276,7 +1319,7 @@ mod tests {
         );
         assert_eq!(
             playback_switch_block_reason("FX: X-Bass", false, &controls),
-            None
+            Some(UNSAFE_HARDWARE_OUTFX)
         );
         assert_eq!(
             invalid_bass_state_reason(&controls),
@@ -1306,7 +1349,7 @@ mod tests {
         );
         assert_eq!(
             playback_switch_block_reason("FX: X-Bass", true, &controls),
-            None
+            Some(UNSAFE_HARDWARE_OUTFX)
         );
     }
 
@@ -1370,15 +1413,15 @@ mod tests {
         );
         assert_eq!(
             playback_switch_block_reason("FX: Surround", true, &controls),
-            Some(DIRECT_MODE_DSP_BLOCK)
+            Some(UNSAFE_HARDWARE_OUTFX)
         );
         assert_eq!(
             playback_switch_block_reason("FX: Surround", false, &controls),
-            None
+            Some(UNSAFE_HARDWARE_OUTFX)
         );
         assert_eq!(
             playback_switch_block_reason("FX: X-Bass", true, &controls),
-            Some(DIRECT_MODE_DSP_BLOCK)
+            Some(UNSAFE_HARDWARE_OUTFX)
         );
         assert_eq!(invalid_bass_state_reason(&controls), None);
         assert_eq!(
@@ -1409,6 +1452,32 @@ mod tests {
         );
         assert_eq!(
             direct_mode_block_reason(DIRECT_MODE_CONTROL, &controls),
+            None
+        );
+    }
+
+    #[test]
+    fn blocks_unsafe_ae5_route_transitions_in_both_directions() {
+        for enabled in [false, true] {
+            assert_eq!(
+                playback_switch_block_reason("Enable OutFX", enabled, &[]),
+                Some(UNSAFE_HARDWARE_OUTFX)
+            );
+            assert_eq!(
+                playback_switch_block_reason(DIRECT_MODE_CONTROL, enabled, &[]),
+                Some(UNSAFE_DIRECT_MODE)
+            );
+        }
+        assert_eq!(
+            unsafe_playback_control_block_reason("Output Select"),
+            Some(UNSAFE_OUTPUT_ROUTE_TRANSITION)
+        );
+        assert_eq!(
+            unsafe_playback_control_block_reason("Surround Channel Config"),
+            Some(UNSAFE_OUTPUT_ROUTE_TRANSITION)
+        );
+        assert_eq!(
+            unsafe_playback_control_block_reason("AE-5: Headphone Gain"),
             None
         );
     }
@@ -1518,6 +1587,7 @@ mod tests {
             profile_set: Some("sound-blaster-ae5.conf".to_owned()),
             soft_mixer: Some(true),
             ignore_db: Some(true),
+            persistent_playback: Some(true),
             active_profile: Some("output:analog-stereo+input:analog-stereo".to_owned()),
             input_route: Some("sound-blaster-ae5-input-microphone".to_owned()),
             output_route: Some("sound-blaster-ae5-output-headphones;output-headphones".to_owned()),

@@ -1,6 +1,7 @@
 use crate::controls::{
     EQUALIZER_PRESET_CONTROL, capture_control_block_reason, equalizer_band_block_reason,
-    invalid_bass_state_reason, is_equalizer_band,
+    invalid_bass_state_reason, is_equalizer_band, is_unsafe_hardware_playback_control,
+    is_unsafe_output_route_control,
 };
 use crate::{Ae5Mixer, ControlError, ControlSnapshot};
 use serde::{Deserialize, Serialize};
@@ -55,6 +56,7 @@ pub struct ProfileControl {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ApplyReport {
     pub controls_applied: usize,
+    pub controls_skipped: usize,
 }
 
 #[derive(Debug)]
@@ -272,8 +274,9 @@ impl Profile {
         mixer: &impl ProfileMixer,
         allow_high_gain: bool,
     ) -> Result<ApplyReport, ProfileError> {
-        let before = self.validate_against(mixer, allow_high_gain)?;
-        if let Err(failure) = apply_controls(mixer, &self.controls, allow_high_gain) {
+        let controls = hardware_apply_controls(&self.controls);
+        let before = self.validate_controls_against(mixer, allow_high_gain, &controls)?;
+        if let Err(failure) = apply_controls(mixer, &controls, allow_high_gain) {
             let rollback_failure = apply_controls(mixer, &before, true)
                 .err()
                 .map(|error| error.to_string());
@@ -283,7 +286,9 @@ impl Profile {
             });
         }
         Ok(ApplyReport {
-            controls_applied: effective_control_count(&self.controls),
+            controls_applied: effective_control_count(&controls),
+            controls_skipped: effective_control_count(&self.controls)
+                - effective_control_count(&controls),
         })
     }
 
@@ -328,10 +333,20 @@ impl Profile {
         mixer: &impl ProfileMixer,
         allow_high_gain: bool,
     ) -> Result<BTreeMap<String, ProfileControl>, ProfileError> {
+        let controls = hardware_apply_controls(&self.controls);
+        self.validate_controls_against(mixer, allow_high_gain, &controls)
+    }
+
+    fn validate_controls_against(
+        &self,
+        mixer: &impl ProfileMixer,
+        allow_high_gain: bool,
+        controls: &BTreeMap<String, ProfileControl>,
+    ) -> Result<BTreeMap<String, ProfileControl>, ProfileError> {
         self.validate_structure()?;
         let current_controls = mixer.snapshots()?;
         let mut before = BTreeMap::new();
-        for (name, requested) in &self.controls {
+        for (name, requested) in controls {
             if capture_control_block_reason(name).is_some() {
                 continue;
             }
@@ -344,14 +359,14 @@ impl Profile {
             before.insert(name.clone(), ProfileControl::from(current));
         }
         let mut projected = current_controls;
-        project_controls(&mut projected, &self.controls);
-        if self.controls.keys().any(|name| is_equalizer_band(name))
-            && !profile_uses_factory_equalizer_preset(&self.controls)
+        project_controls(&mut projected, controls);
+        if controls.keys().any(|name| is_equalizer_band(name))
+            && !profile_uses_factory_equalizer_preset(controls)
             && let Some(reason) = equalizer_band_block_reason("EQ Band0", &projected)
         {
             return Err(ProfileError::Invalid(reason.to_owned()));
         }
-        if self.controls.keys().any(|name| {
+        if controls.keys().any(|name| {
             matches!(
                 name.as_str(),
                 "Output Select" | "Surround Channel Config" | "Bass Redirection" | "FX: X-Bass"
@@ -372,10 +387,10 @@ pub fn linux_driver_defaults() -> Result<Profile, ProfileError> {
         ),
         ("AE-5: Sound Filter".to_owned(), choice("Slow Roll Off")),
         ("Enable InFX".to_owned(), capture_effect(false, None)),
-        ("Enable OutFX".to_owned(), playback_effect(true, None)),
+        ("Enable OutFX".to_owned(), playback_effect(false, None)),
         (
             "FX: Crystalizer".to_owned(),
-            playback_effect(true, Some(65)),
+            playback_effect(false, Some(65)),
         ),
         (
             "FX: Dialog Plus".to_owned(),
@@ -387,12 +402,12 @@ pub fn linux_driver_defaults() -> Result<Profile, ProfileError> {
         ("FX: Noise Reduction".to_owned(), capture_effect(true, None)),
         (
             "FX: Smart Volume".to_owned(),
-            playback_effect(true, Some(74)),
+            playback_effect(false, Some(74)),
         ),
         ("FX: Smart Volume Setting".to_owned(), choice("Normal")),
-        ("FX: Surround".to_owned(), playback_effect(true, Some(67))),
+        ("FX: Surround".to_owned(), playback_effect(false, Some(67))),
         ("FX: Voice Focus".to_owned(), capture_effect(true, None)),
-        ("FX: X-Bass".to_owned(), playback_effect(true, Some(50))),
+        ("FX: X-Bass".to_owned(), playback_effect(false, Some(50))),
         ("FX: X-Bass Crossover".to_owned(), playback_level(8)),
         ("SVM Level".to_owned(), capture_level(74)),
         ("VoiceFX".to_owned(), choice("Neutral")),
@@ -479,7 +494,9 @@ fn prepare_backup(
 fn validate_backup_coverage(target: &Profile, backup: &Profile) -> Result<(), ProfileError> {
     let factory_equalizer = profile_uses_factory_equalizer_preset(&backup.controls);
     for (name, requested) in &target.controls {
-        if capture_control_block_reason(name).is_some()
+        if is_unsafe_hardware_playback_control(name)
+            || is_unsafe_output_route_control(name)
+            || capture_control_block_reason(name).is_some()
             || factory_equalizer && is_equalizer_band(name)
         {
             continue;
@@ -826,6 +843,18 @@ fn profile_uses_factory_equalizer_preset(controls: &BTreeMap<String, ProfileCont
         .is_some_and(|preset| !preset.eq_ignore_ascii_case("Flat"))
 }
 
+fn hardware_apply_controls(
+    controls: &BTreeMap<String, ProfileControl>,
+) -> BTreeMap<String, ProfileControl> {
+    controls
+        .iter()
+        .filter(|(name, _)| {
+            !is_unsafe_hardware_playback_control(name) && !is_unsafe_output_route_control(name)
+        })
+        .map(|(name, control)| (name.clone(), control.clone()))
+        .collect()
+}
+
 fn effective_control_count(controls: &BTreeMap<String, ProfileControl>) -> usize {
     let skip_equalizer_bands = profile_uses_factory_equalizer_preset(controls);
     controls
@@ -933,6 +962,7 @@ impl From<ControlError> for ProfileError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::DIRECT_MODE_CONTROL;
     use std::cell::{Cell, RefCell};
     use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -967,7 +997,7 @@ mod tests {
     impl ProfileMixer for FakeMixer {
         fn snapshots(&self) -> Result<Vec<ControlSnapshot>, ControlError> {
             Ok(vec![
-                switch_snapshot("FX: Surround", self.surround.get()),
+                switch_snapshot("HP/Speaker Auto Detect", self.surround.get()),
                 level_snapshot("Front", self.front.get()),
                 eq_preset_snapshot(&self.eq_preset.borrow()),
                 eq_band_snapshot(self.eq_band.get()),
@@ -976,7 +1006,7 @@ mod tests {
 
         fn snapshot(&self, name: &str) -> Result<ControlSnapshot, ControlError> {
             match name {
-                "FX: Surround" => Ok(switch_snapshot(name, self.surround.get())),
+                "HP/Speaker Auto Detect" => Ok(switch_snapshot(name, self.surround.get())),
                 "Front" => Ok(level_snapshot(name, self.front.get())),
                 EQUALIZER_PRESET_CONTROL => Ok(eq_preset_snapshot(&self.eq_preset.borrow())),
                 "EQ Band0" => Ok(eq_band_snapshot(self.eq_band.get())),
@@ -999,7 +1029,7 @@ mod tests {
         }
 
         fn set_playback_switch(&self, name: &str, enabled: bool) -> Result<(), ControlError> {
-            if name != "FX: Surround" {
+            if name != "HP/Speaker Auto Detect" {
                 return Err(ControlError::Missing(name.to_owned()));
             }
             self.record(format!("{name} playback switch={enabled}"));
@@ -1158,14 +1188,17 @@ mod tests {
             profile.controls["AE-5: Sound Filter"].choice.as_deref(),
             Some("Slow Roll Off")
         );
-        assert_eq!(profile.controls["Enable OutFX"].playback_switch, Some(true));
+        assert_eq!(
+            profile.controls["Enable OutFX"].playback_switch,
+            Some(false)
+        );
         assert_eq!(profile.controls["Enable InFX"].capture_switch, Some(false));
         for (name, enabled, level) in [
-            ("FX: Surround", true, 67),
-            ("FX: Crystalizer", true, 65),
+            ("FX: Surround", false, 67),
+            ("FX: Crystalizer", false, 65),
             ("FX: Dialog Plus", false, 50),
-            ("FX: Smart Volume", true, 74),
-            ("FX: X-Bass", true, 50),
+            ("FX: Smart Volume", false, 74),
+            ("FX: X-Bass", false, 50),
         ] {
             assert_eq!(
                 profile.controls[name].playback_switch,
@@ -1236,6 +1269,103 @@ mod tests {
     }
 
     #[test]
+    fn filters_unsafe_playback_dsp_controls_from_hardware_application() {
+        let controls = BTreeMap::from([
+            (
+                "Output Select".to_owned(),
+                ProfileControl {
+                    choice: Some("Headphone".to_owned()),
+                    ..ProfileControl::default()
+                },
+            ),
+            (
+                "Enable OutFX".to_owned(),
+                ProfileControl {
+                    playback_switch: Some(true),
+                    ..ProfileControl::default()
+                },
+            ),
+            (
+                "FX: Crystalizer".to_owned(),
+                ProfileControl {
+                    playback_switch: Some(true),
+                    playback_level: Some(50),
+                    ..ProfileControl::default()
+                },
+            ),
+            (
+                "EQ Band0".to_owned(),
+                ProfileControl {
+                    playback_level: Some(33),
+                    ..ProfileControl::default()
+                },
+            ),
+            (
+                DIRECT_MODE_CONTROL.to_owned(),
+                ProfileControl {
+                    playback_switch: Some(true),
+                    ..ProfileControl::default()
+                },
+            ),
+        ]);
+
+        let safe = hardware_apply_controls(&controls);
+
+        assert!(!safe.contains_key("Output Select"));
+        assert!(!safe.contains_key("Enable OutFX"));
+        assert!(!safe.contains_key("FX: Crystalizer"));
+        assert!(!safe.contains_key("EQ Band0"));
+        assert!(!safe.contains_key(DIRECT_MODE_CONTROL));
+        assert_eq!(controls.len() - safe.len(), 5);
+    }
+
+    #[test]
+    fn applies_safe_profile_controls_and_reports_retained_software_effects() {
+        let mixer = FakeMixer::new();
+        let profile = Profile::new(
+            "Windows settings",
+            BTreeMap::from([
+                (
+                    "Front".to_owned(),
+                    ProfileControl {
+                        playback_level: Some(21),
+                        ..ProfileControl::default()
+                    },
+                ),
+                (
+                    "Enable OutFX".to_owned(),
+                    ProfileControl {
+                        playback_switch: Some(true),
+                        ..ProfileControl::default()
+                    },
+                ),
+                (
+                    "FX: Crystalizer".to_owned(),
+                    ProfileControl {
+                        playback_switch: Some(true),
+                        playback_level: Some(50),
+                        ..ProfileControl::default()
+                    },
+                ),
+                (
+                    "EQ Band0".to_owned(),
+                    ProfileControl {
+                        playback_level: Some(33),
+                        ..ProfileControl::default()
+                    },
+                ),
+            ]),
+        )
+        .unwrap();
+
+        let report = profile.apply_to(&mixer, false).unwrap();
+
+        assert_eq!(report.controls_applied, 1);
+        assert_eq!(report.controls_skipped, 3);
+        assert_eq!(*mixer.writes.borrow(), ["Front playback level=21"]);
+    }
+
+    #[test]
     fn linux_driver_defaults_disable_xbass_for_preserved_lfe_layouts() {
         let lfe_speakers = [
             choice_snapshot("Output Select", "Speakers"),
@@ -1253,7 +1383,7 @@ mod tests {
         ];
         assert_eq!(
             linux_driver_defaults_for(&headphones).unwrap().controls["FX: X-Bass"].playback_switch,
-            Some(true)
+            Some(false)
         );
     }
 
@@ -1263,7 +1393,7 @@ mod tests {
         let profile = Profile::new(
             "Reset target",
             BTreeMap::from([(
-                "FX: Surround".to_owned(),
+                "HP/Speaker Auto Detect".to_owned(),
                 ProfileControl {
                     playback_switch: Some(true),
                     ..ProfileControl::default()
@@ -1504,13 +1634,14 @@ mod tests {
 
         let report = profile.apply_to(&mixer, false).unwrap();
 
-        assert_eq!(report.controls_applied, 1);
-        assert_eq!(*mixer.writes.borrow(), ["FX: Equalizer Preset=Acoustic"]);
+        assert_eq!(report.controls_applied, 0);
+        assert_eq!(report.controls_skipped, 1);
+        assert!(mixer.writes.borrow().is_empty());
         assert_eq!(mixer.eq_band.get(), 31);
     }
 
     #[test]
-    fn rejects_band_only_profiles_while_a_factory_preset_is_active() {
+    fn retains_band_only_profiles_for_software_processing() {
         let mixer = FakeMixer::new();
         *mixer.eq_preset.borrow_mut() = "Acoustic".to_owned();
         let profile = Profile::new(
@@ -1525,11 +1656,10 @@ mod tests {
         )
         .unwrap();
 
-        assert!(matches!(
-            profile.apply_to(&mixer, false),
-            Err(ProfileError::Invalid(message))
-                if message.contains("Select Flat before editing custom bands")
-        ));
+        let report = profile.apply_to(&mixer, false).unwrap();
+
+        assert_eq!(report.controls_applied, 0);
+        assert_eq!(report.controls_skipped, 1);
         assert!(mixer.writes.borrow().is_empty());
     }
 
@@ -1593,7 +1723,7 @@ mod tests {
             "Rollback",
             BTreeMap::from([
                 (
-                    "FX: Surround".to_owned(),
+                    "HP/Speaker Auto Detect".to_owned(),
                     ProfileControl {
                         playback_switch: Some(true),
                         ..ProfileControl::default()
@@ -1625,9 +1755,9 @@ mod tests {
         assert_eq!(
             *mixer.writes.borrow(),
             [
-                "FX: Surround playback switch=true",
+                "HP/Speaker Auto Detect playback switch=true",
                 "Front playback level=75",
-                "FX: Surround playback switch=false",
+                "HP/Speaker Auto Detect playback switch=false",
                 "Front playback level=20",
             ]
         );

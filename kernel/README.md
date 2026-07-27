@@ -1,5 +1,36 @@
 # CA0132 kernel patches
 
+## Current production status
+
+The production queue is the ordered list in [`series`](series). It no longer
+contains the Direct Mode candidate. It now includes
+[`ca0132-ae5-disable-unsafe-outfx.patch`](ca0132-ae5-disable-unsafe-outfx.patch),
+which initializes AE-5 output effects off, rejects hardware OutFX enable with
+`-EOPNOTSUPP`, and makes redundant off replay a no-op.
+
+This is a fail-closed guard, not a complete fix for the underlying codec
+state defect. On the exact guarded module, repeatedly closing and reopening
+normal analog playback alternated between clean output and approximately
+26.4% THD even with OutFX always off. A held-open playback PCM stayed clean
+across ten What U Hear captures on one managed-PCI-reset boot and five on a
+second guest boot (0.00064–0.00081% THD). A raw OutFX-enable control write was
+rejected with `EOPNOTSUPP` without disturbing the held stream.
+
+The companion exact-card WirePlumber policy therefore sets
+`session.suspend-timeout-seconds = 0` and keeps playback open. A physical
+power-removal cold boot, matched analog output capture, and runtime Windows
+same-settings comparison remain pending. The Direct Mode section below is
+historical candidate documentation only.
+
+The current queue applies cleanly to ALSA `for-next`
+`61471f29f3157f33a61194bf82b4a289cc03e1f1`. Its series SHA-256 is
+`298333722ceb859dcab345296ea6421f7ff9881ba1cfb88bb29c39e46b8d0b5f`,
+the seven-patch aggregate is
+`cb89ce2f96ae010bc0e9daf6e48963f1892200a9b7f400311667606136d3cf18`,
+and the OutFX guard patch is
+`cd2a242facf1ee0aab7e9ff0632e282e644ba4fbf390ee19af17e85743b67fa1`.
+Strict `checkpatch.pl` reports zero findings for the guard.
+
 These patches are independent, reviewable Linux changes and diagnostic
 experiments. The original four functional patches were loaded together on the
 target AE-5 in a guarded KVM guest. The onboard-LED candidate was then added to
@@ -18,11 +49,13 @@ cardless kernel-build guest. It has not been loaded on the physical card; its
 bare-metal suspend and acoustic acceptance gate is documented in its section
 below.
 
-The complete production, onboard-RGB, Direct Mode, and Smart Volume stack has
-also been packaged as a side-by-side host kernel and passed non-installing
-verification, a no-audio QEMU smoke boot, and a cardless full-root boot with
-automatic fallback. The earlier Linux 6.18 artifact has not been installed on
-the host; its build details are in
+The earlier production, onboard-RGB, Direct Mode, and Smart Volume stack was
+packaged as a side-by-side host kernel and passed non-installing verification,
+a no-audio QEMU smoke boot, and a cardless full-root boot with automatic
+fallback. It is historical evidence and must not be installed as the current
+production queue because it contains Direct Mode and lacks the OutFX guard.
+The earlier Linux 6.18 artifact has not been installed on the host; its build
+details are in
 [`HOST_KERNEL_BUILD.md`](../docs/HOST_KERNEL_BUILD.md). The exact-host Nobara
 7.1.4 build is installed side by side and scheduled for one boot without
 changing the stock saved default. It has not yet been loaded on the host. Its
@@ -51,7 +84,7 @@ also built `ca0132.o` with the same warning gate, and strict `checkpatch.pl`
 reported zero findings for its 217 changed lines. No patch content needed
 rebasing or correction.
 
-The Direct Mode raw diff was regenerated on 2026-07-26 after a clean-tree
+Historical note: the Direct Mode raw diff was regenerated on 2026-07-26 after a clean-tree
 check found that its first context hunk unnecessarily depended on constants
 added by the separate LED patch. The current patch applies directly to the
 exact `for-next` base, after all five production/RGB patches, to clean Linux
@@ -62,9 +95,9 @@ Direct Mode and complete production/RGB/Direct `ca0132.o` builds passed with
 too. Compared with the physically tested full-stack source, the only source
 delta is relocation of the private
 `AE5_DIRECT_MAX_ROUTER_ENTRIES` preprocessor definition; no executable C
-statement changed. Physical playback, transition, routing, and busy gates
-pass; three warm boots also pass; bare-metal power-management, host cold-boot,
-and connected line-out gates remain open.
+statement changed. Those earlier physical playback, transition, routing, busy,
+and three-warm-boot gates passed. Later waveform-qualified PCM-reopen evidence
+supersedes that acceptance result; the candidate is unsafe and excluded.
 
 External submission has not been performed. Each submitting contributor must
 personally add the Developer Certificate of Origin `Signed-off-by` line before
@@ -72,6 +105,9 @@ sending a patch to the maintainer recipients reported by
 `scripts/get_maintainer.pl`.
 
 ## AE-5 Direct Mode
+
+This section records an excluded candidate. It is not in `series` and the
+application rejects the control.
 
 [`ca0132-ae5-direct-mode.patch`](ca0132-ae5-direct-mode.patch) adds an
 AE-5-only `AE-5: Direct Mode Playback Switch`. A physical passthrough cycle

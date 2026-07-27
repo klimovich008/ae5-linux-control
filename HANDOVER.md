@@ -11,7 +11,7 @@ Snapshot date: **2026-07-27**
 
 - Public repository: <https://github.com/klimovich008/ae5-linux-control>
 - Active integration branch: `agent/refine-gtk-ui`
-- Minimum analysis checkpoint: `dc3a36c` (`Correct OutFX bypass semantics`)
+- Minimum pre-fix checkpoint: `4d22771` (`Qualify fail-closed S16 transition baseline`)
 - Use the active branch head for the guarded PipeWire software-EQ Phase A
   implementation described below.
 - Active review: [draft PR #75](https://github.com/klimovich008/ae5-linux-control/pull/75)
@@ -54,16 +54,19 @@ separate discovery, control, routing, and safety evidence.
 
 ## Current maturity
 
-This is a **usable hardware-specific MVP on the development host**, not a
-finished general-purpose Sound Blaster Command replacement.
+This is a **guarded hardware-specific MVP on the development host**, not a
+finished general-purpose Sound Blaster Command replacement. The immediate
+sound path is mitigated by persistent S16 playback and fail-closed output
+processing, while the kernel cause of normal-playback reopen corruption
+remains unresolved.
 
 The source ledger currently tracks 54 Command features:
 
 | Classification | Count | Meaning |
 |---|---:|---|
-| Verified | 13 | Passed its current evidence gate |
-| Intentionally substituted | 13 | Uses a documented Linux-native equivalent |
-| Deferred | 18 | Implemented or exposed, but physical/parity acceptance is incomplete |
+| Verified | 5 | Passed its current evidence gate |
+| Intentionally substituted | 14 | Uses a documented Linux-native equivalent |
+| Deferred | 25 | Implemented or exposed, but physical/parity acceptance is incomplete |
 | Unsupported | 10 | No safe or legal Linux mechanism is currently available |
 
 Run `ae5ctl features`, `ae5ctl features deferred`, and
@@ -75,9 +78,11 @@ Working on the target host:
 
 - exact AE-5 discovery and live ALSA control;
 - native Wayland GTK application and CLI;
-- card-specific headphone, speaker-layout, and input routing;
+- card-specific route discovery and input routing; output/profile transitions
+  are currently blocked because they reopen playback;
 - PipeWire software volume and explicit route health/repair;
-- output effects, ten-band EQ, factory EQ presets, and native profiles;
+- native profiles, retained imported effect metadata, and a guarded PipeWire
+  software-EQ path; unsafe hardware output effects are not applied;
 - guarded PipeWire software-EQ generation, graph-signature verification, and
   explicit default-sink activation;
 - exact-target, fail-closed track-transition stress, a client-owned in-place
@@ -92,13 +97,19 @@ Working on the target host:
 Important incomplete areas:
 
 - S32 desktop playback is disabled after a loud real track-switch fault;
+- normal analog playback close/reopen can corrupt the waveform even under
+  S16, so the production WirePlumber rule keeps the PCM open;
+- the kernel OutFX guard has passed exact-module VFIO tests but is not yet
+  installed on the physical host;
 - the complete exact-target S32 transition and HDA-position campaign remains
   unrun; the single-client case passed both unlinked and linked virtual graph
   validation but has not run against the AE-5;
 - matched Windows/Linux analog response, noise, and headphone-model tuning;
-- required cold-boot and bare-metal suspend/resume counts;
+- a physical power-removal cold boot; bare-metal suspend/resume is unsafe
+  until the reopen defect is fixed;
 - connected physical speaker layouts, line-out, optical I/O, and analog inputs;
-- final host acceptance for Direct Mode and several kernel patches;
+- Direct Mode is removed from the production series until the PCM-reopen
+  defect is fixed;
 - external AE-5 LED strip support;
 - physical response, latency, CPU, and long-duration stability acceptance for
   the new software-EQ path.
@@ -118,7 +129,7 @@ ae5ctl set-playback-switch Master off
 ae5ctl set-playback-switch Front off
 ```
 
-Confirm both AE-5 playback PCMs are closed:
+Inspect the AE-5 playback PCM without forcing it closed:
 
 ```sh
 for status in /proc/asound/card*/pcm*p/sub*/status; do
@@ -147,6 +158,11 @@ Additional rules:
 7. Windows Command route changes may unmute the Windows render endpoint.
 8. Do not restore `S32LE` in the managed WirePlumber rule until the loud
    track-switch fault has a physical, fail-closed acceptance result.
+9. Do not suspend, close, or deliberately reopen the normal AE-5 playback PCM
+   outside the isolated diagnostic harness. Production must retain
+   `session.suspend-timeout-seconds = 0`.
+10. Never write hardware OutFX, its child output effects, hardware EQ, or
+    Direct Mode. Use the app guard and guarded kernel.
 
 ## Latest incident and recovery state
 
@@ -155,10 +171,11 @@ track change produced loud buzzing that desktop mute did not stop. It ended
 around the time the playback PCM suspended. There was no matching kernel,
 ALSA, PipeWire, or XRUN diagnostic.
 
-A guarded recreation switched 60 short streams across 44.1, 48, and 96 kHz.
-Both S32 and S16 runs ended in exact digital silence and logged no error, so
-the precise trigger remains unknown. Production configuration was therefore
-rolled back to the previously stable:
+A later waveform-qualified VFIO matrix found the repeatable trigger: closing
+and reopening normal analog playback can alternate between clean output and
+approximately 26.4% THD, even at S16 with OutFX off and no mixer write. The
+distorted waveform has discontinuities every 16 frames. The underlying kernel
+operation is not yet identified. Production therefore uses:
 
 ```text
 access:       RW_INTERLEAVED
@@ -166,19 +183,18 @@ format:       S16_LE
 rate:         48000
 period_size:  6016
 buffer_size:  24064
+suspend timeout: 0 (keep playback PCM open)
 ```
 
-The same incident left live effect controls different from the selected
-personal profile. With the physical output hard-muted, global OutFX was
-disabled and the complete `My profile · Headphones` profile was reapplied.
-All 21 controls then matched. What U Hear measured a real recovery: +8.95 dB
-at 1 kHz and up to 11.40 dB of response-shape change compared with the prior
-mismatched state.
+One held-open playback PCM stayed clean across ten internal captures, a
+rejected OutFX-enable request, three redundant off requests, and five more
+captures after a second guest boot. The application now retains output-effect
+settings in profiles but skips them during hardware apply.
 
-If effects appear inactive again, preserve logs and mixer readback first.
-Only then hard-mute the physical output, toggle global OutFX off, and reapply
-the intended profile. Do not hide a reproducible stale-DSP failure before
-collecting evidence.
+If effects appear inactive, do not toggle hardware OutFX or reapply hardware
+effect controls. Preserve logs and mixer readback, keep the physical output
+muted, verify the persistent-playback rule, and inspect the PipeWire software
+effects graph.
 
 ## Development-host snapshot
 
@@ -193,9 +209,9 @@ Kernel taint:      0
 ALSA card:         0, HDA Creative
 Output:            Headphone, 2.0
 Input:             Microphone
-Desktop sink:      AE-5 default, 30%
+Desktop sink:      AE-5 default, 5%, muted
 Listening output:  motherboard line out
-Headphone gain:    Medium
+Headphone gain:    re-check before playback
 Direct Mode:       unavailable on the stock kernel
 OutFX:             off
 Software EQ:       not installed in the real per-user PipeWire configuration
@@ -203,9 +219,11 @@ Playback PCMs:     closed
 GUI test:          current debug build opened natively on Wayland
 ```
 
-The current 30% desktop volume is above the project's 20% test ceiling. It is
-a user state, not an approved playback-test state; lower it and rerun the
-relevant preflight before any audio-producing test.
+At the end of the fail-closed validation cycle, Master and Front were off,
+OutFX was off, the exact-card no-suspend property was live, and both system
+VMs were shut off. Playback had not yet opened since the final card rebind, so
+the PCM was closed; after the first managed playback it should stay open.
+Re-read live state before relying on this snapshot.
 
 The installed GUI and CLI are from the reversible per-user installation. The
 WirePlumber configuration is linked to
@@ -318,7 +336,7 @@ Read these next according to the task:
 
 - routing or the S16/S32 issue:
   [`docs/DRIVER_ROUTING_INVESTIGATION.md`](docs/DRIVER_ROUTING_INVESTIGATION.md)
-  and
+  [`docs/PCM_REOPEN_EVIDENCE.md`](docs/PCM_REOPEN_EVIDENCE.md), and
   [`docs/TRACK_TRANSITION_INVESTIGATION.md`](docs/TRACK_TRANSITION_INVESTIGATION.md);
 - effects or EQ:
   [`docs/DSP_EFFECT_MEASUREMENT.md`](docs/DSP_EFFECT_MEASUREMENT.md) and
@@ -352,15 +370,15 @@ interoperability data. Keep that legal and privacy boundary intact.
 
 Priority order:
 
-1. Keep S16 as the managed default. Do not run the new transition harness
-   until its documented physical, volume, format, and trace preconditions are
-   met.
-2. Obtain a root-capable HDA trace session, then run the n>=5 S32 campaign
-   with the exact target, validated in-place client, and fail-closed watchdog.
+1. Keep S16 and `session.suspend-timeout-seconds = 0` as the managed defaults.
+   Do not force a production suspend or PCM closure.
+2. Identify the CA0132/HDA operation that makes normal playback reopen
+   waveform-dependent. Use the isolated VFIO harness, not the host desktop.
 3. When an AE-5 output is physically available again, complete the guarded
    software-EQ response, latency, CPU, disable/restore, and stability gates in
    [`docs/SOFTWARE_EFFECTS_PLAN.md`](docs/SOFTWARE_EFFECTS_PLAN.md).
-4. Complete the required cold-boot and bare-metal suspend/resume matrices.
+4. Install the guarded host kernel and complete a true power-removal cold-boot
+   test without forcing suspend/resume while the reopen defect remains.
 5. Run matched, safely attenuated Windows/Linux analog measurements.
 6. Finish physical speaker, line-out, optical, and analog-input acceptance.
 

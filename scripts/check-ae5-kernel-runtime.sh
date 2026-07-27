@@ -31,7 +31,7 @@ check_runtime() {
 	local expected_release=$1 current_release taint snapshot snapshot_kernel
 	local card_index card_root name expected actual driver_path
 	local vermagic signer filename
-	local direct_state led_root index multi_index
+	local outfx_state led_root index multi_index
 	local -a led_matches
 
 	[[ $expected_release =~ ^[A-Za-z0-9][A-Za-z0-9._+-]*$ &&
@@ -99,14 +99,18 @@ check_runtime() {
 	[[ $filename == /lib/modules/"$expected_release"/* ]] ||
 		fail "CA0132 module came from an unexpected path: $filename"
 
-	direct_state=$(LC_ALL=C amixer -c "$card_index" \
-		sget 'AE-5: Direct Mode' 2>/dev/null) ||
-		fail 'AE-5 Direct Mode control is missing'
-	grep -Fq "Simple mixer control 'AE-5: Direct Mode',0" \
-		<<< "$direct_state" ||
-		fail 'AE-5 Direct Mode control is missing'
-	grep -Eq 'Playback.*\[off\]' <<< "$direct_state" ||
-		fail 'AE-5 Direct Mode must be off before the first physical test'
+	if LC_ALL=C amixer -c "$card_index" \
+		sget 'AE-5: Direct Mode' >/dev/null 2>&1; then
+		fail 'unsafe AE-5 Direct Mode control is present'
+	fi
+	outfx_state=$(LC_ALL=C amixer -c "$card_index" \
+		sget 'Enable OutFX' 2>/dev/null) ||
+		fail 'Enable OutFX control is missing'
+	grep -Fq "Simple mixer control 'Enable OutFX',0" \
+		<<< "$outfx_state" ||
+		fail 'Enable OutFX control is missing'
+	grep -Eq 'Playback.*\[off\]' <<< "$outfx_state" ||
+		fail 'Enable OutFX must be off before the first physical test'
 
 	led_root="$sys_root/class/leds"
 	shopt -s nullglob
@@ -137,7 +141,8 @@ check_runtime() {
 	printf 'pci_driver=snd_hda_intel\n'
 	printf 'ca0132_vermagic=%s\n' "$vermagic"
 	printf 'ca0132_signer=%s\n' "$signer"
-	printf 'direct_mode=off\n'
+	printf 'direct_mode=unavailable\n'
+	printf 'hardware_outfx=off\n'
 	printf 'onboard_leds=5\n'
 	printf 'routing_preflight=pass\n'
 	printf 'runtime_result=pass\n'
@@ -205,7 +210,10 @@ self_test() (
 		esac
 	}
 	amixer() {
-		printf "Simple mixer control 'AE-5: Direct Mode',0\n"
+		if [[ $* == *'AE-5: Direct Mode'* ]]; then
+			return 1
+		fi
+		printf "Simple mixer control 'Enable OutFX',0\n"
 		printf '  Mono: Playback [off]\n'
 	}
 

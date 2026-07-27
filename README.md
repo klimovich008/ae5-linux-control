@@ -9,26 +9,40 @@ branch, current host state, non-negotiable audio-safety rules, known blockers,
 and the shortest validation path. This README retains cumulative milestone
 history and should not be read as a single current-state report.
 
-The physically tested Linux 6.18 CA0132 patch stack now also has a
-host-configured, side-by-side kernel RPM. It passed non-installing package
-verification and a no-audio QEMU smoke boot; bare-metal installation remains
-an explicit checkpoint. See
-[docs/HOST_KERNEL_BUILD.md](docs/HOST_KERNEL_BUILD.md).
+## Current sound-safety status
 
-The same fixes are now maintained as an ordered patch queue that is checked
-against both the exact running Nobara source and current ALSA development
-source. The exact Nobara 7.1.4 queue passed its external-module gate and
-produced a verified `7.1.4-ae5-current` side-by-side RPM. A one-shot cardless
-full-root boot loaded its signed CA0132 module with zero taint, zero failed
-units, clean audio-related logs, and automatic return to the saved Fedora
-kernel. That exact RPM is now installed side by side on the host. The stock
-Nobara kernel remains the saved and persistent default, and the custom entry
-is scheduled through `next_entry` for one physical boot; it has not yet been
-loaded on the host. The fail-closed update, rebuild, first-boot runtime gate,
-and one-shot installation workflow are in
+The usable Linux path now fails closed around the confirmed corruption
+triggers. Hardware OutFX, its child output effects, hardware EQ, and Direct
+Mode are blocked before an ALSA write. The production kernel queue also
+initializes OutFX off and rejects an enable request with `-EOPNOTSUPP`.
+Windows Command's OutFX is a software APO master switch; it is not equivalent
+to Linux's unsafe CA0132 hardware control.
+
+Waveform-qualified tests found a second trigger: closing and reopening normal
+analog playback can change a clean stream into approximately 26.4% THD even
+with OutFX off. The exact-card WirePlumber rule therefore keeps the managed
+S16 playback PCM open with `session.suspend-timeout-seconds = 0`. Two
+managed-reset VM boots with one PCM held open produced 15 clean What U Hear
+captures at 0.00064–0.00081% THD, including rejected OutFX-enable and harmless
+redundant-off attempts. This is a tested mitigation, not a complete kernel
+root-cause fix. A physical power-removal cold boot and runtime Windows
+same-settings capture remain pending. The compact evidence table is in
+[docs/PCM_REOPEN_EVIDENCE.md](docs/PCM_REOPEN_EVIDENCE.md).
+
+Earlier Direct Mode patch stacks produced host-configured side-by-side RPMs
+and passed cardless boot gates. Those artifacts are now historical and must
+not be installed: they contain Direct Mode and predate the OutFX guard. See
+[docs/HOST_KERNEL_BUILD.md](docs/HOST_KERNEL_BUILD.md) only for build-history
+evidence.
+
+The current seven-patch queue applies cleanly to ALSA `for-next`, excludes
+Direct Mode, and includes the OutFX guard. A new host RPM has not yet been
+built or installed; the machine is running the stock Nobara kernel. The
+maintainable rebuild and one-shot installation workflow, with a warning
+against the old hashes, is in
 [docs/KERNEL_MAINTENANCE.md](docs/KERNEL_MAINTENANCE.md).
 
-## Current milestone: desktop profiles, synchronized routing, and onboard lighting
+## Current milestone: guarded persistent playback, profiles, and onboard lighting
 
 The first Rust slice detects the audited AE-5 revision by its PCI and subsystem
 IDs, opens the matching ALSA mixer through `libasound`, and reads its live
@@ -75,10 +89,10 @@ cargo run -- set-default-input
 `route-status` is read-only and exits nonzero when the ALSA `Output Select` or
 `Input Source` choice disagrees with PipeWire's active hardware routes, or
 when normal-mode Headphone output has a muted or unreadable `Front` playback
-switch. `route-repair` is an explicit action: it re-applies only the currently
-selected routes and may unmute `Front` when Headphone output requires it. The
-GTK Device page offers the same action only after its read-only health check
-finds a problem. Nothing repairs or unmutes a route automatically at login.
+switch. `route-repair` remains explicit and may repair the input or unmute the
+current headphone DAC, but it refuses an output/profile transition while the
+PCM-reopen defect is unresolved. The GTK Device page uses the same guard.
+Nothing repairs or unmutes a route automatically at login.
 The default-device actions invoke `wpctl` directly without a shell and verify
 the new default. They do not change the card's ALSA mixer controls. CLI status
 and the GTK System audio page also show the PipeWire node volume separately;
@@ -149,22 +163,23 @@ Typed write commands validate choices and ranges and verify the value by
 reading it back. `Output Select` and `Input Source` use the matching
 WirePlumber port from the packaged AE-5 profile, while `Surround Channel
 Config` selects the exact stereo, 2.1, 4.0, 4.1, or 5.1 PipeWire profile.
-The shared transaction suspends output, verifies both layers, and rolls back
-on failure. The packaged card rule also enables PipeWire software volume for
-this exact AE-5 so desktop route changes cannot reload unsafe hardware gains;
-the other controls write directly through ALSA:
+The shared transaction verifies both layers and rolls back on failure. The
+packaged card rule also enables PipeWire software volume and persistent
+playback for this exact AE-5 so desktop clients cannot reload unsafe hardware
+gains or close and reopen the codec stream. Safe controls write directly
+through ALSA; unsafe hardware output-processing controls are retained only as
+profile metadata and rejected:
 
 ```sh
 cargo run -- get "Output Select"
-cargo run -- set-choice "Output Select" Headphone
-cargo run -- set-playback-switch "FX: Surround" off
-cargo run -- set-playback-level "FX: Surround" 50
+cargo run -- set-choice "Output Select" Headphone # rejected: would reopen playback
+cargo run -- set-playback-switch "FX: Surround" off # rejected: software path only
 cargo run -- set-playback-channel-level Front "Front Right" 82
 ```
 
 High headphone gain is rejected unless `--allow-high-gain` is supplied. The
-hardware smoke test changes a disabled effect level, verifies it, and restores
-the original value:
+hardware smoke test changes the disabled, route-safe Bass Redirection
+Crossover value, verifies it, and restores the original value:
 
 ```sh
 cargo run -- smoke-test
@@ -539,26 +554,14 @@ The exact Nobara/upstream driver source, public research references, firmware
 licence boundary, and pinned revisions are recorded in
 [docs/SOURCE_INVENTORY.md](docs/SOURCE_INVENTORY.md).
 
-A later AE-5-only Direct Mode candidate now exposes a standard ALSA playback
-switch, refuses to reroute an open PCM, restricts direct playback to stereo
-48/96 kHz, and reconstructs the exact normal DSP/router path when disabled.
-The Rust CLI and GTK app detect it only when the patched kernel supplies it;
-they briefly suspend the AE-5 PipeWire sink to make the transition safely and
-explain which DSP controls are bypassed while retaining output selection,
-headphone gain, and DAC-filter access. A managed physical-card cycle passed
-S16/S32 playback, exact rate/channel rejection, DSP bypass, normal-route
-restoration, ten repeated cycles, and coherent Speakers/Headphone selection
-with at least 35.5 dB acoustic separation. Strict kernel style checking, a
-complete warnings-as-errors module build, all 61 Rust/GTK tests, and Clippy
-also pass. Three warm boots each retained the safe mixer state and completed
-Direct and normal PCM playback. Direct Mode remains deferred for a host cold
-boot, bare-metal suspend/resume, and connected line-out gates. A post-Direct
-What U Hear capture and exact final VFIO guest/host recovery also pass. Audio
-tests use approximately 5% digital amplitude. The non-mutating preflight
-rejects a fixture, any physical-output/PCM channel, or PipeWire volume above
-20%, and requires Low headphone gain. The independent driver comparison,
-patch, passed evidence, and remaining acceptance matrix are in
-[docs/DIRECT_MODE_INVESTIGATION.md](docs/DIRECT_MODE_INVESTIGATION.md).
+The earlier AE-5 Direct Mode candidate is now a historical diagnostic patch,
+not part of `kernel/series`. Later waveform-qualified testing proved that
+normal playback close/reopen can corrupt the CA0132 route, and
+Direct-to-normal transitions cross that unsafe boundary. The Rust CLI and GTK
+app reject Direct Mode even if an older patched kernel exposes the control.
+Past behavior research remains in
+[docs/DIRECT_MODE_INVESTIGATION.md](docs/DIRECT_MODE_INVESTIGATION.md), with a
+correction banner and the gate required before reconsidering it.
 
 The target host can safely isolate the AE-5 for Linux-guest kernel A/B tests.
 Before any passthrough setup, run the non-mutating gate:
@@ -609,7 +612,7 @@ recovery point, not another automated credential guess.
 No source NTFS volume, Windows image, Creative binary, private setting, or
 credential is stored in the repository.
 
-A fail-closed transition harness now covers complete close/reopen, abrupt
+A diagnostic transition harness covers complete close/reopen, abrupt
 disconnect, different-rate and different-format replacement clients, a
 client-owned in-place S16/S32 and 44.1/48/96 kHz probe, gapless overlap, and
 the PipeWire suspend boundary while targeting only the exact AE-5 sink. It
@@ -625,17 +628,14 @@ live prerequisites without changing state:
 bash scripts/track-transition-stress.sh --dry-run
 ```
 
-Two exact-target five-trial S16 campaigns have now run at 5%. The first exposed
-that a one-second idle did not cross WirePlumber's five-second suspend deadline;
-the corrected rerun completed 55 accepted client exits, five in-place
-renegotiations, five real suspend-boundary PCM closures, and final PCM closure
-without a PipeWire error/XRUN or journal report. It ended with the sink muted,
-both hardware switches off, and both playback PCMs closed. The run did not have
-privileged HDA position tracing or the optional What U Hear probe, so S32
-remains disabled. The current headphones are connected to the motherboard
-line-out and nothing is connected to an AE-5 output. The guarded run, root-only
-trace companion, evidence schema, and remaining exact-target campaign are
-documented in
+Two exact-target five-trial S16 campaigns ran at 5%, but neither captured the
+waveform. Their clean client exits and logs did not prove clean audio. Later
+What U Hear captures showed that the forced suspend-boundary PCM closures were
+the corruption trigger. Production now sets the exact AE-5 sink's suspend
+timeout to zero; the harness remains for isolated reproduction and is not a
+production acceptance gate. The current headphones are connected to the
+motherboard line-out and nothing is connected to an AE-5 output. The
+correction, root-only trace companion, and evidence schema are documented in
 [docs/TRACK_TRANSITION_INVESTIGATION.md](docs/TRACK_TRANSITION_INVESTIGATION.md).
 
 The complete patch stack now also builds, boots, and passes a guarded physical

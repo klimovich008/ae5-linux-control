@@ -118,7 +118,7 @@ signature_id=$(modinfo -F sig_id "$ca0132_module")
 zstd -d -q -f "$ca0132_module" -o "$temporary_root/ca0132.ko"
 module_strings=$(strings -- "$temporary_root/ca0132.ko")
 for marker in \
-	'AE-5: Direct Mode Playback Switch' \
+	'AE-5 hardware OutFX enable rejected' \
 	'%s:rgb:ae5-%u' \
 	'FX: Equalizer Preset Switch' \
 	'out_svm_set_values' \
@@ -126,6 +126,9 @@ for marker in \
 	grep -Fq -- "$marker" <<< "$module_strings" ||
 		fail "CA0132 feature marker is missing: $marker"
 done
+if grep -Fq -- 'AE-5: Direct Mode Playback Switch' <<< "$module_strings"; then
+	fail 'unsafe AE-5 Direct Mode control is present'
+fi
 
 depmod -b "$temporary_root" "$release"
 grep -Fq -- \

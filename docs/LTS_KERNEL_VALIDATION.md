@@ -1,5 +1,10 @@
 # Linux 6.18 LTS validation
 
+> **Historical baseline:** this validation predates the AE-5 OutFX guard and
+> the discovery that normal playback PCM reopen can corrupt the waveform. It
+> remains useful build evidence but is not the current production audio-safety
+> acceptance.
+
 ## Scope and source
 
 Collected on 2026-07-25 against Linux `6.18.40`, the newest longterm release
@@ -306,7 +311,7 @@ rollback path, and hard 20% first-boot gate are in
 [`HOST_KERNEL_BUILD.md`](HOST_KERNEL_BUILD.md). Bare-metal installation and
 boot remain a separate authorization checkpoint.
 
-## Host-installable Smart Volume candidate
+## Historical host-installable Smart Volume/Direct Mode candidate
 
 The complete production, onboard-RGB, Direct Mode, and Smart Volume resume
 stack was then rebuilt from Linux `6.18.40` with the migrated target-host

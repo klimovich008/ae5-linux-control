@@ -42,7 +42,7 @@ grep -qxF 'CONFIG_SND_HDA_CODEC_CA0132=m' "$kernel_build/.config" ||
 
 required_markers=(
 	'ca0132_dsp_image_validate'
-	'AE-5: Direct Mode Playback Switch'
+	'AE-5 hardware OutFX enable rejected'
 	'AE5_INTERNAL_LED_COUNT'
 	'ca0132_alt_svm_restore'
 	'Wedge Angle defaults to 30 degrees.'

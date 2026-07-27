@@ -10,6 +10,7 @@ use crate::{
     Ae5Mixer, ChannelLevel, ControlSnapshot, Level, capture_control_block_reason,
     direct_mode_block_reason, equalizer_band_block_reason, front_vmaster_clamp_warning,
     playback_switch_block_reason, smart_volume_level_block_reason,
+    unsafe_playback_control_block_reason,
 };
 use gtk::prelude::*;
 
@@ -20,8 +21,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 const DIRECT_MODE_DESCRIPTION: &str = "Bypasses CA0132 DSP processing for a stereo hardware path. \
-    AE-5 Control briefly suspends PipeWire while switching; use stream or software volume because \
-    the card's DSP effects and hardware playback levels are bypassed.";
+    This experimental transition is disabled because repeated cycles corrupted normal playback.";
 const EQ_BAND_LABELS: [&str; 10] = [
     "31 Hz",
     "62 Hz (Bass in Command)",
@@ -72,16 +72,17 @@ impl Category {
     pub fn description(self) -> &'static str {
         match self {
             Self::Playback => {
-                "Choose the physical output, speaker layout, headphone gain, filter, and \
-                 low-level playback controls exposed by the Linux CA0132 driver."
+                "Inspect the physical output and speaker layout. Route changes stay disabled \
+                 because they reopen the unsafe CA0132 stream; headphone gain, filter, and \
+                 route-safe playback controls remain available."
             }
             Self::Effects => {
-                "Shape the CA0132 DSP processing path. Changes are written to ALSA and read \
-                 back from the card immediately. Turning OutFX off disables the effect blocks; \
-                 only Direct Mode bypasses the complete DSP path."
+                "Hardware output effects are shown for diagnostics but disabled after reproducible \
+                 AE-5 stream corruption. Windows-compatible effects belong in the software path."
             }
             Self::Equalizer => {
-                "Control the ten hardware equalizer bands and the driver's preset selector."
+                "Use the PipeWire software equalizer. Hardware bands remain visible as migration \
+                 reference values but are not written to the unsafe CA0132 effect path."
             }
             Self::Recording => {
                 "Choose the input and configure capture processing. Unsupported or unsafe \
@@ -225,10 +226,11 @@ pub fn control_list<'a>(
     list.set_selection_mode(gtk::SelectionMode::None);
     list.add_css_class("control-list");
     for control in controls {
-        let playback_switch_block = (control.playback_switch == Some(false))
-            .then(|| playback_switch_block_reason(&control.name, true, all_controls))
-            .flatten();
+        let playback_switch_block = control.playback_switch.and_then(|enabled| {
+            playback_switch_block_reason(&control.name, !enabled, all_controls)
+        });
         let edit_block = direct_mode_block_reason(&control.name, all_controls)
+            .or_else(|| unsafe_playback_control_block_reason(&control.name))
             .or_else(|| equalizer_band_block_reason(&control.name, all_controls))
             .or_else(|| smart_volume_level_block_reason(&control.name, all_controls));
         let capture_block = capture_control_block_reason(&control.name);
@@ -262,9 +264,8 @@ pub fn control_row(
     name.set_xalign(0.0);
     name.set_wrap(true);
     labels.append(&name);
-    let explanation = (control.name == DIRECT_MODE_CONTROL)
-        .then_some(DIRECT_MODE_DESCRIPTION)
-        .or(playback_switch_block)
+    let explanation = playback_switch_block
+        .or((control.name == DIRECT_MODE_CONTROL).then_some(DIRECT_MODE_DESCRIPTION))
         .or(edit_block)
         .or(capture_block);
     if let Some(message) = explanation {

@@ -4,6 +4,6 @@ kernel/ca0132-wedge-angle-default.patch
 kernel/ca0132-eq-preset-control-cache.patch
 kernel/ca0132-ae5-hide-ineffective-wuh-controls.patch
 kernel/ca0132-dsp-image-bounds.patch
+kernel/ca0132-ae5-disable-unsafe-outfx.patch
 kernel/ca0132-ae5-onboard-leds.patch
-kernel/ca0132-ae5-direct-mode.patch
 kernel/ca0132-restore-smart-volume-resume.patch

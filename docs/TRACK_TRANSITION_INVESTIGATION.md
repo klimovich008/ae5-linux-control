@@ -1,14 +1,21 @@
 # S32 track-transition investigation
 
-Status on 2026-07-27: the fail-closed harness and trace tooling are implemented
-and self-tested. A first exact-target S16 baseline completed all client
-transitions cleanly, but exposed that the original one-second idle interval did
-not cross WirePlumber's five-second suspension deadline. That run is diagnostic
-evidence, not a qualified suspend-boundary result. The corrected five-trial S16
-rerun then passed every rootless acceptance check, including five real policy
-suspensions and final PCM closure. No privileged HDA position trace or optional
-What U Hear probe was collected, so this does not qualify S32. The live managed
-sink remains the stable `S16LE` path. The user's headphones are connected to the
+Status on 2026-07-27: the harness and trace tooling are implemented and
+self-tested, but the earlier “clean” S16 result was not waveform-qualified.
+It proved client exits, renegotiations, policy suspensions, clean logs, and
+final PCM closure; it did not measure the audio samples. Later What U Hear
+captures showed that the playback PCM close/reopen boundary itself can change
+a clean normal route into a deterministic approximately 26.4% THD state while
+OutFX remains off. The five forced policy suspensions in that run are therefore
+now classified as unsafe diagnostic coverage, not an acceptance pass.
+
+The production exact-card WirePlumber policy keeps the managed `S16LE`
+playback PCM open with `session.suspend-timeout-seconds = 0`. Ten separate
+host `pw-play` clients plus ten seconds idle retained the same ALSA
+`trigger_time`, proving that clients no longer tear down the hardware PCM.
+The harness remains useful for explicitly reproducing and instrumenting the
+unsafe boundary, but production is intentionally not expected to satisfy its
+“PCM closes at suspend” gate. The user's headphones are connected to the
 motherboard line-out, not an AE-5 output.
 
 ## Problem being isolated

@@ -15,7 +15,8 @@ use ae5_control::{
     profile_library_directory, rename_library_profile, set_ae5_default_input,
     set_ae5_default_output, set_native_rates_enabled, set_saved_led, set_saved_lighting,
     set_software_eq_default_output, smart_volume_level_block_reason, snapshot_controls,
-    software_eq_output, validate_eq_chain_activation, validate_linux_driver_defaults,
+    software_eq_output, unsafe_playback_control_block_reason, validate_eq_chain_activation,
+    validate_linux_driver_defaults,
 };
 use gtk::gio;
 use gtk::prelude::*;
@@ -748,10 +749,20 @@ fn sound_effects_page(
             &engine.name,
             enabled,
             false,
-            None,
+            unsafe_playback_control_block_reason(&engine.name),
         ));
     }
     page.append(&header);
+
+    let safety = gtk::Label::new(Some(
+        "Hardware OutFX is disabled: repeated tests produced severe distortion and required \
+         codec reinitialization. These values are retained for the Windows-like software \
+         effects implementation.",
+    ));
+    safety.set_xalign(0.0);
+    safety.set_wrap(true);
+    safety.add_css_class("warning-label");
+    page.append(&safety);
 
     // Which profile the card is on belongs where the tweaking happens, not on a
     // separate page. Without it, one slider nudge left every card unmarked and
@@ -1027,7 +1038,19 @@ fn sound_profile_card(
 }
 
 fn profile_matches_controls(profile: &Profile, controls: &[ControlSnapshot]) -> bool {
-    profile_mismatch_count(profile, controls) == 0
+    safe_hardware_profile_control_count(profile) > 0
+        && profile_mismatch_count(profile, controls) == 0
+}
+
+fn safe_hardware_profile_control_count(profile: &Profile) -> usize {
+    profile
+        .controls
+        .keys()
+        .filter(|name| {
+            unsafe_playback_control_block_reason(name).is_none()
+                && capture_control_block_reason(name).is_none()
+        })
+        .count()
 }
 
 /// How many of a profile's controls differ from the live card.
@@ -1058,6 +1081,7 @@ fn control_matches(
 ) -> bool {
     (|| {
         if capture_control_block_reason(name).is_some()
+            || unsafe_playback_control_block_reason(name).is_some()
             || skip_equalizer_bands && name.starts_with("EQ Band")
         {
             return true;
@@ -1144,7 +1168,7 @@ fn profile_provenance(controls: &[ControlSnapshot]) -> ProfileProvenance {
 
     let mut best: Option<(String, usize, usize)> = None;
     for entry in library.profiles {
-        let total = entry.profile.controls.len();
+        let total = safe_hardware_profile_control_count(&entry.profile);
         if total == 0 {
             continue;
         }
@@ -1177,6 +1201,7 @@ fn profile_provenance(controls: &[ControlSnapshot]) -> ProfileProvenance {
 fn profile_scope_summary(profile: &Profile) -> String {
     let mut equalizer = 0usize;
     let mut effects = 0usize;
+    let mut blocked = 0usize;
     let mut routing = 0usize;
     let mut other = 0usize;
 
@@ -1185,6 +1210,8 @@ fn profile_scope_summary(profile: &Profile) -> String {
             equalizer += 1;
         } else if name.starts_with("FX: ") || name == "Enable OutFX" {
             effects += 1;
+        } else if unsafe_playback_control_block_reason(name).is_some() {
+            blocked += 1;
         } else if matches!(
             name.as_str(),
             "Output Select" | "Input Source" | "Surround Channel Config"
@@ -1197,72 +1224,62 @@ fn profile_scope_summary(profile: &Profile) -> String {
     }
 
     let plural = |count: usize| if count == 1 { "" } else { "s" };
-    let mut parts: Vec<String> = Vec::new();
-    if equalizer > 0 {
-        parts.push(format!("{equalizer} equalizer band{}", plural(equalizer)));
-    }
-    if effects > 0 {
-        parts.push(format!("{effects} effect{}", plural(effects)));
-    }
+    let mut hardware: Vec<String> = Vec::new();
     if routing > 0 {
-        parts.push("output routing".to_owned());
+        hardware.push("output routing".to_owned());
     }
     if other > 0 {
-        parts.push(format!("{other} more control{}", plural(other)));
+        hardware.push(format!("{other} more control{}", plural(other)));
     }
 
-    match parts.len() {
-        0 => "Changes nothing on this card".to_owned(),
-        1 => format!("Changes {}", parts[0]),
+    let mut software: Vec<String> = Vec::new();
+    if equalizer > 0 {
+        software.push(format!("{equalizer} equalizer band{}", plural(equalizer)));
+    }
+    if effects > 0 {
+        software.push(format!("{effects} effect{}", plural(effects)));
+    }
+    let join_parts = |mut parts: Vec<String>| match parts.len() {
+        0 => String::new(),
+        1 => parts.pop().unwrap_or_default(),
         _ => {
             let last = parts.pop().unwrap_or_default();
-            format!("Changes {} and {last}", parts.join(", "))
+            format!("{} and {last}", parts.join(", "))
         }
+    };
+    let hardware = join_parts(hardware);
+    let software = join_parts(software);
+    let mut summary = match (hardware.is_empty(), software.is_empty()) {
+        (true, true) => "Changes nothing on this card".to_owned(),
+        (false, true) => format!("Changes {hardware}"),
+        (true, false) => format!("Retains {software} for software processing"),
+        (false, false) => {
+            format!("Changes {hardware}; retains {software} for software processing")
+        }
+    };
+    if blocked > 0 {
+        summary.push_str(&format!(
+            "; retains {blocked} unsafe hardware setting{} without applying",
+            plural(blocked)
+        ));
     }
+    summary
 }
 
 fn active_profile_detail(profile: &Profile) -> String {
-    let effects = [
-        "FX: Surround",
-        "FX: Crystalizer",
-        "FX: X-Bass",
-        "FX: Smart Volume",
-        "FX: Dialog Plus",
-    ];
-    let enabled = effects
-        .iter()
-        .filter(|name| {
-            profile
-                .controls
-                .get(**name)
-                .and_then(|control| control.playback_switch)
-                == Some(true)
-        })
-        .count();
-    let disabled = effects
-        .iter()
-        .filter(|name| {
-            profile
-                .controls
-                .get(**name)
-                .and_then(|control| control.playback_switch)
-                == Some(false)
-        })
-        .count();
-    let equalizer = profile
+    let retained = profile
         .controls
-        .get("FX: Equalizer")
-        .and_then(|control| control.playback_switch)
-        == Some(true);
+        .keys()
+        .filter(|name| unsafe_playback_control_block_reason(name).is_some())
+        .count();
 
-    match (enabled, disabled, equalizer) {
-        (0, disabled, true) if disabled > 0 => {
-            format!("Equalizer only · {disabled} effects off by profile")
-        }
-        (0, _, true) => "Equalizer only".to_owned(),
-        (enabled, _, true) => format!("{enabled} effects + equalizer enabled"),
-        (enabled, _, false) if enabled > 0 => format!("{enabled} effects enabled"),
-        _ => "All acoustic effects disabled".to_owned(),
+    if retained == 0 {
+        "Hardware controls match".to_owned()
+    } else {
+        format!(
+            "Safe hardware controls match · {retained} unsafe hardware setting{} retained without applying",
+            if retained == 1 { "" } else { "s" }
+        )
     }
 }
 
@@ -1361,6 +1378,9 @@ fn effect_control_card(
         hint.add_css_class("effect-scale-note");
         card.append(&hint);
 
+        let level_block = unsafe_playback_control_block_reason(&control.name)
+            .or_else(|| direct_mode_block_reason(&control.name, all_controls))
+            .or_else(|| smart_volume_level_block_reason(&control.name, all_controls));
         let editor = level_editor(
             card_index,
             status,
@@ -1368,10 +1388,9 @@ fn effect_control_card(
             level,
             false,
             None,
-            direct_mode_block_reason(&control.name, all_controls)
-                .or_else(|| smart_volume_level_block_reason(&control.name, all_controls)),
+            level_block,
         );
-        editor.set_sensitive(effect_enabled);
+        editor.set_sensitive(effect_enabled && level_block.is_none());
         ae5_control::gui::editors::mark_interactive(&editor);
         if !effect_enabled {
             editor.set_tooltip_text(Some(&format!(
@@ -1577,6 +1596,12 @@ fn footer_output_selector(
         headphones.set_active(true);
     }
     let buttons = [speakers.clone(), headphones.clone()];
+    if let Some(reason) = unsafe_playback_control_block_reason(&control.name) {
+        for button in &buttons {
+            button.set_sensitive(false);
+            button.set_tooltip_text(Some(reason));
+        }
+    }
     let verified = Rc::new(Cell::new(selected_index));
     let updating = Rc::new(Cell::new(false));
     for (index, (button, requested)) in [
@@ -1654,7 +1679,8 @@ fn playback_setting_tile(
     title.add_css_class("section-title");
     tile.append(&title);
 
-    let block = direct_mode_block_reason(&control.name, all_controls);
+    let block = unsafe_playback_control_block_reason(&control.name)
+        .or_else(|| direct_mode_block_reason(&control.name, all_controls));
     let permission = if control.name == "AE-5: Headphone Gain" {
         let permission = gtk::CheckButton::with_label("Allow 150–600 Ω");
         permission.set_tooltip_text(Some(
@@ -1762,9 +1788,9 @@ fn equalizer_page(
     page.append(&heading);
 
     let intro = gtk::Label::new(Some(
-        "Use PipeWire software EQ for desktop stereo or the CA0132 hardware EQ below. \
-         Both use the ten Sound Blaster Command center frequencies; Windows migration maps \
-         Bass to 62 Hz and Treble to 8 kHz.",
+        "Use PipeWire software EQ for desktop stereo. The CA0132 hardware EQ below is read-only \
+         because it shares the unsafe OutFX path. Both use the ten Sound Blaster Command center \
+         frequencies; Windows migration maps Bass to 62 Hz and Treble to 8 kHz.",
     ));
     intro.set_xalign(0.0);
     intro.set_wrap(true);
@@ -1775,7 +1801,7 @@ fn equalizer_page(
         window, card_index, status, controls,
     ));
 
-    let hardware = gtk::Label::new(Some("Hardware equalizer"));
+    let hardware = gtk::Label::new(Some("Hardware equalizer · disabled"));
     hardware.set_xalign(0.0);
     hardware.add_css_class("mixer-section");
     page.append(&hardware);
@@ -1815,6 +1841,7 @@ fn equalizer_page(
             false,
             None,
             direct_mode_block_reason(&control.name, controls)
+                .or_else(|| unsafe_playback_control_block_reason(&control.name))
                 .or_else(|| equalizer_band_block_reason(&control.name, controls)),
             gtk::Orientation::Vertical,
         );
@@ -3325,8 +3352,9 @@ async fn apply_profile(
         .apply(&mixer, high_gain)
         .map_err(|error| error.to_string())?;
     Ok(Some(format!(
-        "Applied “{}”; {} controls were verified against the hardware.",
-        profile.name, report.controls_applied
+        "Applied “{}”; {} safe controls were verified against the hardware. {} unsafe playback \
+         controls remain saved and were not written to CA0132.",
+        profile.name, report.controls_applied, report.controls_skipped
     )))
 }
 
@@ -3346,8 +3374,10 @@ async fn reset_linux_driver_defaults(
     let backup = linux_driver_defaults_backup_path(&library)?;
     let report = apply_linux_driver_defaults(&mixer, &backup).map_err(|error| error.to_string())?;
     Ok(Some(format!(
-        "Restored {} Linux-driver processing controls. Previous valid state saved as {}.",
+        "Restored {} safe Linux-driver controls; {} unsafe hardware playback controls were \
+         skipped. Previous valid state saved as {}.",
         report.controls_applied,
+        report.controls_skipped,
         backup.display()
     )))
 }
@@ -4302,6 +4332,7 @@ mod tests {
             profile_set: Some("sound-blaster-ae5.conf".to_owned()),
             soft_mixer: Some(true),
             ignore_db: Some(true),
+            persistent_playback: Some(true),
             active_profile: Some("output:analog-stereo+input:analog-stereo".to_owned()),
             input_route: Some("sound-blaster-ae5-input-microphone".to_owned()),
             output_route: Some("sound-blaster-ae5-output-headphones;output-headphones".to_owned()),
@@ -4312,6 +4343,12 @@ mod tests {
         assert!(summary.contains("Matched\nALSA output: Headphone"));
         assert!(summary.contains("ALSA input: Microphone"));
         assert!(summary.contains("sound-blaster-ae5.conf"));
+
+        state.persistent_playback = Some(false);
+        let (summary, healthy) = route_health_summary(&controls, Ok(state.clone()));
+        assert!(!healthy);
+        assert!(summary.contains("session.suspend-timeout-seconds=0"));
+        state.persistent_playback = Some(true);
 
         state.output_route = Some("analog-output-lineout;output-speaker".to_owned());
         let (summary, healthy) = route_health_summary(&controls, Ok(state.clone()));
@@ -4333,6 +4370,7 @@ mod tests {
                 profile_set: Some("sound-blaster-ae5.conf".to_owned()),
                 soft_mixer: Some(true),
                 ignore_db: Some(true),
+                persistent_playback: Some(true),
                 active_profile: Some("output:analog-stereo+input:analog-stereo".to_owned()),
                 input_route: Some("sound-blaster-ae5-input-microphone".to_owned()),
                 output_route: Some(
@@ -4351,6 +4389,7 @@ mod tests {
                 profile_set: Some("sound-blaster-ae5.conf".to_owned()),
                 soft_mixer: Some(true),
                 ignore_db: Some(true),
+                persistent_playback: Some(true),
                 active_profile: Some("output:analog-stereo+input:analog-stereo".to_owned()),
                 input_route: Some("sound-blaster-ae5-input-microphone".to_owned()),
                 output_route: Some(
@@ -4451,7 +4490,7 @@ mod tests {
         let eq_only = profile_scope_summary(&profile_with(&[
             "EQ Band0", "EQ Band1", "EQ Band2", "EQ Band3",
         ]));
-        assert_eq!(eq_only, "Changes 4 equalizer bands");
+        assert_eq!(eq_only, "Retains 4 equalizer bands for software processing");
         assert!(!eq_only.contains("routing"));
 
         let full = profile_scope_summary(&profile_with(&[
@@ -4460,7 +4499,7 @@ mod tests {
             "FX: Crystalizer",
             "EQ Band0",
         ]));
-        assert!(full.contains("output routing"), "{full}");
+        assert!(full.contains("1 unsafe hardware setting"), "{full}");
         assert!(full.contains("2 effects"), "{full}");
         assert!(full.contains("1 equalizer band"), "{full}");
 
@@ -4471,7 +4510,7 @@ mod tests {
         // Singular and plural must both read naturally.
         assert_eq!(
             profile_scope_summary(&profile_with(&["FX: X-Bass"])),
-            "Changes 1 effect"
+            "Retains 1 effect for software processing"
         );
     }
 
@@ -4541,6 +4580,13 @@ mod tests {
                         ..ProfileControl::default()
                     },
                 ),
+                (
+                    "AE-5: Headphone Gain".to_owned(),
+                    ProfileControl {
+                        choice: Some("Low (16-31 Ohms)".to_owned()),
+                        ..ProfileControl::default()
+                    },
+                ),
             ]),
         };
         let mut controls = vec![
@@ -4571,11 +4617,30 @@ mod tests {
                 playback_channels: Vec::new(),
                 capture_channels: Vec::new(),
             },
+            ControlSnapshot {
+                name: "AE-5: Headphone Gain".to_owned(),
+                selected: Some("Low (16-31 Ohms)".to_owned()),
+                choices: vec![
+                    "Low (16-31 Ohms)".to_owned(),
+                    "Medium (32-149 Ohms)".to_owned(),
+                ],
+                playback_switch: None,
+                capture_switch: None,
+                playback_level: None,
+                capture_level: None,
+                playback_channels: Vec::new(),
+                capture_channels: Vec::new(),
+            },
         ];
 
         assert!(profile_matches_controls(&profile, &controls));
         controls[1].playback_switch = Some(true);
+        assert!(profile_matches_controls(&profile, &controls));
+        controls[0].selected = Some("Speakers".to_owned());
+        assert!(profile_matches_controls(&profile, &controls));
+        controls[2].selected = Some("Medium (32-149 Ohms)".to_owned());
         assert!(!profile_matches_controls(&profile, &controls));
+        controls[2].selected = Some("Low (16-31 Ohms)".to_owned());
 
         let mut eq_only = profile;
         for effect in [
@@ -4601,8 +4666,16 @@ mod tests {
         );
         assert_eq!(
             active_profile_detail(&eq_only),
-            "Equalizer only · 5 effects off by profile"
+            "Safe hardware controls match · 7 unsafe hardware settings retained without applying"
         );
+
+        let software_only = profile_with(&["FX: X-Bass"]);
+        assert!(!profile_matches_controls(&software_only, &controls));
+        let ineffective_capture_only = profile_with(&["What U Hear"]);
+        assert!(!profile_matches_controls(
+            &ineffective_capture_only,
+            &controls
+        ));
     }
 
     #[test]

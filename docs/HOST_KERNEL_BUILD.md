@@ -1,6 +1,11 @@
 # Host kernel build and installation gate
 
-## Current Smart Volume candidate
+> **Historical artifact warning (2026-07-27): do not install the RPMs named
+> below.** They contain the now-excluded Direct Mode candidate and predate the
+> hardware OutFX guard. Build a new side-by-side package from the current
+> `kernel/series` instead.
+
+## Historical Smart Volume/Direct Mode candidate
 
 On 2026-07-26, the complete production, onboard-RGB, Direct Mode, and Smart
 Volume resume stack was rebuilt with the current Nobara host configuration.

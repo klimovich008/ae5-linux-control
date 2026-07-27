@@ -682,10 +682,7 @@ fn set_capture_channel_level(name: &str, channel: &str, value: &str) -> Result<(
 
 fn smoke_test() -> Result<(), Box<dyn Error>> {
     let mixer = mixer()?;
-    let candidates = [
-        ("FX: Surround", "FX: Surround"),
-        ("Bass Redirection", "Bass Redirection Crossover"),
-    ];
+    let candidates = [("Bass Redirection", "Bass Redirection Crossover")];
 
     for (switch_name, level_name) in candidates {
         if mixer.snapshot(switch_name)?.playback_switch != Some(false) {
@@ -714,7 +711,7 @@ fn smoke_test() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
-    Err(io::Error::other("no disabled effect was available for a safe smoke test").into())
+    Err(io::Error::other("Bass Redirection must be off for the safe smoke test").into())
 }
 
 fn save_profile(name: &str, path: &str) -> Result<(), Box<dyn Error>> {
@@ -790,7 +787,8 @@ fn check_profile(path: &str, allow_high_gain: bool) -> Result<(), Box<dyn Error>
     let profile = Profile::load(Path::new(path))?;
     profile.check(&mixer()?, allow_high_gain)?;
     println!(
-        "valid: '{}' contains {} applicable controls",
+        "valid: '{}' contains {} saved controls; unsafe hardware playback controls are retained but \
+         filtered when applying",
         profile.name,
         profile.controls.len()
     );
@@ -801,8 +799,9 @@ fn apply_profile(path: &str, allow_high_gain: bool) -> Result<(), Box<dyn Error>
     let profile = Profile::load(Path::new(path))?;
     let report = profile.apply(&mixer()?, allow_high_gain)?;
     println!(
-        "applied '{}' ({} controls verified)",
-        profile.name, report.controls_applied
+        "applied '{}' ({} hardware controls verified; {} unsafe playback controls retained \
+         without hardware writes)",
+        profile.name, report.controls_applied, report.controls_skipped
     );
     Ok(())
 }
@@ -836,8 +835,9 @@ fn check_linux_driver_defaults() -> Result<(), Box<dyn Error>> {
 fn apply_linux_defaults(backup: &str) -> Result<(), Box<dyn Error>> {
     let report = apply_linux_driver_defaults(&mixer()?, Path::new(backup))?;
     println!(
-        "reset {} Linux-driver default controls after saving the previous valid state to {backup}",
-        report.controls_applied
+        "reset {} safe Linux-driver controls after saving the previous valid state to {backup}; \
+         {} unsafe hardware playback controls were skipped",
+        report.controls_applied, report.controls_skipped
     );
     Ok(())
 }

@@ -1,5 +1,11 @@
 # Maintainable AE-5 kernel workflow
 
+> **Current queue correction (2026-07-27):** hashes and RPM names below record
+> an earlier seven-patch queue that included Direct Mode. Do not install that
+> artifact. The authoritative queue is `kernel/series`; it excludes Direct
+> Mode and includes the fail-closed AE-5 OutFX guard. Recompute all series,
+> source, module, and RPM hashes for a new build.
+
 The AE-5 changes are maintained as an ordered patch queue, not as one frozen
 kernel binary. The same queue can be checked against every new kernel source
 before anything is built or installed.

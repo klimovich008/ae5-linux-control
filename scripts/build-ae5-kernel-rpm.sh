@@ -57,7 +57,7 @@ if [[ -d $build_tree ]] &&
 fi
 
 for marker in 'ca0132_dsp_image_validate' \
-	'AE-5: Direct Mode Playback Switch' \
+	'AE-5 hardware OutFX enable rejected' \
 	'AE5_INTERNAL_LED_COUNT' 'ca0132_alt_svm_restore'; do
 	grep -Fq -- "$marker" "$source_tree/sound/hda/codecs/ca0132.c" ||
 		fail "patched source marker is missing: $marker"

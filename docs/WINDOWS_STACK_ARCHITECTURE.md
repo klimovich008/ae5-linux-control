@@ -22,6 +22,11 @@ master/child registration, endpoint-property write path, APO module chain and
 passthrough branch described below. Those reports remain under
 `~/.cache/ae5-control/ghidra-reports/` and are intentionally not committed.
 
+This is a static architecture comparison, not a completed same-settings audio
+A/B. The prepared Windows VM still requires interactive login, and the AE-5
+analog outputs are currently unplugged. Runtime parity must be recorded
+separately before any Windows/Linux sound-quality claim.
+
 | Installed binary | SHA-256 |
 |---|---|
 | `CtxHda.sys` | `4be35390a2de694041cd20317ed5a148d4852e46f201945a346a8b2a2c79dccf` |

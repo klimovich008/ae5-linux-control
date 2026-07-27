@@ -24,7 +24,7 @@ Volume, Neutral VoiceFX, low headphone gain, and the slow-roll-off DAC filter.
 The tuning table defines a 30-degree Voice Focus wedge, SVM level 74, and
 zero-dB EQ bands; ALSA represents a zero-dB band as level 24.
 
-The resulting 29-control baseline is:
+The source reference is:
 
 | Group | Linux driver target |
 | --- | --- |
@@ -42,6 +42,18 @@ The resulting 29-control baseline is:
 | VoiceFX | Neutral |
 | Headphone gain | Low (16–31 ohms) |
 | DAC filter | Slow Roll Off |
+
+The output-processing rows in this table are documentation and migration
+references only. They are retained in profile JSON but are not applied to
+ALSA on the AE-5. Current waveform-qualified testing found that both hardware
+OutFX transitions and normal playback PCM reopen can corrupt hidden DSP state.
+The application therefore skips `Enable OutFX`, Direct Mode, output FX
+switches/levels, and the hardware EQ controls. The production kernel queue
+initializes those output effects off and rejects hardware OutFX enable.
+
+Input effects, routing-safe controls, headphone gain, DAC filter, and other
+non-output-processing fields remain subject to the normal transactional
+validation and rollback rules.
 
 X-Bass is forced off instead of on when the preserved live route is Speakers
 with a 2.1, 4.1, or 5.1 layout. The CA0132 driver does not allow X-Bass on a
@@ -118,7 +130,8 @@ verifies readback, and rolls back all targeted controls if a write fails.
 ## Validation status
 
 Automated tests verify every source-derived value, every exclusion, the
-LFE-safe X-Bass adaptation, factory-preset recovery, and that both an
+unsafe-output filtering, LFE-safe X-Bass adaptation, factory-preset recovery,
+and that both an
 incomplete backup and a backup-file failure produce zero writes.
 
 On the physical stock-kernel target, the driver currently reports

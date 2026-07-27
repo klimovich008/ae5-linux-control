@@ -796,10 +796,54 @@ fn wait_for_alsa_playback_closed(card_index: i32) -> io::Result<()> {
             Err(error) => return Err(error),
         }
     }
+    // Something is still holding the card open. That is almost always a
+    // program playing audio: switching the output route while a stream owns
+    // the PCM is exactly the transition this project has seen produce faults,
+    // so the guard is correct to refuse. Say which program, and what to do
+    // about it, rather than reporting the internal condition.
     Err(io::Error::new(
         io::ErrorKind::TimedOut,
-        format!("ALSA card {card_index} analog playback remained open after suspending PipeWire"),
+        match playback_holders(card_index) {
+            holders if !holders.is_empty() => {
+                format!("{holders} is still playing audio. Pause or stop it, then switch output.")
+            }
+            _ => format!(
+                "Something is still playing audio on ALSA card {card_index}. \
+                 Pause or stop playback, then switch output."
+            ),
+        },
     ))
+}
+
+/// Names of the processes currently holding the card's playback device.
+///
+/// Best-effort: used only to make a refusal legible, never to decide anything.
+fn playback_holders(card_index: i32) -> String {
+    let Ok(entries) = fs::read_dir("/proc") else {
+        return String::new();
+    };
+    let device = format!("/dev/snd/pcmC{card_index}D0p");
+    let mut names: Vec<String> = Vec::new();
+    for entry in entries.flatten() {
+        let pid = entry.file_name();
+        let Some(pid) = pid.to_str() else { continue };
+        if !pid.bytes().all(|byte| byte.is_ascii_digit()) {
+            continue;
+        }
+        let Ok(fds) = fs::read_dir(format!("/proc/{pid}/fd")) else {
+            continue;
+        };
+        let holds = fds.flatten().any(|fd| {
+            fs::read_link(fd.path()).is_ok_and(|target| target.to_string_lossy() == device)
+        });
+        if holds && let Ok(comm) = fs::read_to_string(format!("/proc/{pid}/comm")) {
+            let name = comm.trim().to_owned();
+            if !name.is_empty() && !names.contains(&name) {
+                names.push(name);
+            }
+        }
+    }
+    names.join(", ")
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

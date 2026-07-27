@@ -86,7 +86,8 @@ Working on the target host:
 - native profiles, retained imported effect metadata, and a guarded PipeWire
   software-EQ path; unsafe hardware output effects are not applied;
 - guarded PipeWire software-EQ generation, graph-signature verification, and
-  explicit default-sink activation;
+  explicit default-sink activation with fail-closed volume/mute transfer in
+  both directions;
 - exact-target, fail-closed track-transition stress, a client-owned in-place
   PipeWire renegotiation probe, and HDA-position trace tooling, implemented
   and self-tested but not yet run on S32;
@@ -214,7 +215,9 @@ not equivalent to Linux's rejected CA0132 hardware control.
 If effects appear inactive, do not toggle hardware OutFX or reapply hardware
 effect controls. Preserve logs and mixer readback, keep the physical output
 muted, verify the persistent-playback rule, and inspect the PipeWire software
-effects graph.
+effects graph. Software-EQ activation copies and verifies the current
+PipeWire volume and mute state before changing the default sink; an unknown or
+mismatched readback must block activation.
 
 ## Development-host snapshot
 

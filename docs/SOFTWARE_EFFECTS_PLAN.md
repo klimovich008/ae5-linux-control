@@ -129,6 +129,11 @@ physical response acceptance:
 - `ae5ctl eq-chain-enable FILE` only writes or updates the managed user
   fragment. `eq-chain-activate` separately verifies the target, signature, and
   OutFX state before changing the desktop default.
+- Activation copies the physical AE-5 sink's current PipeWire volume and mute
+  state to the software-EQ sink and verifies both values before selecting it
+  as default. Returning to the physical sink performs and verifies the reverse
+  transfer. Missing level metadata or a mismatched readback stops the
+  transition while the destination is still non-default.
 - `eq-chain-disable` restores the physical AE-5 first when the software sink
   is the default, then removes only the managed fragment.
 - The GTK Equalizer page presents the same install, restart, activate, and
@@ -147,6 +152,10 @@ Validation completed without opening an audio stream:
    no WirePlumber session manager, no hardware node, and no playback stream.
 4. The real per-user configuration, desktop default, ALSA mixer, and PipeWire
    services were left unchanged.
+5. The real sink's `wpctl` status was parsed read-only at 5% and muted; focused
+   tests cover muted and unmuted listings plus missing or mismatched transfer
+   readback. No real graph activation or playback was attempted on the stock
+   host kernel.
 
 Still required before Phase A can be called accepted:
 

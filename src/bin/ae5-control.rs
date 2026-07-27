@@ -2099,7 +2099,7 @@ fn activate_software_eq(card_index: i32) -> Result<SoftwareEqOutput, String> {
         loaded.signature.as_deref(),
     )
     .map_err(|error| error.to_string())?;
-    set_software_eq_default_output().map_err(|error| error.to_string())
+    set_software_eq_default_output(card_index).map_err(|error| error.to_string())
 }
 
 fn disable_software_eq_safely(card_index: i32) -> Result<EqChainChange, String> {
@@ -2662,11 +2662,14 @@ fn routing_card(
 }
 
 fn pipewire_node_summary(node: &PipeWireNode) -> String {
+    let mute = node.muted.map_or("mute state unavailable", |muted| {
+        if muted { "muted" } else { "unmuted" }
+    });
     let volume = node.volume_percent.map_or_else(
         || "PipeWire node volume unavailable".to_owned(),
         |volume| {
             format!(
-                "PipeWire node volume: {volume}%\nWith the installed AE-5 soft-mixer profile, \
+                "PipeWire node volume: {volume}% ({mute})\nWith the installed AE-5 soft-mixer profile, \
                  this is software attenuation and does not rewrite Master, Front, or PCM."
             )
         },
@@ -4249,12 +4252,13 @@ mod tests {
             description: "AE-5 Analog Stereo".to_owned(),
             is_default: true,
             volume_percent: Some(43),
+            muted: Some(false),
         };
 
         assert_eq!(
             pipewire_node_summary(&node),
             "AE-5 Analog Stereo\nalsa_output.pci-ae5.analog-stereo — currently default\n\
-             PipeWire node volume: 43%\nWith the installed AE-5 soft-mixer profile, this is \
+             PipeWire node volume: 43% (unmuted)\nWith the installed AE-5 soft-mixer profile, this is \
              software attenuation and does not rewrite Master, Front, or PCM."
         );
     }
@@ -4824,6 +4828,7 @@ mod tests {
                 description: "AE-5 Software Equalizer".to_owned(),
                 is_default: true,
                 volume_percent: Some(30),
+                muted: Some(false),
             },
             signature: config.signature(),
         };

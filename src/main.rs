@@ -453,7 +453,7 @@ fn activate_eq_chain() -> Result<(), Box<dyn Error>> {
             .and_then(|output| output.signature)
             .as_deref(),
     )?;
-    let equalizer = set_software_eq_default_output()?;
+    let equalizer = set_software_eq_default_output(device.card_index)?;
     println!(
         "AE-5 software equalizer is now the PipeWire default output: {} ({})",
         equalizer.node.description, equalizer.node.node_name
@@ -549,8 +549,12 @@ fn restore_lighting() -> Result<(), Box<dyn Error>> {
 }
 
 fn print_pipewire_node(kind: &str, node: &PipeWireNode) {
+    let mute = node
+        .muted
+        .map(|muted| format!(" [{}]", if muted { "muted" } else { "unmuted" }))
+        .unwrap_or_else(|| " [mute unknown]".to_owned());
     println!(
-        "  PipeWire {kind}: {} ({}){}{}",
+        "  PipeWire {kind}: {} ({}){}{}{}",
         node.description,
         node.node_name,
         if node.is_default {
@@ -560,7 +564,8 @@ fn print_pipewire_node(kind: &str, node: &PipeWireNode) {
         },
         node.volume_percent
             .map(|volume| format!(" [node volume: {volume}%]"))
-            .unwrap_or_default()
+            .unwrap_or_default(),
+        mute,
     );
 }
 

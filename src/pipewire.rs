@@ -24,6 +24,7 @@ pub struct PipeWireNode {
     pub description: String,
     pub is_default: bool,
     pub volume_percent: Option<u16>,
+    pub muted: Option<bool>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -180,6 +181,22 @@ pub fn ae5_input(card_index: i32) -> io::Result<Option<PipeWireNode>> {
 }
 
 pub fn set_ae5_default_output(card_index: i32) -> io::Result<PipeWireNode> {
+    if let Some(equalizer) = software_eq_output()?.filter(|output| output.node.is_default) {
+        let physical = ae5_output(card_index)?.ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("PipeWire has no playback output for ALSA card {card_index}"),
+            )
+        })?;
+        let level = transfer_node_level(&equalizer.node, &physical)?;
+        let physical = ae5_output(card_index)?.ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("PipeWire lost the playback output for ALSA card {card_index}"),
+            )
+        })?;
+        require_node_level(&physical, level)?;
+    }
     set_ae5_default_node(card_index, "sinks", "playback output")
 }
 
@@ -191,7 +208,7 @@ pub fn software_eq_output() -> io::Result<Option<SoftwareEqOutput>> {
     named_node("sinks", SOFTWARE_EQ_NODE_NAME)
 }
 
-pub fn set_software_eq_default_output() -> io::Result<SoftwareEqOutput> {
+pub fn set_software_eq_default_output(card_index: i32) -> io::Result<SoftwareEqOutput> {
     let output = software_eq_output()?.ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::NotFound,
@@ -201,10 +218,28 @@ pub fn set_software_eq_default_output() -> io::Result<SoftwareEqOutput> {
     if output.node.is_default {
         return Ok(output);
     }
+    let physical = ae5_output(card_index)?.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("PipeWire has no playback output for ALSA card {card_index}"),
+        )
+    })?;
+    let level = transfer_node_level(&physical, &output.node)?;
+    let output = software_eq_output()?.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            "PipeWire lost the software equalizer while copying its safe output level",
+        )
+    })?;
+    require_node_level(&output.node, level)?;
     run_wpctl(&["set-default", &output.node.id.to_string()])?;
-    software_eq_output()?
+    let output = software_eq_output()?
         .filter(|output| output.node.is_default)
-        .ok_or_else(|| io::Error::other("PipeWire did not retain the software equalizer default"))
+        .ok_or_else(|| {
+            io::Error::other("PipeWire did not retain the software equalizer default")
+        })?;
+    require_node_level(&output.node, level)?;
+    Ok(output)
 }
 
 pub(crate) fn suspend_ae5_output(card_index: i32) -> io::Result<SuspendedAe5Output> {
@@ -374,6 +409,7 @@ fn ae5_node(card_index: i32, nodes: &str) -> io::Result<Option<PipeWireNode>> {
             node_name,
             is_default: listing.is_default,
             volume_percent: listing.volume_percent,
+            muted: listing.muted,
         };
         if property(&details, "alsa.device").as_deref() == Some("0") {
             return Ok(Some(node));
@@ -416,7 +452,64 @@ fn node_from_details(listing: NodeListing, details: &str) -> Option<PipeWireNode
         node_name,
         is_default: listing.is_default,
         volume_percent: listing.volume_percent,
+        muted: listing.muted,
     })
+}
+
+fn transfer_node_level(source: &PipeWireNode, target: &PipeWireNode) -> io::Result<(u16, bool)> {
+    let level = node_level(source)?;
+    run_wpctl(&[
+        "set-volume",
+        &target.id.to_string(),
+        &format!("{}%", level.0),
+    ])?;
+    run_wpctl(&[
+        "set-mute",
+        &target.id.to_string(),
+        if level.1 { "1" } else { "0" },
+    ])?;
+    Ok(level)
+}
+
+fn node_level(node: &PipeWireNode) -> io::Result<(u16, bool)> {
+    let volume = node.volume_percent.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "PipeWire did not report the volume of '{}' ({})",
+                node.description, node.node_name
+            ),
+        )
+    })?;
+    let muted = node.muted.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "PipeWire did not report the mute state of '{}' ({})",
+                node.description, node.node_name
+            ),
+        )
+    })?;
+    Ok((volume, muted))
+}
+
+fn require_node_level(node: &PipeWireNode, expected: (u16, bool)) -> io::Result<()> {
+    let actual = node_level(node)?;
+    if actual != expected {
+        return Err(io::Error::other(format!(
+            "PipeWire did not retain the safe output level for '{}' (expected {}% {}, read back {}% {})",
+            node.description,
+            expected.0,
+            mute_label(expected.1),
+            actual.0,
+            mute_label(actual.1),
+        )));
+    }
+    Ok(())
+}
+
+fn mute_label(muted: bool) -> &'static str {
+    if muted { "muted" } else { "unmuted" }
 }
 
 #[derive(Debug)]
@@ -932,6 +1025,7 @@ struct NodeListing {
     id: u32,
     is_default: bool,
     volume_percent: Option<u16>,
+    muted: Option<bool>,
 }
 
 fn parse_status_node_list(output: &str, nodes: &str) -> Vec<NodeListing> {
@@ -972,6 +1066,7 @@ fn parse_status_node_list(output: &str, nodes: &str) -> Vec<NodeListing> {
             id,
             is_default,
             volume_percent: parse_node_volume_percent(line),
+            muted: parse_node_muted(line),
         });
     }
     listings
@@ -989,6 +1084,11 @@ fn parse_node_volume_percent(line: &str) -> Option<u16> {
     let percent = (value * 100.0).round();
     (percent.is_finite() && (0.0..=f64::from(u16::MAX)).contains(&percent))
         .then_some(percent as u16)
+}
+
+fn parse_node_muted(line: &str) -> Option<bool> {
+    let value = line.split_once("[vol:")?.1.split_once(']')?.0;
+    Some(value.split_ascii_whitespace().any(|part| part == "MUTED"))
 }
 
 fn property(output: &str, name: &str) -> Option<String> {
@@ -1016,7 +1116,7 @@ Audio
  │
  ├─ Sinks:
  │      48. alsa_output.pci-hdmi              [vol: 1.00]
- │  *   49. alsa_output.pci-ae5.analog-stereo [vol: 0.40]
+ │  *   49. alsa_output.pci-ae5.analog-stereo [vol: 0.40 MUTED]
  │
  ├─ Sources:
  │  *   50. alsa_input.pci-ae5.analog-stereo  [vol: 1.00]
@@ -1030,11 +1130,13 @@ Audio
                     id: 48,
                     is_default: false,
                     volume_percent: Some(100),
+                    muted: Some(false),
                 },
                 NodeListing {
                     id: 49,
                     is_default: true,
                     volume_percent: Some(40),
+                    muted: Some(true),
                 },
             ]
         );
@@ -1044,6 +1146,7 @@ Audio
                 id: 50,
                 is_default: true,
                 volume_percent: Some(100),
+                muted: Some(false),
             }]
         );
         assert_eq!(parse_node_volume_percent("87. ae5 [vol: 0.43]"), Some(43));
@@ -1052,6 +1155,9 @@ Audio
             Some(150)
         );
         assert_eq!(parse_node_volume_percent("87. ae5"), None);
+        assert_eq!(parse_node_muted("87. ae5 [vol: 0.43]"), Some(false));
+        assert_eq!(parse_node_muted("87. ae5 [vol: 1.50 MUTED]"), Some(true));
+        assert_eq!(parse_node_muted("87. ae5"), None);
 
         let details = r#"
 id 58, type PipeWire:Interface:Node
@@ -1071,6 +1177,7 @@ id 58, type PipeWire:Interface:Node
                     id: 49,
                     is_default: true,
                     volume_percent: Some(40),
+                    muted: Some(true),
                 },
                 details,
             ),
@@ -1080,7 +1187,39 @@ id 58, type PipeWire:Interface:Node
                 description: "Creative Sound BlasterX AE-5".to_owned(),
                 is_default: true,
                 volume_percent: Some(40),
+                muted: Some(true),
             })
+        );
+    }
+
+    #[test]
+    fn requires_complete_pipewire_level_readback() {
+        let mut node = PipeWireNode {
+            id: 49,
+            node_name: "ae5".to_owned(),
+            description: "AE-5".to_owned(),
+            is_default: false,
+            volume_percent: Some(20),
+            muted: Some(true),
+        };
+
+        assert_eq!(node_level(&node).unwrap(), (20, true));
+        require_node_level(&node, (20, true)).unwrap();
+        assert_eq!(
+            require_node_level(&node, (20, false)).unwrap_err().kind(),
+            io::ErrorKind::Other
+        );
+
+        node.muted = None;
+        assert_eq!(
+            node_level(&node).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
+        node.muted = Some(true);
+        node.volume_percent = None;
+        assert_eq!(
+            node_level(&node).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
         );
     }
 

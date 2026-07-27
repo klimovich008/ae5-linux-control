@@ -75,16 +75,39 @@ stable node ID, and left both AE-5 playback PCMs closed. It did not alter the
 live AE-5 sink, mixer, routing, or volume state.
 
 That result proves that one owning client changes its advertised
-`EnumFormat`; it does not prove linked renegotiation. Two guarded linked tests
-used temporary PulseAudio-compatible null sinks, one fixed at S16/48 and one
-at S32/96. Both negotiated the initial S16/44.1 stream, entered
-`PW_STREAM_STATE_PAUSED` after the first S32/48 update, emitted no replacement
-format callback, and were rejected by a bounded timeout. Each null sink was
+`EnumFormat`; it does not by itself prove linked renegotiation. The first
+linked implementation only replaced `EnumFormat`. A live graph capture showed
+that the node advertised S32/48 while its current `Format`, sink input, and
+two active links correctly remained S16/44.1. The PAUSED event previously
+attributed to renegotiation was the timeout's teardown.
+
+The corrected client first deactivates its stream, waits until PipeWire has
+finished the PAUSED callback, publishes the next `EnumFormat`, sets that exact
+current `Format`, and reactivates the same stream. Deferring the set matters:
+PipeWire's audio adapter rejects a `Format` change while started, and the
+PAUSED callback is emitted re-entrantly before the adapter has finished
+stopping. This matches the relevant PipeWire 1.6.8
+[`audioadapter.c`](https://gitlab.freedesktop.org/pipewire/pipewire/-/blob/1.6.8/spa/plugins/audioconvert/audioadapter.c)
+and
+[`stream.c`](https://gitlab.freedesktop.org/pipewire/pipewire/-/blob/1.6.8/src/pipewire/stream.c)
+state transitions.
+
+Two guarded linked validations then used temporary PulseAudio-compatible null
+sinks, one fixed at S16/48 and one at S32/96. Both completed
+`S16/44.1 -> S32/48 -> S32/96 -> S16/48 -> S16/44.1` with
+`complete updates=4 negotiated=5`. A separate 50 ms graph sampler observed one
+stable node ID/serial, one stable sink-input serial, and the same two link
+IDs/serials alternating only between PAUSED and ACTIVE. Each null sink was
 unloaded afterward, the default sink stayed unchanged, and both AE-5 playback
-PCMs remained closed. This may be a limitation of those fixed-format virtual
-targets or an audio-stream/session-manager renegotiation gap; it is not
-evidence that the exact AE-5 target works. Keep the linked case open until it
-produces `complete updates=4 negotiated=5`.
+PCMs remained closed.
+
+An additional five-cycle virtual stress run completed 20 updates and 21
+negotiated callbacks on one node ID with empty stderr. It likewise left both
+AE-5 playback PCMs closed.
+
+This proves the linked single-client path on the current PipeWire/WirePlumber
+stack. It is not evidence that the exact AE-5 target works or that S32 is safe
+on its hardware; those claims still require the guarded campaign below.
 
 The optional `AE5_TRANSITION_TAP_PROBE=front-muted` probe is deliberately
 separate from the default two-switch invariant. What U Hear is downstream of

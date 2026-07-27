@@ -53,6 +53,7 @@ struct data {
 	unsigned int bytes_per_sample;
 	bool timer_armed;
 	bool awaiting_negotiation;
+	bool reconfiguring;
 	bool started;
 	bool streaming;
 	bool stopping;
@@ -65,10 +66,10 @@ static void usage(FILE *stream, const char *program)
 		"usage: %s --target NODE_NAME|0 [--dwell-ms 100..5000] "
 		"[--cycles 1..100] [--node-name NAME]\n"
 		"\n"
-		"Produces digital silence and changes the advertised format in one "
+		"Produces digital silence and changes the format in one "
 		"PipeWire client.\n"
-		"Target 0 creates an unlinked graph probe; every other target enables "
-		"autoconnect.\n",
+		"Target 0 changes only the unlinked node's advertised format; every "
+		"other target enables autoconnect and negotiated updates.\n",
 		program);
 }
 
@@ -146,7 +147,8 @@ static void log_format(const char *event, const struct format_spec *spec)
 }
 
 static const struct spa_pod *
-build_format(struct spa_pod_builder *builder, const struct format_spec *spec)
+build_format(struct spa_pod_builder *builder, uint32_t id,
+	     const struct format_spec *spec)
 {
 	struct spa_audio_info_raw info = SPA_AUDIO_INFO_RAW_INIT(
 		.format = spec->format,
@@ -154,7 +156,7 @@ build_format(struct spa_pod_builder *builder, const struct format_spec *spec)
 		.channels = CHANNELS,
 		.position = { SPA_AUDIO_CHANNEL_FL, SPA_AUDIO_CHANNEL_FR });
 
-	return spa_format_audio_raw_build(builder, SPA_PARAM_EnumFormat, &info);
+	return spa_format_audio_raw_build(builder, id, &info);
 }
 
 static void disarm_timer(struct data *data)
@@ -257,6 +259,40 @@ static void on_param_changed(void *userdata, uint32_t id,
 		arm_timer(data);
 }
 
+static int apply_format_update(struct data *data)
+{
+	const struct spa_pod *current_format;
+	const struct spa_pod *params[1];
+	struct spa_pod_builder builder;
+	uint8_t buffer[512];
+	const char *operation = "advertised format update";
+	int result;
+
+	builder = SPA_POD_BUILDER_INIT(buffer, sizeof(buffer));
+	params[0] = build_format(
+		&builder, SPA_PARAM_EnumFormat,
+		&format_sequence[data->sequence_index]);
+	current_format = build_format(
+		&builder, SPA_PARAM_Format,
+		&format_sequence[data->sequence_index]);
+	result = pw_stream_update_params(data->stream, params, 1);
+	if (result >= 0 && !data->options.unlinked) {
+		operation = "current format update";
+		result = pw_stream_set_param(data->stream, SPA_PARAM_Format,
+					     current_format);
+	}
+	if (result < 0) {
+		fprintf(stderr, "error: %s failed: %s\n", operation,
+			spa_strerror(result));
+		data->result = EXIT_FAILURE;
+		pw_main_loop_quit(data->loop);
+		return result;
+	}
+	data->updates++;
+	log_format("announced", &format_sequence[data->sequence_index]);
+	return 0;
+}
+
 static void on_state_changed(void *userdata, enum pw_stream_state old,
 			     enum pw_stream_state state, const char *error)
 {
@@ -277,21 +313,24 @@ static void on_state_changed(void *userdata, enum pw_stream_state old,
 		   !data->stopping) {
 		data->result = EXIT_FAILURE;
 		pw_main_loop_quit(data->loop);
-	} else if (state == PW_STREAM_STATE_STREAMING ||
-		   (state == PW_STREAM_STATE_PAUSED && data->options.unlinked)) {
+	} else if (state == PW_STREAM_STATE_STREAMING) {
+		data->started = true;
+		if (!data->awaiting_negotiation)
+			arm_timer(data);
+	} else if (state == PW_STREAM_STATE_PAUSED &&
+		   data->options.unlinked) {
 		data->started = true;
 		arm_timer(data);
 	} else if (state == PW_STREAM_STATE_PAUSED) {
 		disarm_timer(data);
+		if (data->reconfiguring)
+			arm_timer(data);
 	}
 }
 
 static void on_timeout(void *userdata, uint64_t expirations)
 {
 	struct data *data = userdata;
-	const struct spa_pod *params[1];
-	struct spa_pod_builder builder;
-	uint8_t buffer[512];
 	unsigned int maximum_updates;
 	int result;
 
@@ -299,6 +338,20 @@ static void on_timeout(void *userdata, uint64_t expirations)
 	data->timer_armed = false;
 	maximum_updates =
 		data->options.cycles * SPA_N_ELEMENTS(format_sequence);
+	if (data->reconfiguring) {
+		if (apply_format_update(data) < 0)
+			return;
+		data->reconfiguring = false;
+		result = pw_stream_set_active(data->stream, true);
+		if (result < 0) {
+			fprintf(stderr,
+				"error: unable to resume updated stream: %s\n",
+				spa_strerror(result));
+			data->result = EXIT_FAILURE;
+			pw_main_loop_quit(data->loop);
+		}
+		return;
+	}
 	if (data->updates >= maximum_updates) {
 		if (!data->options.unlinked &&
 		    (data->awaiting_negotiation ||
@@ -323,21 +376,20 @@ static void on_timeout(void *userdata, uint64_t expirations)
 	data->sequence_index =
 		(data->sequence_index + 1) % SPA_N_ELEMENTS(format_sequence);
 	data->awaiting_negotiation = true;
-	builder = SPA_POD_BUILDER_INIT(buffer, sizeof(buffer));
-	params[0] = build_format(
-		&builder, &format_sequence[data->sequence_index]);
-	result = pw_stream_update_params(data->stream, params, 1);
-	if (result < 0) {
-		fprintf(stderr, "error: format update failed: %s\n",
-			spa_strerror(result));
-		data->result = EXIT_FAILURE;
-		pw_main_loop_quit(data->loop);
-		return;
-	}
-	data->updates++;
-	log_format("announced", &format_sequence[data->sequence_index]);
-	if (data->options.unlinked)
+	if (data->options.unlinked) {
+		if (apply_format_update(data) < 0)
+			return;
 		arm_timer(data);
+	} else {
+		data->reconfiguring = true;
+		result = pw_stream_set_active(data->stream, false);
+		if (result < 0) {
+			fprintf(stderr, "error: unable to pause current format: %s\n",
+				spa_strerror(result));
+			data->result = EXIT_FAILURE;
+			pw_main_loop_quit(data->loop);
+		}
+	}
 }
 
 static void on_signal(void *userdata, int signal_number)
@@ -439,7 +491,8 @@ int main(int argc, char *argv[])
 	}
 
 	builder = SPA_POD_BUILDER_INIT(buffer, sizeof(buffer));
-	params[0] = build_format(&builder, &format_sequence[0]);
+	params[0] = build_format(&builder, SPA_PARAM_EnumFormat,
+				 &format_sequence[0]);
 	log_format("initial", &format_sequence[0]);
 	result = pw_stream_connect(data.stream, PW_DIRECTION_OUTPUT, PW_ID_ANY,
 				   flags, params, 1);

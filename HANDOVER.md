@@ -93,8 +93,8 @@ Important incomplete areas:
 
 - S32 desktop playback is disabled after a loud real track-switch fault;
 - the complete exact-target S32 transition and HDA-position campaign remains
-  unrun; the single-client case passed unlinked graph validation but failed
-  closed after its first update against two fixed-format virtual null sinks;
+  unrun; the single-client case passed both unlinked and linked virtual graph
+  validation but has not run against the AE-5;
 - matched Windows/Linux analog response, noise, and headphone-model tuning;
 - required cold-boot and bare-metal suspend/resume counts;
 - connected physical speaker layouts, line-out, optical I/O, and analog inputs;
@@ -355,9 +355,8 @@ Priority order:
 1. Keep S16 as the managed default. Do not run the new transition harness
    until its documented physical, volume, format, and trace preconditions are
    met.
-2. Resolve or characterize the virtual linked in-place negotiation pause,
-   obtain a root-capable HDA trace session, then run the n>=5 S32 campaign
-   with the exact target and fail-closed watchdog.
+2. Obtain a root-capable HDA trace session, then run the n>=5 S32 campaign
+   with the exact target, validated in-place client, and fail-closed watchdog.
 3. When an AE-5 output is physically available again, complete the guarded
    software-EQ response, latency, CPU, disable/restore, and stability gates in
    [`docs/SOFTWARE_EFFECTS_PLAN.md`](docs/SOFTWARE_EFFECTS_PLAN.md).

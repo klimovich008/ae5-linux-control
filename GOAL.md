@@ -86,13 +86,14 @@ generated fixtures, records PCM, PipeWire, client, mixer, and journal
 evidence, and never enables S32 itself.
 
 The in-place helper uses PipeWire's native `pw_stream_update_params()` path
-and emits only digital silence. Its `--target 0` graph validation observed
-S16/44.1, S32/48, S32/96, and S16/48 on one node with zero links while both
-AE-5 playback PCMs remained closed. Linked tests against fixed-format virtual
-null sinks negotiated the initial format, then paused after the first update
-without a replacement format callback; the timeout rejected both runs. True
-linked in-place renegotiation and the exact-target hardware stress case
-therefore remain unproven and have not been run on the AE-5.
+plus an explicit paused `Format` update and emits only digital silence. Its
+`--target 0` graph validation observed S16/44.1, S32/48, S32/96, and S16/48 on
+one node with zero links while both AE-5 playback PCMs remained closed.
+Linked tests against S16/48 and S32/96 virtual null sinks each completed all
+four updates with five negotiated callbacks. A sampled run retained one node
+serial and the same two link serials throughout. The exact-target hardware
+stress case remains unrun and this virtual result is not evidence that S32 is
+safe on the AE-5.
 
 [`scripts/hda-position-trace.sh`](scripts/hda-position-trace.sh) consumes the
 upstream `hda_controller:azx_pcm_*` and `azx_get_position` tracepoints without

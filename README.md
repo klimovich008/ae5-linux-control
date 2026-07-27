@@ -616,10 +616,10 @@ the PipeWire suspend boundary while targeting only the exact AE-5 sink. It
 continuously verifies the two hardware mutes and pairs its
 client/PCM/PipeWire timeline with the kernel's existing HDA lifecycle and DMA
 position tracepoints. The in-place helper's unlinked mode passed with zero
-links and both AE-5 playback PCMs closed. Fixed-format virtual sinks paused
-after its first linked update and the watchdog rejected both attempts, so
-linked in-place renegotiation remains unproven. Inspect the live prerequisites
-without changing state:
+links and both AE-5 playback PCMs closed. Linked S16/48 and S32/96 virtual
+sinks each completed all four updates on one stable node and the same two
+links. This validates the client path, not S32 safety on the AE-5. Inspect the
+live prerequisites without changing state:
 
 ```sh
 bash scripts/track-transition-stress.sh --dry-run

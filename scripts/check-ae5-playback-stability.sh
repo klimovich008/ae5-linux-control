@@ -392,7 +392,7 @@ self_test() (
 
 main() {
 	local runtime_snapshot cache_root source_analysis source_thd trial
-	local headless_card runtime_fixture
+	local runtime_card runtime_fixture
 
 	[[ ${AE5_ANALOG_OUTPUTS_UNPLUGGED:-} == 1 ]] ||
 		fail 'set AE5_ANALOG_OUTPUTS_UNPLUGGED=1 only after physically verifying every AE-5 analog output is unplugged'
@@ -419,24 +419,20 @@ main() {
 		fail 'python3 numpy is required'
 	[[ -x $analyzer ]] || fail "THD analyzer is not executable: $analyzer"
 
-	if [[ $headless_mode == 1 ]]; then
-		headless_card=$(find_exact_ae5_card) ||
-			fail 'headless gate did not find one exact AE-5 card'
-		runtime_fixture=$(mktemp \
-			"${TMPDIR:-/tmp}/ae5-headless-runtime.XXXXXX")
-		printf '# Headless AE-5 runtime snapshot\nkernel=%s\nalsa_card=%s\n' \
-			"$(uname -r)" "$headless_card" > "$runtime_fixture"
-		if ! runtime_snapshot=$(
-			AE5_RUNTIME_SNAPSHOT=$runtime_fixture \
-				bash "$runtime_gate" "$expected_release"
-		); then
-			find "$runtime_fixture" -delete
-			fail 'headless kernel runtime gate failed'
-		fi
+	runtime_card=$(find_exact_ae5_card) ||
+		fail 'runtime gate did not find one exact AE-5 card'
+	runtime_fixture=$(mktemp \
+		"${TMPDIR:-/tmp}/ae5-unplugged-runtime.XXXXXX")
+	printf '# Unplugged AE-5 runtime snapshot\nkernel=%s\nalsa_card=%s\n' \
+		"$(uname -r)" "$runtime_card" > "$runtime_fixture"
+	if ! runtime_snapshot=$(
+		AE5_RUNTIME_SNAPSHOT=$runtime_fixture \
+			bash "$runtime_gate" "$expected_release"
+	); then
 		find "$runtime_fixture" -delete
-	else
-		runtime_snapshot=$(bash "$runtime_gate" "$expected_release")
+		fail 'unplugged kernel runtime gate failed'
 	fi
+	find "$runtime_fixture" -delete
 	card_index=$(snapshot_value alsa_card "$runtime_snapshot") ||
 		fail 'runtime gate did not report one ALSA card'
 	[[ $card_index =~ ^[0-9]+$ ]] ||

@@ -32,8 +32,8 @@ back. The imported Windows EQ curves would be applied exactly, where today
 they pass through DSP scaling we never fully characterised.
 
 **It makes the project kernel optional.** Today a user needs the patched
-kernel. Effects and EQ in software work on a stock distribution kernel, which
-is what this host is now running. Direct Mode and the onboard LEDs still need
+kernel. Effects and EQ in software work on a stock distribution kernel.
+Direct Mode and the onboard LEDs still need
 the patch queue, but the core value would install for anyone with an AE-5.
 That is the difference between a one-host MVP and something usable.
 
@@ -108,16 +108,16 @@ played by either probe.
 - CPU cost under the same geometry. Expected negligible; state the number.
 - Stability and response of the normal CA0132 route with every effect module
   disabled and the playback PCM held open.
-- Physical-host qualification of the fixed normal-route PCM lifecycle. Direct
-  Mode remains unavailable until the rebuilt stable-playback kernel passes and
-  the bypass transition is reevaluated on that exact base.
+- Connected-output and suspend/resume qualification of the fixed normal-route
+  lifecycle. Direct Mode remains unavailable until its bypass transition is
+  reevaluated on the exact stable-playback base.
 - Whether S32 becomes viable again once nothing is generating signal after
   the mute point. Do not assume it does.
 
 ## Phase A implementation status — 2026-07-27
 
-The direct configuration and control plane are implemented. This is not yet
-the physical response acceptance:
+The direct configuration and control plane are implemented, and the first
+bare-metal 48 kHz response gate has passed:
 
 - `src/eq_chain.rs` converts all ten profile EQ values through the live ALSA
   dB mapping and emits ten `bq_peaking` nodes per channel.
@@ -153,7 +153,7 @@ the physical response acceptance:
   values with neutral/equalized What U Hear captures and fails when any
   measured band differs by more than 1 dB.
 
-Validation completed without opening an audio stream:
+Validation completed before the first playback measurement:
 
 1. The imported `Windows My profile — Headphone` curve generated `+9, +6,
    +8, +4, +1, -2, -2, 0, +6, +6 dB`, targeted
@@ -172,14 +172,27 @@ Validation completed without opening an audio stream:
 6. The GUI-enabled Rust gate passed 125 tests, strict Clippy, release build,
    and formatting.
 
-Still required before Phase A can be called accepted:
+Bare-metal response acceptance after a true power-removal boot:
 
-- boot the physical host into `7.1.4-ae5-stable`, apply the imported curve,
-  and measure requested versus What U Hear response with a stated tolerance;
+- `7.1.4-ae5-stable` ran untainted with the signed matching module, hardware
+  OutFX off, all AE-5 analog outputs unplugged, and Master/Front hard-muted.
+- Two neutral and two equalized What U Hear captures repeated within 0.00 dB
+  at all ten fixture frequencies. The equalized captures came from separate
+  `pw-play` clients while the same in-place graph remained active.
+- The imported headphone curve requested `-0.30, -1.29, -0.54, -4.81, -9.09,
+  -12.70, -12.87, -10.17, -4.44, -4.38 dB` after the automatic `-10.80 dB`
+  preamp. Measured equalized-minus-neutral response was `-0.31, -1.32, -0.54,
+  -4.80, -9.11, -12.55, -13.04, -10.51, -4.46, -4.52 dB`.
+- Maximum absolute error was 0.34 dB, passing the 1 dB gate. Cleanup restored
+  5% muted, Master/Front off, Low gain, OutFX off, both playback PCMs closed,
+  and no managed EQ state or runtime marker.
+
+Still required before Phase A can be called generally accepted:
+
 - measure latency and CPU cost;
 - run the stated long-duration stability gate with every CA0132 effect module
   disabled;
-- repeat apply/disable across first-open, warm reopen, idle, and a true
-  power-removal cold boot;
+- repeat at 44.1 and 96 kHz and sample more embedded curves;
+- complete the bounded connected-headphone suspend/resume gate;
 - compare the normalized response with Windows Command's same ten bands while
   Windows OutFX remains off.

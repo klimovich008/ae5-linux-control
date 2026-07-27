@@ -57,10 +57,11 @@ separate discovery, control, routing, and safety evidence.
 This is a **guarded hardware-specific MVP on the development host**, not a
 finished general-purpose Sound Blaster Command replacement. The immediate
 sound-corruption cause is fixed in the current kernel queue and qualified on
-the physical card through VFIO. Persistent S16 playback and fail-closed
-hardware output processing remain defense in depth. The rebuilt kernel passed
-packaged-kernel VFIO acceptance, is installed side by side, and awaits its
-scheduled physical-host boot and analog-output acceptance.
+the physical card through VFIO and a true motherboard power-removal boot.
+Persistent S16 playback and fail-closed hardware output processing remain
+defense in depth. The rebuilt kernel is installed side by side and passed its
+bare-metal first-open, warm-reopen, idle, and rejected-OutFX matrix. Connected
+analog-output and suspend/resume acceptance remain separate gates.
 
 The source ledger currently tracks 54 Command features:
 
@@ -102,24 +103,23 @@ Important incomplete areas:
 - S32 desktop playback is disabled after a loud real track-switch fault;
 - the stable-playback patch passed warm, idle, cold-like, rate, channel, and
   50-cycle VFIO reopen matrices; the exact packaged kernel also passed a fresh
-  passthrough boot, first-open capture, warm/idle, and rejected-OutFX matrices,
-  but still needs physical-host boot acceptance;
-- `7.1.4-ae5-stable` is installed side by side and selected for the next boot
-  only; stock remains the running and saved/default kernel;
+  passthrough boot and a true power-removal bare-metal boot, each with clean
+  first-open, warm/idle, and rejected-OutFX matrices;
+- `7.1.4-ae5-stable` is installed side by side and running for the accepted
+  one-shot boot; stock remains the saved/default kernel;
 - the installed `7.1.4-ae5-guarded` host kernel predates the final fix and must
   not be selected;
 - the complete exact-target S32 transition and HDA-position campaign remains
   unrun; the single-client case passed both unlinked and linked virtual graph
   validation but has not run against the AE-5;
 - matched Windows/Linux analog response, noise, and headphone-model tuning;
-- a physical power-removal cold boot and bounded bare-metal suspend/resume
-  with the rebuilt stable-playback kernel;
+- bounded bare-metal suspend/resume with the rebuilt stable-playback kernel;
 - connected physical speaker layouts, line-out, optical I/O, and analog inputs;
 - Direct Mode remains removed from the production series pending its own
   physical transition acceptance on top of the stable-playback fix;
 - external AE-5 LED strip support;
-- physical response, latency, CPU, and long-duration stability acceptance for
-  the new software-EQ path.
+- latency, CPU, long-duration stability, broader rate/preset coverage, and a
+  matched Windows comparison for the new software-EQ path.
 
 ## Non-negotiable audio safety
 
@@ -165,10 +165,10 @@ Additional rules:
 7. Windows Command route changes may unmute the Windows render endpoint.
 8. Do not restore `S32LE` in the managed WirePlumber rule until the loud
    track-switch fault has a physical, fail-closed acceptance result.
-9. Until the rebuilt stable-playback kernel passes physical-host acceptance,
-   do not suspend, close, or deliberately reopen the normal AE-5 playback PCM
-   outside the isolated diagnostic harness. Retain
-   `session.suspend-timeout-seconds = 0` as defense in depth.
+9. The rebuilt stable-playback kernel passed its isolated physical-host reopen
+   matrix. Retain `session.suspend-timeout-seconds = 0` as defense in depth,
+   and use only the bounded suspend campaign for the still-unqualified system
+   suspend/resume path.
 10. Never write hardware OutFX, its child output effects, hardware EQ, or
     Direct Mode. Use the app guard and guarded kernel.
 
@@ -196,6 +196,19 @@ host-driver-to-VFIO cycle, plus warm, repeated-idle, 48/96 kHz, and
 2/6-channel matrices. A hardware-OutFX enable request was rejected and eight
 subsequent captures remained clean. All measurements were bounded internal
 What U Hear captures with AE-5 analog outputs unplugged.
+
+The exact packaged kernel then passed the same fail-closed harness after a
+true motherboard power-removal boot. All 22 bare-metal captures were clean at
+0.002720620–0.002724749% THD with an identical 3.130447865% peak: first open,
+12 immediate reopens, one after 20 seconds idle, and eight after exact OutFX
+enable was rejected with `EOPNOTSUPP`. Cleanup restored 5% muted, Master and
+Front off, Low gain, OutFX off, and both playback PCMs closed.
+
+During the preceding incident, the user also booted Windows without removing
+power and heard the same fault there; only a full cold reboot cleared it. This
+is user-observed rather than instrumented evidence, but it puts that incident
+below the Linux/PipeWire-only boundary and is consistent with AE-5 DSP or PCI
+power state surviving a warm OS switch.
 
 Production still uses the conservative desktop baseline:
 
@@ -228,9 +241,8 @@ out, so no acoustic AE-5 test is possible without a separate physical
 reconnection:
 
 ```text
-Kernel:            7.1.4-200.nobara.fc44.x86_64
+Kernel:            7.1.4-ae5-stable
 Kernel taint:      0
-Next boot once:    7.1.4-ae5-stable
 Saved/default:     7.1.4-200.nobara.fc44.x86_64
 ALSA card:         0, HDA Creative
 Output:            Headphone, 2.0
@@ -238,7 +250,7 @@ Input:             Microphone
 Desktop sink:      AE-5 default, 5%, muted
 Listening output:  motherboard line out
 Headphone gain:    Low
-Direct Mode:       unavailable on the stock kernel
+Direct Mode:       unavailable
 OutFX:             off
 Software EQ:       runtime unloaded; managed state absent after full-graph probe
 Playback PCMs:     closed
@@ -247,12 +259,11 @@ System VMs:        both powered off; Windows domain has no hostdev
 GUI test:          current debug build opened natively on Wayland
 ```
 
-At the end of the packaged-kernel and Windows-readiness cycles, Master and
-Front were off, OutFX was off, the AE-5 desktop sink was 5% and muted, Low
+At the end of the physical cold-boot playback and software-EQ cycles, Master
+and Front were off, OutFX was off, the AE-5 desktop sink was 5% and muted, Low
 gain was selected, the exact-card no-suspend property was live, and both
-system VMs were shut off. Playback had not yet opened since the final card
-rebind, so the PCM was closed; after the first managed playback it should stay
-open. Re-read live state before relying on this snapshot.
+playback PCMs were closed. The managed EQ state and runtime marker were absent.
+Re-read live state before relying on this snapshot.
 
 The installed GUI and CLI are from the reversible per-user installation. The
 WirePlumber configuration is linked to
@@ -329,8 +340,8 @@ disposable container; the script deliberately refuses to run on the host.
 
 For kernel changes, follow [`kernel/README.md`](kernel/README.md) and
 [`docs/KERNEL_MAINTENANCE.md`](docs/KERNEL_MAINTENANCE.md). Do not treat a
-module build, QEMU boot, or VFIO warm reset as a substitute for the stated
-physical cold-boot/suspend gate.
+module build, QEMU boot, or VFIO warm reset as a substitute for the remaining
+connected-output and suspend/resume gates.
 
 The latest checkpoint passed:
 
@@ -339,6 +350,10 @@ The latest checkpoint passed:
 - audio-parity self-test;
 - fail-closed stable-playback instrument self-test and a 22/22 clean
   physical-card passthrough matrix at 0.003304–0.003352% THD;
+- a true power-removal bare-metal 22/22 playback matrix at
+  0.002720620–0.002724749% THD;
+- repeated bare-metal in-place EQ captures matching the requested 48 kHz
+  ten-band response within 0.34 dB;
 - transactional rootless install lifecycle;
 - hosted Rust, RPM lifecycle, and ALSA `for-next` compatibility jobs.
 
@@ -406,18 +421,14 @@ interoperability data. Keep that legal and privacy boundary intact.
 Priority order:
 
 1. Keep S16 and `session.suspend-timeout-seconds = 0` as the managed defaults.
-   Do not force a production suspend or PCM closure until the new host kernel
-   passes acceptance.
-2. Complete the already-scheduled one-shot physical boot of
-   `7.1.4-ae5-stable`, then run the fail-closed runtime gate before changing
-   any control. Do not boot the older `7.1.4-ae5-guarded` artifact.
-3. Run a true power-removal cold start and bounded bare-metal suspend/resume,
-   then preserve the kernel journal and internal capture evidence.
-4. When an AE-5 output is physically available again, complete the guarded
-   software-EQ response, latency, CPU, disable/restore, and stability gates in
+2. Run the bounded bare-metal suspend/resume campaign with connected-headphone
+   routing preflight and preserve the kernel journal and route evidence.
+3. Complete software-EQ latency, CPU, long-duration stability, broader
+   rate/preset coverage, and matched Windows comparison in
    [`docs/SOFTWARE_EFFECTS_PLAN.md`](docs/SOFTWARE_EFFECTS_PLAN.md).
-5. Run matched, safely attenuated Windows/Linux analog measurements.
-6. Finish physical speaker, line-out, optical, and analog-input acceptance.
+4. When an AE-5 output is physically available again, run matched, safely
+   attenuated Windows/Linux analog measurements.
+5. Finish physical speaker, line-out, optical, and analog-input acceptance.
 
 Do not spend the next session redesigning the GUI or adding another abstraction
 before the loud-buzz path is understood. Safety and reproducibility are the

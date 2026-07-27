@@ -31,19 +31,26 @@ eight captures after an exact rejected OutFX write. The WirePlumber no-suspend
 rule remains defense in depth.
 
 The committed fail-closed host harness independently repeated that physical
-card matrix in the stable-kernel passthrough guest. Its final-code run accepted
-22 internal captures at 0.003304–0.003352% THD: first open, 12 immediate
-reopens, one reopen after 20 seconds idle, and eight after OutFX enable was
-rejected with `EOPNOTSUPP`. It requires an explicit confirmation that every
-AE-5 analog output is unplugged, enforces Master and Front off plus Low gain,
-uses a −30 dBFS fixture, and treats 1% THD as corruption. The host mixer
-recovered byte-for-byte after shutdown.
+card matrix in both the stable-kernel passthrough guest and a true motherboard
+power-removal boot. The bare-metal run accepted 22 internal captures at
+0.002720620–0.002724749% THD with one exact 3.130447865% peak: first open, 12
+immediate reopens, one reopen after 20 seconds idle, and eight after OutFX
+enable was rejected with `EOPNOTSUPP`. It requires explicit confirmation that
+every AE-5 analog output is unplugged, enforces Master and Front off plus Low
+gain, uses a −30 dBFS fixture, and treats 1% THD as corruption. Cleanup
+restored 5% muted, both hardware switches off, Low gain, OutFX off, and both
+PCMs closed.
+
+Before that cold boot, the user heard the same fault after warm-booting into
+Windows; only complete power removal cleared it. This is user-reported rather
+than instrumented evidence, but it places that incident below a
+Linux/PipeWire-only boundary and is consistent with persistent AE-5 DSP or PCI
+power state.
 
 This is an internally captured digital result. The AE-5 analog outputs were
 unplugged and the user's headphones were connected to the motherboard
-line-out. A physical power-removal cold boot, safe AE-5 analog capture, and
-runtime Windows same-settings capture remain pending. The compact evidence is
-in
+line-out. A safe AE-5 analog capture and runtime Windows same-settings capture
+remain pending. The compact evidence is in
 [docs/PCM_REOPEN_EVIDENCE.md](docs/PCM_REOPEN_EVIDENCE.md).
 
 Earlier Direct Mode patch stacks produced host-configured side-by-side RPMs
@@ -54,9 +61,9 @@ evidence.
 
 The current eight-patch queue applies cleanly to ALSA `for-next`, excludes
 Direct Mode, and includes both the OutFX guard and stable-playback fix. Its
-verified `7.1.4-ae5-stable` RPM is installed side by side and scheduled for
-the next boot only; the stock Nobara kernel remains the running and saved
-default. The previously installed `7.1.4-ae5-guarded` artifact predates the
+verified `7.1.4-ae5-stable` RPM is installed side by side and is running for
+the accepted one-shot boot; the stock Nobara kernel remains the saved default.
+The previously installed `7.1.4-ae5-guarded` artifact predates the
 stable-playback patch and is historical. Reproducible hashes, validation
 evidence, and the physical acceptance sequence are in
 [docs/KERNEL_MAINTENANCE.md](docs/KERNEL_MAINTENANCE.md).
@@ -116,9 +123,9 @@ cargo run -- set-default-input
 `Input Source` choice disagrees with PipeWire's active hardware routes, or
 when normal-mode Headphone output has a muted or unreadable `Front` playback
 switch. `route-repair` remains explicit and may repair the input or unmute the
-current headphone DAC, but it refuses an output/profile transition until the
-new kernel fix is rebuilt, installed, and passes the physical-host acceptance
-gate. The GTK Device page uses the same guard.
+current headphone DAC, but output/profile transitions remain blocked pending
+their connected-output and suspend/resume acceptance on the new kernel. The
+GTK Device page uses the same guard.
 Nothing repairs or unmutes a route automatically at login.
 The default-device actions invoke `wpctl` directly without a shell and verify
 the new default. They do not change the card's ALSA mixer controls. CLI status
@@ -169,9 +176,11 @@ GTK Equalizer page applies a chosen profile in one action and exposes the
 saved/runtime state and preamp. The real muted and unplugged AE-5 accepted the
 full imported headphone graph at −10.80 dB preamp while both playback PCMs
 remained closed; unload restored the prior PipeWire device/routing and ALSA
-state. Physical
-frequency-response, latency, CPU, and long-running stability acceptance remain
-pending; see
+state. On the true power-removal stable-kernel boot, two neutral and two
+equalized 48 kHz What U Hear captures repeated within 0.00 dB at every band.
+The measured equalized-minus-neutral response matched the requested graph
+within 0.34 dB, including automatic preamp, across 31 Hz–16 kHz. Latency, CPU,
+long-duration stability, and matched Windows comparison remain pending; see
 [docs/SOFTWARE_EFFECTS_PLAN.md](docs/SOFTWARE_EFFECTS_PLAN.md).
 The response command emits the exact ten-band prediction used by
 `scripts/audio-parity.sh compare-eq` for the physical acceptance capture.
@@ -542,15 +551,16 @@ microphone tests measured the fixed route 18.84 dB above a Front-muted
 negative control, then measured an independent installed-CLI
 Speakers→Headphone cycle 10.88 dB above both its quiet and muted controls.
 Both restored the exact persistent mixer, route, and volume state. Repeated
-cold-boot/suspend acceptance remains. A silent, user-driven suspend probe now
+connected-headphone cold-boot and suspend/resume acceptance remains. A silent,
+user-driven suspend probe now
 rejects any playback stage above 20%, non-Low headphone gain, open PCM, wrong
 route, unreadable evidence, changed mixer state, changed boot/kernel, or new
 audio warning; it never suspends or plays audio itself. Run its paired
 `--before-suspend campaign-01` and `--after-resume campaign-01` captures, then
 check progress with `--suspend-summary 20`. A standalone read-only snapshot is
 available through `--preflight ID`; it validates the same safety conditions
-without appending campaign state. After the scheduled one-shot stable-kernel
-boot, run
+without appending campaign state. For connected-headphone route campaigns,
+run
 `bash scripts/check-ae5-kernel-runtime.sh 7.1.4-ae5-stable` before changing
 any control. It additionally requires the exact untainted kernel, signed
 matching CA0132 module, AE-5 PCI identity and driver, Direct Mode absent,
@@ -610,7 +620,7 @@ bash scripts/check-vfio-host.sh
 
 The audited topology, package boundary, recovery rules, and per-kernel matrix
 are in [docs/VFIO_TEST_PLAN.md](docs/VFIO_TEST_PLAN.md). A guest cannot replace
-the final physical cold-boot and suspend tests.
+the connected-output and physical suspend/resume tests.
 
 A separate Windows 11 comparison VM is installed with the exact Creative
 Command `3.5.10.0` build and a file-by-file-verified copy of the saved AE-5

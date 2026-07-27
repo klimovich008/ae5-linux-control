@@ -32,6 +32,7 @@ check_runtime() {
 	local card_index card_root name expected actual driver_path
 	local vermagic signer filename
 	local outfx_state led_root index multi_index
+	local routing_preflight=pass
 	local -a led_matches
 
 	[[ $expected_release =~ ^[A-Za-z0-9][A-Za-z0-9._+-]*$ &&
@@ -51,6 +52,7 @@ check_runtime() {
 		[[ -r $AE5_RUNTIME_SNAPSHOT ]] ||
 			fail 'runtime snapshot fixture is unreadable'
 		snapshot=$(<"$AE5_RUNTIME_SNAPSHOT")
+		routing_preflight=not-run
 	else
 		snapshot=$(bash "$routing_probe" --preflight kernel-runtime)
 	fi
@@ -144,12 +146,12 @@ check_runtime() {
 	printf 'direct_mode=unavailable\n'
 	printf 'hardware_outfx=off\n'
 	printf 'onboard_leds=5\n'
-	printf 'routing_preflight=pass\n'
+	printf 'routing_preflight=%s\n' "$routing_preflight"
 	printf 'runtime_result=pass\n'
 }
 
 self_test() (
-	local test_root test_release=test-kernel snapshot_file device_root
+	local test_root test_release=test-kernel snapshot_file device_root result
 	local index
 
 	test_root=$(mktemp -d "${TMPDIR:-/tmp}/ae5-runtime-test.XXXXXX")
@@ -217,8 +219,12 @@ self_test() (
 		printf '  Mono: Playback [off]\n'
 	}
 
-	AE5_RUNTIME_SNAPSHOT=$snapshot_file \
-		check_runtime "$test_release" >/dev/null
+	result=$(
+		AE5_RUNTIME_SNAPSHOT=$snapshot_file \
+			check_runtime "$test_release"
+	)
+	[[ $(snapshot_value routing_preflight "$result") == not-run ]] ||
+		fail 'external snapshot did not report the skipped routing preflight'
 
 	printf '1\n' > "$proc_root/sys/kernel/tainted"
 	if (

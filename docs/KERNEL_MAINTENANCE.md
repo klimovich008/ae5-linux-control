@@ -3,10 +3,11 @@
 > **Current queue (2026-07-27):** the authoritative `kernel/series` excludes
 > Direct Mode and includes both the fail-closed AE-5 OutFX guard and the
 > qualified stable-playback fix. Its verified `7.1.4-ae5-stable` RPM is
-> installed side by side and selected for the next boot only. The installed
+> installed side by side and running for the accepted one-shot physical boot.
+> The installed
 > `7.1.4-ae5-guarded` release predates the final fix and is historical; do not
-> select it for physical testing. The stock Nobara kernel remains the running
-> and saved/default entry.
+> select it for physical testing. The stock Nobara kernel remains the
+> saved/default entry.
 
 The AE-5 changes are maintained as an ordered patch queue, not as one frozen
 kernel binary. The same queue can be checked against every new kernel source
@@ -19,8 +20,9 @@ installation, and it never reboots.
 
 ## Current exact baseline
 
-The target host currently runs
-`7.1.4-200.nobara.fc44.x86_64`. Its source package is
+The accepted one-shot host boot currently runs `7.1.4-ae5-stable`; stock
+`7.1.4-200.nobara.fc44.x86_64` remains the saved/default entry. Its source
+package is
 `kernel-7.1.4-200.nobara.fc44.src.rpm`; the package's CA0132 source is
 byte-identical to Linux stable `v7.1.4`, and none of Nobara's downstream
 patches changes CA0132. The matching `kernel-devel`, `.config`, and
@@ -130,7 +132,7 @@ clean 20-second-idle reopen, exact `EOPNOTSUPP` OutFX rejection with off
 readback, and 8/8 clean subsequent reopens.
 
 The guarded installer installed this package side by side without rebooting.
-The boot loader readback is:
+The pre-reboot boot loader readback was:
 
 ```text
 running_kernel=7.1.4-200.nobara.fc44.x86_64
@@ -138,6 +140,13 @@ default_kernel=/boot/vmlinuz-7.1.4-200.nobara.fc44.x86_64
 saved_entry=fca8dc3f5d9347008f0dfcd322dbdcd8-7.1.4-200.nobara.fc44.x86_64
 next_entry=fca8dc3f5d9347008f0dfcd322dbdcd8-7.1.4-ae5-stable
 ```
+
+After a complete shutdown and motherboard power removal, that exact package
+booted bare metal with zero taint and a matching signed CA0132 module. The
+fail-closed harness passed all 22 internal captures at
+0.002720620–0.002724749% THD, including first open, 12 warm reopens, one
+20-second-idle reopen, and eight reopens after exact OutFX rejection. Stock
+remains the saved/default kernel.
 
 After the next reboot, run
 `scripts/check-ae5-kernel-runtime.sh 7.1.4-ae5-stable` before changing any
@@ -311,7 +320,8 @@ For every future kernel:
    bash scripts/check-ae5-kernel-runtime.sh EXPECTED-KERNEL-RELEASE
    ```
 
-   It requires the exact untainted release, AE-5 PCI identity and
+   Its default connected-route mode requires the exact untainted release,
+   AE-5 PCI identity and
    `snd_hda_intel` binding, matching signed CA0132 module, Direct Mode absent,
    all five onboard LED interfaces, OutFX off, closed PCMs, Low gain when
    available, and the existing routing/20% safety preflight.
@@ -328,17 +338,20 @@ For every future kernel:
 
    It independently hard-mutes Master and Front, selects Low gain, uses a
    −30 dBFS exact-card fixture, and restores only desktop services that were
-   active before the run. Do not set the acknowledgement merely to bypass the
-   topology check.
+   active before the run. In this intentionally unplugged topology the harness
+   uses the runtime gate's exact-card hardware snapshot and reports
+   `routing_preflight=not-run`; it does not claim connected-headphone route
+   acceptance. Do not set the acknowledgement merely to bypass the topology
+   check.
 
    Do not test Direct Mode or hardware OutFX enable as a listening mode.
-   Keep hardware EQ/effects and output transitions blocked until the rebuilt
-   kernel passes its cold-start and analog-output acceptance gate. Treat
+   Keep hardware EQ/effects blocked. Keep output transitions bounded until
+   connected analog-output acceptance passes. Treat
    suspend/resume as a separate bounded test because only runtime PM was
    qualified in VFIO.
 
-A normal reboot validates the guarded physical boot. A true cold-start test
-requires a later complete shutdown and physical power removal. Keep AE-5
+A normal reboot validates a guarded physical boot; the current package also
+passed a complete shutdown and physical power-removal boot. Keep AE-5
 outputs unplugged, or headphones off the user's head, until the runtime gate
 passes. Once managed playback opens the PCM, do not force it closed merely to
 manufacture a reopen test.

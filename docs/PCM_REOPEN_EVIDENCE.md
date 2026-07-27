@@ -1,9 +1,9 @@
 # AE-5 playback PCM reopen evidence
 
 Current conclusion as of 2026-07-27: the kernel-level reopen defect is fixed
-in the maintained patch queue and qualified on the physical AE-5 through
-VFIO. Physical-host installation, a true power-removal cold boot, and analog
-output acceptance remain separate gates.
+in the maintained patch queue and qualified on the physical AE-5 through VFIO
+and a true motherboard power-removal boot. Analog-output and suspend/resume
+acceptance remain separate gates.
 
 ## Reproducible failure
 
@@ -129,10 +129,9 @@ newly generated lower-level test tone; every result remains well below the
 AE-5 outputs remained unplugged. This is a packaged-kernel, fresh-driver VFIO
 test, not a physical motherboard power-removal test.
 
-The verified RPM is now installed side by side on the host. Stock
-`7.1.4-200.nobara.fc44.x86_64` remains running and saved/default, while
-`7.1.4-ae5-stable` is selected for the next boot only. No host reboot occurred
-during this qualification.
+The verified RPM was installed side by side on the host. Stock
+`7.1.4-200.nobara.fc44.x86_64` remains saved/default; the accepted one-shot
+test boot runs `7.1.4-ae5-stable`.
 
 ## Reproducible host acceptance harness
 
@@ -183,6 +182,45 @@ were closed. The host raw and simple mixer snapshots were byte-identical to
 their pre-cycle files. This remains cold-like managed PCI reset evidence, not
 a physical motherboard power-removal cold boot.
 
+## Bare-metal power-removal qualification
+
+The host was fully shut down and motherboard power was removed before booting
+the installed `7.1.4-ae5-stable` package. The runtime gate accepted the exact
+untainted release, signed matching CA0132 module, AE-5 PCI identity and
+`snd_hda_intel` binding, five LED interfaces, Direct Mode absence, and OutFX
+off.
+
+The fail-closed host harness then produced:
+
+| Bare-metal group | Captures | THD range | Peak |
+|---|---:|---:|---:|
+| First open | 1 | 0.002724749% | 3.130447865% |
+| Immediate warm reopens | 12 | 0.002720620–0.002724749% | 3.130447865% |
+| Reopen after 20 seconds closed | 1 | 0.002720620% | 3.130447865% |
+| Reopens after rejected OutFX enable | 8 | 0.002720620–0.002724749% | 3.130447865% |
+
+All 22 captures passed the 1% corruption threshold. The exact OutFX enable
+request returned `EOPNOTSUPP` and readback remained off. There were no new
+kernel audio warnings. Cleanup restored the AE-5 sink to 5% muted, Master and
+Front off, Low gain, OutFX off, and both playback PCMs closed. Compact local
+evidence is under
+`~/.cache/ae5-control/host-stability-20260727-230047.JgWYEe`; raw captures
+remain outside Git.
+
+The harness initially stopped before playback because the general runtime
+gate invoked the connected-headphone routing preflight, whose requirements
+conflict with the harness's deliberately unplugged and hard-muted topology.
+The harness now supplies an exact-card hardware-only runtime snapshot. The
+gate reports `routing_preflight=not-run` instead of claiming route acceptance;
+connected-headphone cold/suspend campaigns still require the full routing
+preflight.
+
+The user also reported that, before this cold boot, the same audio fault was
+audible after warm-booting into Windows and disappeared only after complete
+power removal. This was not an instrumented Windows capture, but it rules out
+a Linux/PipeWire-only explanation for that incident and is consistent with
+AE-5 DSP or PCI state persisting across a warm OS switch.
+
 ## Host keepalive proof
 
 The installed exact-card WirePlumber rule sets
@@ -213,11 +251,8 @@ failed before writing; the complete ALSA mixer SHA-256 remained
 
 ## Remaining acceptance
 
-1. Complete the scheduled one-shot host boot into `7.1.4-ae5-stable` and run
-   the fail-closed runtime and playback-stability gates before changing other
-   controls.
-2. Run a true power-removal cold boot and bare-metal suspend/resume.
-3. Capture the reconnected AE-5 analog output safely.
-4. Complete a runtime Windows/Linux same-settings capture. Static disassembly
+1. Run the bounded connected-headphone bare-metal suspend/resume campaign.
+2. Capture the reconnected AE-5 analog output safely.
+3. Complete a runtime Windows/Linux same-settings capture. Static disassembly
    already establishes that Windows Command OutFX controls the
    `CtxRFX64.dll` software APO chain rather than Linux's hardware OutFX path.

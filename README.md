@@ -609,6 +609,23 @@ recovery point, not another automated credential guess.
 No source NTFS volume, Windows image, Creative binary, private setting, or
 credential is stored in the repository.
 
+A fail-closed transition harness now covers complete close/reopen, abrupt
+disconnect, different-rate and different-format replacement clients, gapless
+overlap, and the PipeWire suspend boundary while targeting only the exact
+AE-5 sink. It continuously verifies the two hardware mutes and pairs its
+client/PCM/PipeWire timeline with the kernel's existing HDA lifecycle and DMA
+position tracepoints. Inspect the live prerequisites without changing state:
+
+```sh
+bash scripts/track-transition-stress.sh --dry-run
+```
+
+No stress playback has been run yet, S32 remains disabled, and the current
+headphones are connected to the motherboard line-out. The guarded run,
+root-only trace companion, evidence schema, and remaining in-place
+renegotiation gap are documented in
+[docs/TRACK_TRANSITION_INVESTIGATION.md](docs/TRACK_TRANSITION_INVESTIGATION.md).
+
 The complete patch stack now also builds, boots, and passes a guarded physical
 cycle on maintained Linux 6.18.40 LTS. That cycle covered the first-use/manual
 route fix, safe packaged control write, package install/removal, and exact host

@@ -1,11 +1,5 @@
 #!/usr/bin/env python3
-"""PreToolUse guard: block shell commands that would set the desktop sink
-to a runaway level.
-
-This began as a 20% ceiling, added while testing headphone gain above
-32 ohms. That testing is finished and 20% sits below normal listening, so
-the ceiling is now a runaway guard rather than a listening limit: it exists
-to catch a fat-fingered 100%, not to police volume. Ordinary levels pass.
+"""PreToolUse guard: block shell commands above the project's 20% test limit.
 
 Note the scope. This only sees shell commands, so it constrains the agent,
 not the application — the GUI writes through ALSA and PipeWire directly and
@@ -18,7 +12,7 @@ import json
 import re
 import sys
 
-CEILING_PERCENT = 60.0
+CEILING_PERCENT = 20.0
 
 VOLUME_CMD = re.compile(
     r"\b(?:wpctl\s+set-volume|pactl\s+set-sink-volume|pamixer\b[^|;&]*--set-volume)\b[^|;&\n]*"
@@ -61,10 +55,10 @@ def main() -> None:
     found = violations(command)
     if found:
         reason = (
-            "BLOCKED by AE-5 runaway-volume guard: "
+            "BLOCKED by AE-5 playback-test volume guard: "
             + "; ".join(found)
-            + f". This catches an accidental full-scale write, not ordinary "
-            f"listening levels — anything up to {CEILING_PERCENT:.0f}% passes."
+            + f". Project-controlled tests must remain at or below "
+            f"{CEILING_PERCENT:.0f}%."
         )
         print(
             json.dumps(
@@ -79,5 +73,16 @@ def main() -> None:
         )
 
 
+def self_test() -> None:
+    assert not violations("wpctl set-volume @DEFAULT_AUDIO_SINK@ 20%")
+    assert violations("wpctl set-volume @DEFAULT_AUDIO_SINK@ 21%")
+    assert violations("wpctl set-volume @DEFAULT_AUDIO_SINK@ 1%+")
+    assert not violations("wpctl get-volume @DEFAULT_AUDIO_SINK@")
+    print("volume guard self-test passed")
+
+
 if __name__ == "__main__":
-    main()
+    if sys.argv[1:] == ["--self-test"]:
+        self_test()
+    else:
+        main()

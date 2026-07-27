@@ -10,12 +10,10 @@ order — check it before choosing what to work on.
 The user's headphones are connected to real hardware. These rules override
 any task instruction:
 
-1. **Keep the desktop sink at ordinary listening levels.** The user's normal
-   level is about 30%. A PreToolUse hook in `.claude/settings.json` refuses
-   shell commands above 60% — that is a runaway guard against an accidental
-   full-scale write, not a listening limit. Do not work around it.
-   (The original 20% ceiling was added while testing headphone gain above
-   32 ohms. That testing is finished; 20% sits below normal listening.)
+1. **Keep every project-controlled playback test at or below 20%.** Start at
+   5%. A PreToolUse hook in `.claude/settings.json` refuses shell commands
+   above 20%. Do not work around it even if the user's unrelated desktop
+   listening state is higher.
 2. Never use High headphone gain for an acoustic test; keep Low gain.
 3. Before any playback, routing, format, kernel, or DSP-recovery change:
    mute the sink, drop it to 5%, switch hardware Master and Front off, and

@@ -22,6 +22,7 @@ usage() {
 	cat >&2 <<'EOF'
 usage:
   audio-parity.sh generate OUTPUT_DIRECTORY
+  audio-parity.sh generate-transitions OUTPUT_DIRECTORY
   audio-parity.sh analyze-tones CAPTURE.wav
   audio-parity.sh compare-tones WINDOWS.wav LINUX.wav
   audio-parity.sh analyze-noise CAPTURE.wav
@@ -324,6 +325,48 @@ generate_channel_identity() {
 	done
 	sox "${segments[@]}" "$output"
 }
+
+generate_transition_tone() {
+	local rate=$1 depth=$2 frequency=$3 output=$4
+
+	sox -n -r "$rate" -b "$depth" -e signed-integer -c "$channels" \
+		"$output" synth 1.5 sine "$frequency" \
+		gain -18 fade t 0.05 1.5 0.05
+}
+
+generate_transitions() (
+	local output_root=$1 output
+	local -a outputs=(
+		"$output_root/transition-a-44100-s16.wav"
+		"$output_root/transition-b-48000-s16.wav"
+		"$output_root/transition-c-48000-s32.wav"
+		"$output_root/transition-d-96000-s32.wav"
+		"$output_root/SHA256SUMS"
+	)
+
+	mkdir -p -- "$output_root"
+	for output in "${outputs[@]}"; do
+		new_output "$output"
+	done
+
+	generate_transition_tone 44100 16 523 \
+		"$output_root/transition-a-44100-s16.wav"
+	generate_transition_tone 48000 16 997 \
+		"$output_root/transition-b-48000-s16.wav"
+	generate_transition_tone 48000 32 1301 \
+		"$output_root/transition-c-48000-s32.wav"
+	generate_transition_tone 96000 32 1999 \
+		"$output_root/transition-d-96000-s32.wav"
+	for output in "${outputs[@]:0:4}"; do
+		validate_fixture_peak "$output"
+	done
+	(
+		cd -- "$output_root"
+		sha256sum transition-*.wav > SHA256SUMS
+	)
+
+	printf 'generated four transition fixtures in %s\n' "$output_root"
+)
 
 channel_peak() {
 	local input=$1 start=$2 channel=$3
@@ -640,10 +683,22 @@ self_test() (
 	trap 'rm -rf -- "$test_root"' EXIT
 
 	generate "$test_root/fixtures" >/dev/null
+	generate_transitions "$test_root/transitions" >/dev/null
 	(
 		cd -- "$test_root/fixtures"
 		sha256sum -c SHA256SUMS >/dev/null
 	)
+	(
+		cd -- "$test_root/transitions"
+		sha256sum -c SHA256SUMS >/dev/null
+	)
+	[[ $(soxi -r "$test_root/transitions/transition-a-44100-s16.wav") == 44100 &&
+		$(soxi -b "$test_root/transitions/transition-a-44100-s16.wav") == 16 &&
+		$(soxi -r "$test_root/transitions/transition-d-96000-s32.wav") == 96000 &&
+		$(soxi -b "$test_root/transitions/transition-d-96000-s32.wav") == 32 ]] || {
+		printf 'self-test: transition fixture format matrix is invalid\n' >&2
+		return 1
+	}
 	analyze_tones "$test_root/fixtures/parity-tones.wav" >/dev/null
 	compare_tones \
 		"$test_root/fixtures/parity-tones.wav" \
@@ -802,6 +857,14 @@ generate)
 	}
 	need_tool sha256sum
 	generate "$2"
+	;;
+generate-transitions)
+	[[ $# -eq 2 ]] || {
+		usage
+		exit 2
+	}
+	need_tool sha256sum
+	generate_transitions "$2"
 	;;
 analyze-tones)
 	[[ $# -eq 2 ]] || {

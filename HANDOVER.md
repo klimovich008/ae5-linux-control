@@ -80,6 +80,8 @@ Working on the target host:
 - output effects, ten-band EQ, factory EQ presets, and native profiles;
 - guarded PipeWire software-EQ generation, graph-signature verification, and
   explicit default-sink activation;
+- exact-target, fail-closed track-transition stress and HDA-position trace
+  tooling, implemented and self-tested but not yet run on S32;
 - 33 embedded Command factory profiles with speaker/headphone variants;
 - import of the user's Command speaker/headphone profiles and custom EQ;
 - What U Hear digital capture;
@@ -89,6 +91,8 @@ Working on the target host:
 Important incomplete areas:
 
 - S32 desktop playback is disabled after a loud real track-switch fault;
+- the complete S32 transition campaign and true single-client in-place
+  format renegotiation remain unrun;
 - matched Windows/Linux analog response, noise, and headphone-model tuning;
 - required cold-boot and bare-metal suspend/resume counts;
 - connected physical speaker layouts, line-out, optical I/O, and analog inputs;
@@ -300,13 +304,17 @@ The latest checkpoint passed:
 | `packaging/` | RPM, ACP, WirePlumber, desktop and udev payload |
 | `kernel/series` | Ordered functional kernel patch queue |
 | `scripts/` | Build, validation, diagnostics, audio and VFIO gates |
+| `scripts/track-transition-stress.sh` | Exact-target client-transition and fail-closed evidence harness |
+| `scripts/hda-position-trace.sh` | Root-only consumer for upstream HDA lifecycle/position tracepoints |
 | `PORT_PLAN.md` | Original scope, architecture, phases and acceptance plan |
 | `docs/` | Detailed investigation and validation records |
 
 Read these next according to the task:
 
 - routing or the S16/S32 issue:
-  [`docs/DRIVER_ROUTING_INVESTIGATION.md`](docs/DRIVER_ROUTING_INVESTIGATION.md);
+  [`docs/DRIVER_ROUTING_INVESTIGATION.md`](docs/DRIVER_ROUTING_INVESTIGATION.md)
+  and
+  [`docs/TRACK_TRANSITION_INVESTIGATION.md`](docs/TRACK_TRANSITION_INVESTIGATION.md);
 - effects or EQ:
   [`docs/DSP_EFFECT_MEASUREMENT.md`](docs/DSP_EFFECT_MEASUREMENT.md) and
   [`docs/SOFTWARE_EFFECTS_PLAN.md`](docs/SOFTWARE_EFFECTS_PLAN.md);
@@ -339,10 +347,12 @@ interoperability data. Keep that legal and privacy boundary intact.
 
 Priority order:
 
-1. Keep S16 as the managed default and investigate the S32 track-transition
-   fault only with Master and Front hard-muted.
-2. Add enough instrumentation to distinguish stream teardown, HDA DMA/position,
-   PipeWire suspend, and stale CA0132 DSP state before another acoustic test.
+1. Keep S16 as the managed default. Do not run the new transition harness
+   until its documented physical, volume, format, and trace preconditions are
+   met.
+2. Obtain a root-capable HDA trace session, add the remaining true in-place
+   PipeWire renegotiation case, then run the n>=5 S32 campaign with the exact
+   target and fail-closed watchdog.
 3. When an AE-5 output is physically available again, complete the guarded
    software-EQ response, latency, CPU, disable/restore, and stability gates in
    [`docs/SOFTWARE_EFFECTS_PLAN.md`](docs/SOFTWARE_EFFECTS_PLAN.md).

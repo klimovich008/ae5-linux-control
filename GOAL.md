@@ -19,11 +19,9 @@ maintainer can pick it up from the repository alone.
 
 ## Invariants (never traded away for progress)
 
-1. Low headphone gain holds for every acoustic test, and the sink stays at
-   ordinary listening levels. `.claude/hooks/volume-guard.py` refuses runaway
-   writes above 60% — a guard against a fat-fingered full scale, not a
-   listening limit. The original 20% ceiling belonged to high-gain testing
-   that is now finished.
+1. Every project-controlled playback test stays at or below 20%. Start at 5%,
+   use Low headphone gain for acoustic tests, and keep the output physically
+   away from the user's ears for the first playback after a transition.
 2. Evidence before recovery. A reproducible fault is worth more than a
    fast fix — see `/incident-evidence`.
 3. No fake controls. If a feature has no safe Linux mechanism, the UI says
@@ -41,18 +39,13 @@ Project-scoped `CLAUDE.md`, the volume-guard PreToolUse hook, and the
 are installed. Future sessions inherit the rules automatically and cannot
 write a runaway volume from a shell.
 
-## Phase 1 — Restore working audio on this host
+## Phase 1 — Restore working audio on this host · **done**
 
-The host currently has ALSA hardware `Master` **off** while the desktop
-sink is unmuted — the documented hidden-mute split. Sound is dead right
-now for that reason.
-
-- Run `route-status`, then the existing `route-repair` transaction.
-- Confirm audible output at an ordinary level on the stable S16 path.
-- Confirm the mixer hash and route state match the handover snapshot.
-
-**Done when:** Maks confirms normal desktop audio works, with all PCMs
-closing cleanly afterward.
+The card-specific ACP route and explicit route-repair transaction fixed the
+hidden `Front` mute. Guarded physical tests confirmed audible desktop playback
+on the stable S16 path and clean PCM closure. The current headphones are
+connected to the motherboard line-out, so the present lack of an AE-5 listener
+is a physical topology choice rather than a recurrence of that route fault.
 
 ## Phase 2 — Root-cause the loud-buzz fault · **release blocker**
 
@@ -81,6 +74,29 @@ never reproduce a real client's transition.
 evidence that a specific guard makes S32 safe. Only then does S32LE
 return — worth pursuing because S32 matched direct DSP response within
 0.01 dB at 20% where S16 was off by up to 5.81 dB.
+
+### 2026-07-27 instrumentation checkpoint
+
+[`scripts/track-transition-stress.sh`](scripts/track-transition-stress.sh)
+now implements exact-target, five-trial-or-more close/reopen, abrupt
+disconnect, client rate/format replacement, gapless overlap, and
+suspend-boundary cases. It hard-mutes `Master` and `Front`, continuously
+watches both switches, uses bounded generated fixtures, records PCM,
+PipeWire, client, mixer, and journal evidence, and never enables S32 itself.
+
+[`scripts/hda-position-trace.sh`](scripts/hda-position-trace.sh) consumes the
+upstream `hda_controller:azx_pcm_*` and `azx_get_position` tracepoints without
+a kernel patch. Tracefs is root-only and this account has no authenticated
+`sudo`, so the complete HDA-position capture is implemented but not yet run.
+True in-place format renegotiation within one PipeWire client also remains;
+the current case models the real track replacement as one client closing and
+another opening with a different format.
+
+No transition playback was run at this checkpoint. The real sink remains S16,
+the user's 30% state was not changed, both playback PCMs stayed closed, and
+the headphones remain on the motherboard output. Full method and evidence
+interpretation:
+[`docs/TRACK_TRANSITION_INVESTIGATION.md`](docs/TRACK_TRANSITION_INVESTIGATION.md).
 
 ### 2026-07-27 breakthrough — idle DSP self-oscillation
 

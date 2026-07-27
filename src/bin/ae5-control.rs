@@ -2,21 +2,20 @@
 use ae5_control::linux_driver_defaults_for;
 use ae5_control::{
     Ae5Device, Ae5Lighting, Ae5Mixer, BuiltinProfile, COMMAND_DEFAULT_PROFILE_COUNT, ChannelLevel,
-    ControlError, ControlSnapshot, DIRECT_MODE_CONTROL, FeatureSupport,
-    LINUX_DRIVER_DEFAULTS_PRESERVED, Level, NativeRatesConfig, ONBOARD_LED_COUNT, PipeWireNode,
-    PipeWireRouteState, Profile, ProfileControl, RgbColor, SbCommandImport, SbCommandTarget,
-    ae5_input, ae5_output, ae5_route_state, apply_linux_driver_defaults, builtin_profiles,
-    capture_control_block_reason, direct_mode_block_reason, discover_sbcommand_installation,
-    equalizer_band_block_reason, export_library_profile, feature_parity,
-    front_vmaster_clamp_warning, headphone_playback_issue,
+    ControlError, ControlSnapshot, DIRECT_MODE_CONTROL, LINUX_DRIVER_DEFAULTS_PRESERVED, Level,
+    NativeRatesConfig, ONBOARD_LED_COUNT, PipeWireNode, PipeWireRouteState, Profile,
+    ProfileControl, RgbColor, SbCommandImport, SbCommandTarget, ae5_input, ae5_output,
+    ae5_route_state, apply_linux_driver_defaults, builtin_profiles, capture_control_block_reason,
+    direct_mode_block_reason, discover_sbcommand_installation, equalizer_band_block_reason,
+    export_library_profile, front_vmaster_clamp_warning, headphone_playback_issue,
     import_discovered_sbcommand_profile_with_report, import_sbcommand_profile_with_report,
     library_profile, native_rates_config, playback_switch_block_reason, profile_library,
     profile_library_directory, rename_library_profile, set_ae5_default_input,
     set_ae5_default_output, set_native_rates_enabled, set_saved_led, set_saved_lighting,
     smart_volume_level_block_reason, snapshot_controls, validate_linux_driver_defaults,
 };
+use gtk::gio;
 use gtk::prelude::*;
-use gtk::{gdk::Display, gio};
 use std::cell::{Cell, RefCell};
 use std::ffi::OsString;
 use std::fs;
@@ -94,7 +93,7 @@ fn main() -> gtk::glib::ExitCode {
 }
 
 fn build_window(application: &gtk::Application, started: Instant, performance_probe: bool) {
-    install_css();
+    ae5_control::gui::theme::install_css();
 
     let window = gtk::ApplicationWindow::builder()
         .application(application)
@@ -296,7 +295,7 @@ fn populate_page(
 
     let page: gtk::Widget = match name {
         "settings" => settings_page(window, device, controls, status).upcast(),
-        "scout" => scout_page().upcast(),
+        "scout" => ae5_control::gui::pages::scout::scout_page().upcast(),
         "mixer" => mixer_page(device.card_index, status, controls).upcast(),
         "equalizer" => equalizer_page(device.card_index, status, controls).upcast(),
         "effects" => sound_effects_page(window, device.card_index, status, controls).upcast(),
@@ -462,7 +461,7 @@ fn device_page(
         label.set_selectable(true);
         identity.append(&label);
     }
-    page.append(&profile_card(
+    page.append(&ae5_control::gui::widgets::profile_card(
         "01",
         "Detected hardware",
         "AE-5 Control matches the PCI and subsystem IDs instead of relying on an unstable ALSA card number.",
@@ -492,7 +491,7 @@ fn device_page(
     });
     let kernel_details = gtk::Box::new(gtk::Orientation::Vertical, 0);
     kernel_details.append(&kernel_status);
-    page.append(&profile_card(
+    page.append(&ae5_control::gui::widgets::profile_card(
         "02",
         "Kernel & project interfaces",
         "Read-only boot readiness. Interface detection does not replace physical driver acceptance.",
@@ -541,7 +540,7 @@ fn device_page(
         label.add_css_class("warning-value");
         capability_summary.append(&label);
     }
-    page.append(&profile_card(
+    page.append(&ae5_control::gui::widgets::profile_card(
         "03",
         "Live capabilities",
         "Only controls exposed by the running ALSA driver appear in the application.",
@@ -593,7 +592,7 @@ fn device_page(
             }
         });
     }
-    page.append(&profile_card(
+    page.append(&ae5_control::gui::widgets::profile_card(
         "04",
         "Desktop route health",
         "The check is read-only. The repair action is explicit and may unmute hardware Master or Front when Headphone output requires it.",
@@ -603,7 +602,7 @@ fn device_page(
     let report_actions = gtk::Box::new(gtk::Orientation::Horizontal, 10);
     let save_report = gtk::Button::with_label("Save diagnostics report");
     report_actions.append(&save_report);
-    page.append(&profile_card(
+    page.append(&ae5_control::gui::widgets::profile_card(
         "05",
         "Private diagnostics",
         "Create a local report without root. Hostname, user, storage, network data, and unrelated PipeWire devices are omitted by default. Review the file before sharing it.",
@@ -708,7 +707,7 @@ fn settings_page(
         "Device",
     );
     stack.add_titled(
-        &compatibility_page(),
+        &ae5_control::gui::pages::compatibility::compatibility_page(),
         Some("compatibility"),
         "Compatibility",
     );
@@ -722,55 +721,6 @@ fn settings_page(
     page.append(&header);
     page.append(&stack);
     page
-}
-
-fn scout_page() -> gtk::ScrolledWindow {
-    let page = gtk::Box::new(gtk::Orientation::Vertical, 18);
-    page.add_css_class("profile-page");
-
-    let heading = gtk::Box::new(gtk::Orientation::Horizontal, 12);
-    let title = gtk::Label::new(Some("Scout Mode"));
-    title.set_xalign(0.0);
-    title.set_hexpand(true);
-    title.add_css_class("page-title");
-    heading.append(&title);
-    let status = gtk::Label::new(Some("UNAVAILABLE IN LINUX"));
-    status.add_css_class("unavailable-pill");
-    heading.append(&status);
-    page.append(&heading);
-
-    let explanation = gtk::Label::new(Some(
-        "Scout Mode is visible here so Windows users can account for the feature during \
-         migration. The Creative implementation and its hotkey integration are proprietary, \
-         and the Linux CA0132 driver does not expose an equivalent control.",
-    ));
-    explanation.set_xalign(0.0);
-    explanation.set_wrap(true);
-    explanation.add_css_class("dim-label");
-    page.append(&explanation);
-
-    let alternatives = gtk::Box::new(gtk::Orientation::Vertical, 8);
-    for text in [
-        "Use the Equalizer page for a transparent, user-controlled frequency emphasis.",
-        "Use a PipeWire filter-chain preset only when you can verify its gain and latency.",
-        "Imported Windows profiles retain Scout Mode as an explicit unsupported item.",
-    ] {
-        let row = gtk::Label::new(Some(&format!("• {text}")));
-        row.set_xalign(0.0);
-        row.set_wrap(true);
-        alternatives.append(&row);
-    }
-    page.append(&profile_card(
-        "STATUS",
-        "Linux status: unavailable",
-        "AE-5 Control does not present a decorative switch as working hardware support.",
-        &alternatives,
-    ));
-
-    gtk::ScrolledWindow::builder()
-        .hscrollbar_policy(gtk::PolicyType::Never)
-        .child(&page)
-        .build()
 }
 
 fn sound_effects_page(
@@ -1835,101 +1785,6 @@ fn mixer_page(
         .build()
 }
 
-fn compatibility_page() -> gtk::ScrolledWindow {
-    let page = gtk::Box::new(gtk::Orientation::Vertical, 18);
-    page.add_css_class("profile-page");
-
-    let heading = gtk::Box::new(gtk::Orientation::Horizontal, 12);
-    let title = gtk::Label::new(Some("Sound Blaster Command compatibility"));
-    title.set_xalign(0.0);
-    title.set_hexpand(true);
-    title.add_css_class("page-title");
-    heading.append(&title);
-    let count = gtk::Label::new(Some(&format!(
-        "{} FEATURES TRACKED",
-        feature_parity().count()
-    )));
-    count.add_css_class("status-pill");
-    heading.append(&count);
-    page.append(&heading);
-
-    let summary = gtk::Box::new(gtk::Orientation::Vertical, 4);
-    for line in compatibility_summary().lines() {
-        let label = gtk::Label::new(Some(line));
-        label.set_xalign(0.0);
-        summary.append(&label);
-    }
-    page.append(&profile_card(
-        "01",
-        "Tracked feature status",
-        "This read-only view is built from the same evidence matrix used by the project. A Linux-native equivalent is labeled as a substitution instead of being presented as Creative's implementation.",
-        &summary,
-    ));
-
-    for (index, support, title, description) in [
-        (
-            "02",
-            FeatureSupport::Unsupported,
-            "Unavailable features",
-            "No verified safe Linux mechanism exists for these functions. They are listed explicitly instead of appearing as nonfunctional controls.",
-        ),
-        (
-            "03",
-            FeatureSupport::Deferred,
-            "Pending acceptance",
-            "These functions have a Linux control, candidate, or substitute, but still need the stated physical evidence before the project claims full support.",
-        ),
-    ] {
-        let entries = gtk::Box::new(gtk::Orientation::Vertical, 8);
-        for feature in feature_parity().filter(|feature| feature.support == support) {
-            let expander =
-                gtk::Expander::new(Some(&format!("{} · {}", feature.area, feature.feature)));
-            expander.add_css_class("feature-entry");
-
-            let details = gtk::Box::new(gtk::Orientation::Vertical, 4);
-            for (label, value) in [
-                ("Linux mechanism", feature.linux_mechanism),
-                ("Current evidence", feature.current_evidence),
-                ("Remaining gate", feature.remaining_gate),
-                ("Source", feature.source),
-            ] {
-                let text = gtk::Label::new(Some(&format!("{label}: {value}")));
-                text.set_xalign(0.0);
-                text.set_wrap(true);
-                text.set_selectable(true);
-                text.add_css_class("dim-label");
-                details.append(&text);
-            }
-            expander.set_child(Some(&details));
-            entries.append(&expander);
-        }
-        page.append(&profile_card(index, title, description, &entries));
-    }
-
-    gtk::ScrolledWindow::builder()
-        .hscrollbar_policy(gtk::PolicyType::Never)
-        .child(&page)
-        .build()
-}
-
-fn compatibility_summary() -> String {
-    let features = feature_parity().collect::<Vec<_>>();
-    let counts = FeatureSupport::ALL.map(|support| {
-        features
-            .iter()
-            .filter(|feature| feature.support == support)
-            .count()
-    });
-    format!(
-        "{} tracked features\nVerified: {}\nLinux-native equivalents: {}\nPending acceptance: {}\nUnavailable: {}",
-        features.len(),
-        counts[0],
-        counts[1],
-        counts[2],
-        counts[3]
-    )
-}
-
 fn lighting_page(window: &gtk::ApplicationWindow, status: &gtk::Label) -> gtk::ScrolledWindow {
     let page = gtk::Box::new(gtk::Orientation::Vertical, 18);
     page.add_css_class("profile-page");
@@ -2005,7 +1860,7 @@ fn lighting_page(window: &gtk::ApplicationWindow, status: &gtk::Label) -> gtk::S
             }
             all.append(&summary);
             all.append(&button);
-            page.append(&profile_card(
+            page.append(&ae5_control::gui::widgets::profile_card(
                 "01",
                 "Unified color",
                 "Choose one color for the complete five-LED chain.",
@@ -2060,7 +1915,7 @@ fn lighting_page(window: &gtk::ApplicationWindow, status: &gtk::Label) -> gtk::S
                 row.append(&button);
                 individual.append(&row);
             }
-            page.append(&profile_card(
+            page.append(&ae5_control::gui::widgets::profile_card(
                 "02",
                 "Individual LEDs",
                 "Each selection resends one coherent five-LED frame in the kernel.",
@@ -2077,7 +1932,7 @@ fn lighting_page(window: &gtk::ApplicationWindow, status: &gtk::Label) -> gtk::S
             detail.set_wrap(true);
             unavailable.append(&title);
             unavailable.append(&detail);
-            page.append(&profile_card(
+            page.append(&ae5_control::gui::widgets::profile_card(
                 "01",
                 "Kernel support required",
                 "Install and boot a kernel containing the AE-5 onboard multicolor LED patch.",
@@ -2177,7 +2032,7 @@ fn native_rates_card(status: &gtk::Label, current: std::io::Result<NativeRatesCo
         }
     });
 
-    profile_card(
+    ae5_control::gui::widgets::profile_card(
         "03",
         "Native sample rates",
         "Experimental: allow 44.1, 48, and 96 kHz streams to avoid unnecessary \
@@ -2250,7 +2105,7 @@ fn routing_card(
         ),
     });
 
-    profile_card(
+    ae5_control::gui::widgets::profile_card(
         index,
         title,
         "The selected default is stored by WirePlumber for desktop applications.",
@@ -2455,7 +2310,7 @@ fn profile_page(
     page.append(&intro);
 
     let defaults_actions = builtin_profile_actions(window, card_index, status);
-    page.append(&profile_card(
+    page.append(&ae5_control::gui::widgets::profile_card(
         "01",
         "Sound Blaster Command defaults",
         "All 33 factory Sound Effects profiles from Command 3.5.10.0 are embedded as \
@@ -2465,7 +2320,7 @@ fn profile_page(
     ));
 
     let saved_actions = saved_profile_actions(window, card_index, status);
-    page.append(&profile_card(
+    page.append(&ae5_control::gui::widgets::profile_card(
         "02",
         "Personal profiles",
         "Profiles in the standard per-user library are available immediately after \
@@ -2479,7 +2334,7 @@ fn profile_page(
     let apply = gtk::Button::with_label("Preview & apply profile");
     native_actions.append(&save);
     native_actions.append(&apply);
-    page.append(&profile_card(
+    page.append(&ae5_control::gui::widgets::profile_card(
         "03",
         "Profile files",
         "Portable JSON uses semantic ALSA names. Applying validates every value, \
@@ -2494,7 +2349,7 @@ fn profile_page(
     ));
     let reset_actions = gtk::Box::new(gtk::Orientation::Horizontal, 10);
     reset_actions.append(&reset);
-    page.append(&profile_card(
+    page.append(&ae5_control::gui::widgets::profile_card(
         "04",
         "Linux driver defaults",
         "Restore the CA0132 processing values initialized by the Linux driver. \
@@ -2509,7 +2364,7 @@ fn profile_page(
     let import_actions = gtk::Box::new(gtk::Orientation::Horizontal, 10);
     import_actions.append(&import_active);
     import_actions.append(&import);
-    page.append(&profile_card(
+    page.append(&ae5_control::gui::widgets::profile_card(
         "05",
         "Sound Blaster Command",
         "Choose a mounted Windows user folder to discover and import its active setup, \
@@ -2865,29 +2720,6 @@ fn saved_profile_actions(
         }
     }
     actions
-}
-
-fn profile_card(index: &str, title: &str, description: &str, actions: &gtk::Box) -> gtk::Box {
-    let card = gtk::Box::new(gtk::Orientation::Vertical, 10);
-    card.add_css_class("profile-card");
-
-    let heading = gtk::Box::new(gtk::Orientation::Horizontal, 12);
-    let index = gtk::Label::new(Some(index));
-    index.add_css_class("section-index");
-    let title = gtk::Label::new(Some(title));
-    title.set_xalign(0.0);
-    title.add_css_class("section-title");
-    heading.append(&index);
-    heading.append(&title);
-    card.append(&heading);
-
-    let description = gtk::Label::new(Some(description));
-    description.set_xalign(0.0);
-    description.set_wrap(true);
-    description.add_css_class("dim-label");
-    card.append(&description);
-    card.append(actions);
-    card
 }
 
 async fn save_current_profile(
@@ -4378,467 +4210,10 @@ impl Category {
     }
 }
 
-fn install_css() {
-    let Some(display) = Display::default() else {
-        return;
-    };
-    let provider = gtk::CssProvider::new();
-    provider.load_from_data(
-        "
-        window {
-            background: #111827;
-            color: #edf2f7;
-        }
-        .application-shell {
-            background: #1d1c2e;
-        }
-        .sidebar-panel {
-            min-width: 208px;
-            background: #162040;
-            border-right: 1px solid alpha(#ffffff, 0.08);
-        }
-        .sidebar-brand {
-            padding: 18px 16px 14px 16px;
-            background: #0d1828;
-            border-bottom: 1px solid alpha(#ffffff, 0.08);
-        }
-        .sidebar-title {
-            color: #21c6d4;
-            font-family: monospace;
-            font-size: 13px;
-            font-weight: 800;
-            letter-spacing: 1px;
-        }
-        .sidebar-device {
-            color: #8ca0b4;
-            font-size: 11px;
-        }
-        .sidebar-footer {
-            padding: 14px 16px;
-            color: #7890a5;
-            background: #101a2d;
-            border-top: 1px solid alpha(#ffffff, 0.08);
-            font-family: monospace;
-            font-size: 10px;
-            font-weight: 700;
-        }
-        .main-panel {
-            background: #1d1c2e;
-        }
-        .hero {
-            min-height: 48px;
-            padding: 10px 22px;
-            background: #0d1828;
-            border-bottom: 1px solid alpha(#ffffff, 0.08);
-        }
-        .hero-kicker, .error-kicker {
-            color: #22c7d4;
-            font-family: monospace;
-            font-size: 11px;
-            font-weight: 700;
-        }
-        .hero-title {
-            font-size: 15px;
-            font-weight: 700;
-        }
-        .dim-label { color: #98a7b7; }
-        .status-pill {
-            background: alpha(#22c7d4, 0.10);
-            color: #57dce5;
-            border: 1px solid alpha(#22c7d4, 0.38);
-            border-radius: 3px;
-            padding: 6px 10px;
-            font-family: monospace;
-            font-size: 10px;
-            font-weight: 700;
-        }
-        .operation-status {
-            color: #9fb0c0;
-            font-size: 11px;
-            padding: 0;
-        }
-        .status-rail {
-            min-height: 34px;
-            padding: 5px 14px;
-            background: #0d1828;
-            border-top: 1px solid alpha(#ffffff, 0.08);
-        }
-        .status-mark {
-            color: #eef3f7;
-            font-size: 14px;
-            font-weight: 800;
-        }
-        .output-state {
-            color: #49d5df;
-            font-family: monospace;
-            font-size: 10px;
-            font-weight: 700;
-        }
-        .footer-output-selector {
-            border: 1px solid alpha(#ffffff, 0.14);
-            border-radius: 2px;
-        }
-        .footer-route-label {
-            padding: 0 8px;
-            color: #8da0b2;
-            background: #162238;
-            font-family: monospace;
-            font-size: 9px;
-            font-weight: 700;
-        }
-        .footer-output-choice {
-            min-width: 72px;
-            min-height: 26px;
-            padding: 2px 8px;
-            color: #aab7c4;
-            background: #252a38;
-            border: 0;
-            border-left: 1px solid alpha(#ffffff, 0.10);
-            border-radius: 0;
-            font-size: 10px;
-        }
-        .footer-output-choice:checked {
-            color: #f8fbfc;
-            background: #147e88;
-            box-shadow: inset 0 -2px #35d3de;
-        }
-        .operation-ok { color: #72d9c0; }
-        .operation-error, .warning-label, .warning-value { color: #ffb4a9; }
-        .unavailable-pill {
-            padding: 6px 10px;
-            color: #ffd19a;
-            background: alpha(#ffad42, 0.08);
-            border: 1px solid alpha(#ffbd66, 0.30);
-            border-radius: 3px;
-            font-family: monospace;
-            font-size: 10px;
-            font-weight: 700;
-        }
-        stacksidebar.navigation-sidebar,
-        stacksidebar.navigation-sidebar scrolledwindow,
-        stacksidebar.navigation-sidebar viewport,
-        stacksidebar.navigation-sidebar list,
-        stacksidebar.navigation-sidebar .view {
-            background: #162040;
-        }
-        .navigation-sidebar {
-            padding: 9px 0;
-        }
-        .navigation-sidebar row {
-            min-height: 39px;
-            margin: 0;
-            padding: 0 12px;
-            background: #162040;
-            border-radius: 0;
-            border-left: 3px solid transparent;
-        }
-        .navigation-sidebar row:hover { background: alpha(#ffffff, 0.035); }
-        .navigation-sidebar row:focus-visible {
-            box-shadow: inset 0 0 0 2px #57dce5;
-        }
-        .navigation-sidebar row:selected {
-            background: #49536e;
-            color: #43d5df;
-            border-left: 3px solid #22c7d4;
-        }
-        .settings-header {
-            padding: 18px 24px 0 24px;
-            background: #25213c;
-            border-bottom: 1px solid alpha(#ffffff, 0.07);
-        }
-        .page-tabs button {
-            min-height: 30px;
-            padding: 5px 14px;
-            color: #98a7b7;
-            background: transparent;
-            border: 0;
-            border-radius: 0;
-            border-bottom: 2px solid transparent;
-        }
-        .page-tabs button:checked {
-            color: #35d3de;
-            border-bottom: 2px solid #22c7d4;
-        }
-        .profile-page, .control-page { padding: 18px 24px 24px 24px; }
-        .page-title {
-            font-size: 20px;
-            font-weight: 760;
-        }
-        .mixer-section {
-            margin-top: 4px;
-            color: #eef3f7;
-            font-size: 14px;
-            font-weight: 700;
-        }
-        .equalizer-bands {
-            min-height: 230px;
-            padding: 16px 18px 12px 18px;
-            background: #242238;
-            border: 1px solid alpha(#c1c7d0, 0.10);
-            border-radius: 2px;
-        }
-        .equalizer-frequency {
-            color: #9fb0c0;
-            font-family: monospace;
-            font-size: 11px;
-            font-weight: 700;
-        }
-        .profile-carousel {
-            padding-bottom: 4px;
-            background: transparent;
-        }
-        .sound-profile-card {
-            padding: 12px;
-            background-image: linear-gradient(145deg, #292747, #1b2e45);
-            border: 1px solid alpha(#aebbd0, 0.16);
-            border-radius: 3px;
-        }
-        .sound-profile-card:hover {
-            background-image: linear-gradient(145deg, #302e54, #1f384f);
-            border-color: alpha(#4dd8e1, 0.42);
-        }
-        .sound-profile-card-active {
-            border: 2px solid #21c6d4;
-            background-image: linear-gradient(145deg, #32305a, #184253);
-        }
-        .profile-card-kicker {
-            color: #52d8e1;
-            font-family: monospace;
-            font-size: 9px;
-            font-weight: 800;
-        }
-        .profile-card-title {
-            color: #f4f7fa;
-            font-size: 15px;
-            font-weight: 750;
-        }
-        .profile-card-action {
-            min-height: 24px;
-            padding: 3px 8px;
-            font-size: 10px;
-        }
-        .profile-card-active-label {
-            color: #55dce5;
-            font-family: monospace;
-            font-size: 9px;
-            font-weight: 800;
-        }
-        .effect-card {
-            padding: 12px;
-            background: #242238;
-            border: 1px solid alpha(#c1c7d0, 0.12);
-            border-top: 2px solid alpha(#22c7d4, 0.50);
-            border-radius: 3px;
-        }
-        .effect-card:hover {
-            background: #292640;
-            border-top-color: #2fd0dc;
-        }
-        .effect-card scale.horizontal {
-            min-width: 116px;
-        }
-        .effect-card-title {
-            color: #edf2f7;
-            font-size: 13px;
-            font-weight: 700;
-        }
-        .effect-dial-value {
-            min-width: 52px;
-            min-height: 52px;
-            padding: 7px;
-            color: #f7fbfd;
-            background: #1b2940;
-            border: 5px solid #22c7d4;
-            border-radius: 999px;
-            font-size: 18px;
-            font-weight: 800;
-        }
-        .playback-route-note {
-            padding: 9px 12px;
-            color: #b8c5d0;
-            background: alpha(#22c7d4, 0.06);
-            border: 1px solid alpha(#22c7d4, 0.18);
-            border-left: 3px solid #22c7d4;
-            border-radius: 2px;
-        }
-        .playback-setting-tile {
-            min-height: 92px;
-            padding: 12px 14px;
-            background: #242238;
-            border: 1px solid alpha(#c1c7d0, 0.10);
-            border-radius: 3px;
-        }
-        .recording-source-panel {
-            padding: 14px 16px;
-            background: #242238;
-            border: 1px solid alpha(#22c7d4, 0.26);
-            border-left: 3px solid #22c7d4;
-            border-radius: 3px;
-        }
-        .profile-card {
-            background: #242238;
-            border: 1px solid alpha(#c1c7d0, 0.10);
-            border-radius: 2px;
-            padding: 14px 16px;
-        }
-        .profile-library-row {
-            padding: 8px 0;
-            border-bottom: 1px solid alpha(#ffffff, 0.08);
-        }
-        .feature-entry {
-            padding: 7px 0;
-            border-bottom: 1px solid alpha(#ffffff, 0.08);
-        }
-        .section-index {
-            background: alpha(#22c7d4, 0.12);
-            color: #4ed6df;
-            border: 1px solid alpha(#22c7d4, 0.30);
-            border-radius: 2px;
-            padding: 3px 7px;
-            font-family: monospace;
-            font-weight: 700;
-        }
-        .section-title { font-size: 15px; font-weight: 700; }
-        .control-list {
-            background: #242238;
-            border: 1px solid alpha(#c1c7d0, 0.10);
-            border-radius: 2px;
-        }
-        .gain-stage-notice {
-            color: #ffd19a;
-            background: alpha(#ffad42, 0.08);
-            border: 1px solid alpha(#ffbd66, 0.25);
-            border-left: 3px solid #ffad42;
-            border-radius: 2px;
-            padding: 10px 12px;
-        }
-        .control-row {
-            min-height: 42px;
-            padding: 9px 12px;
-            border-bottom: 1px solid alpha(#ffffff, 0.08);
-        }
-        .control-row:hover { background: alpha(#ffffff, 0.035); }
-        button {
-            min-height: 29px;
-            padding: 5px 10px;
-            border-radius: 2px;
-        }
-        button.suggested-action {
-            background: #147e88;
-            color: #ffffff;
-            border-color: #22b8c5;
-        }
-        button.destructive-action {
-            color: #ffc3bd;
-            background: alpha(#d95c5c, 0.12);
-            border-color: alpha(#ff8d83, 0.35);
-        }
-        button.destructive-action:hover {
-            color: #ffffff;
-            background: alpha(#d95c5c, 0.28);
-        }
-        button:focus-visible,
-        switch:focus-visible,
-        dropdown:focus-visible,
-        entry:focus-visible,
-        scale:focus-visible {
-            outline: 2px solid #57dce5;
-            outline-offset: 2px;
-        }
-        switch {
-            min-width: 34px;
-            min-height: 18px;
-        }
-        switch:checked {
-            background: #17b9c6;
-        }
-        scale trough {
-            min-height: 4px;
-            background: #3d4052;
-            border-radius: 0;
-        }
-        scale highlight {
-            background: #20c7d4;
-        }
-        scale slider {
-            min-width: 18px;
-            min-height: 18px;
-            background: #dbe6ed;
-            border: 0;
-            border-radius: 999px;
-        }
-        dropdown, entry {
-            background: #343544;
-            border-color: alpha(#ffffff, 0.12);
-            border-radius: 2px;
-        }
-        .error-view { padding: 32px; }
-        .unavailable-card {
-            background: #242238;
-            border: 1px solid alpha(#ffbd66, 0.28);
-            border-left: 4px solid #ffad42;
-            border-radius: 2px;
-            padding: 28px;
-        }
-        .offline-icon {
-            color: #ffc06d;
-            background: alpha(#ffad42, 0.10);
-            border: 1px solid alpha(#ffbd66, 0.24);
-            border-radius: 2px;
-            padding: 10px;
-        }
-        .error-kicker { color: #ffc06d; }
-        .error-hint {
-            color: #c0cdd5;
-            margin-top: 4px;
-        }
-        .error-action {
-            margin-top: 8px;
-            background: #d98a27;
-            color: #111820;
-            border-color: #f2ad54;
-            font-weight: 700;
-        }
-        .error-action:hover { background: #ed9f3c; }
-        scale.horizontal { min-width: 190px; }
-        scale.vertical {
-            min-width: 28px;
-            min-height: 178px;
-        }
-        scrollbar slider { min-width: 8px; }
-        scrollbar.horizontal slider { min-height: 8px; }
-        ",
-    );
-    gtk::style_context_add_provider_for_display(
-        &display,
-        &provider,
-        gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
-    );
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use ae5_control::SbCommandImportReport;
-
-    #[test]
-    fn compatibility_page_summarizes_the_embedded_matrix() {
-        let summary = compatibility_summary();
-        let features = feature_parity().collect::<Vec<_>>();
-        assert!(summary.contains(&format!("{} tracked features", features.len())));
-        for (label, support) in [
-            ("Verified", FeatureSupport::Verified),
-            ("Linux-native equivalents", FeatureSupport::Substituted),
-            ("Pending acceptance", FeatureSupport::Deferred),
-            ("Unavailable", FeatureSupport::Unsupported),
-        ] {
-            let count = features
-                .iter()
-                .filter(|feature| feature.support == support)
-                .count();
-            assert!(summary.contains(&format!("{label}: {count}")));
-        }
-    }
 
     #[test]
     fn every_control_category_is_exclusive() {

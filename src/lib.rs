@@ -42,3 +42,6 @@ pub use sbcommand::{
     import_profile as import_sbcommand_profile,
     import_profile_with_report as import_sbcommand_profile_with_report,
 };
+
+#[cfg(feature = "gui")]
+pub mod gui;

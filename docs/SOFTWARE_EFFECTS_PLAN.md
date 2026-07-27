@@ -2,8 +2,10 @@
 
 Direction for the next phase. Rests on the finding in
 [`WINDOWS_STACK_ARCHITECTURE.md`](WINDOWS_STACK_ARCHITECTURE.md): the vendor
-does not run SBX effects on the CA0132 DSP under Windows. It runs them on the
-CPU, as a `CtxRFX64.dll` Audio Processing Object in the Windows audio engine.
+runs a real software implementation of SBX in the `CtxRFX64.dll` Audio
+Processing Object. Static analysis confirms the software module chain and
+OutFX master semantics; it does not prove that every hardware module remains
+idle under Windows.
 
 We have been doing the opposite — programming the card's DSP over `dspio` —
 and paying for it with an idle self-oscillation that reproduces in four of
@@ -11,14 +13,17 @@ five trials and that no Windows user reports.
 
 The proposal is to stop fighting that path and take the one the vendor took:
 compute the effects in software, in a PipeWire filter chain, and leave the
-hardware DSP bypassed.
+individual CA0132 effect modules disabled. This is not the same as bypassing
+the complete DSP/router path. True bypass is the project's separate Direct
+Mode and carries its stereo/rate/volume constraints.
 
 ## Why this is the right move, not just an alternative
 
-**It is a fix, not a workaround.** The oscillation is gated by
-`Enable OutFX`. With effects computed upstream and OutFX off, the fault
-cannot occur — there is no active DSP effect chain to destabilise. The card
-becomes what it is genuinely excellent at: a clean DAC and headphone amp.
+**It removes the known trigger.** The measured idle oscillation is gated by
+`Enable OutFX`. With effects computed upstream and OutFX off, the individual
+hardware effect modules stay disabled. The normal CA0132 router/mixer remains
+in the path, so stability still needs a long-running acceptance test and must
+not be stated as guaranteed.
 
 **The equalizer becomes exact rather than approximate.** A ten-band graphic
 EQ is ten peaking biquads. That is not an approximation of what the hardware
@@ -37,10 +42,11 @@ readback is this project's identity, and a software chain is fully
 inspectable: the coefficients we set are the coefficients running. No stale
 DSP, no readback that lies, no state we cannot clear without a PCI rebind.
 
-**It closes the safety gap.** The loud fault survived a desktop mute because
-`soft-mixer` mutes samples while the DSP was generating signal after them.
-With no DSP generation in the path, a software mute silences everything —
-which is the guarantee the user actually needs from this application.
+**It narrows the safety gap.** The loud fault survived a desktop mute because
+`soft-mixer` mutes samples before the card's DSP. Disabling the hardware effect
+modules removes one known post-mute signal source. Only measured Direct Mode
+can establish that the complete normal DSP path is absent, so the physical
+hard-mute recovery procedure remains mandatory for the normal route.
 
 ## What we cannot honestly claim
 
@@ -59,10 +65,12 @@ claimed as such once measured.
 
 **Phase A — the equalizer.** Ten `bq_peaking` biquads at the ISO centres the
 existing ledger already uses, driven from the same profile JSON, with OutFX
-off. This is the beachhead: exactly representable, provably correct, the
-most-used feature, and it works on a stock kernel. Acceptance is a measured
-response curve matching the requested curve within a stated tolerance, taken
-through the existing What U Hear tap and `acoustic-review.sh`.
+off. This is the beachhead: exactly representable as our own filter, provably
+correct against our requested curve, the most-used feature, and it works on a
+stock kernel. It is not claimed to be coefficient-identical to Creative's EQ.
+Acceptance is a measured response curve matching the requested curve within a
+stated tolerance, taken through the existing What U Hear tap and
+`acoustic-review.sh`.
 
 **Phase B — substitutes.** Bass, presence and dynamics as honest equivalents,
 each measured and each labelled as a substitute in `feature-parity.tsv`.
@@ -84,7 +92,9 @@ routes at 20%. The mechanism works; what remains is engineering.
 - Added latency of a ten-biquad chain at 48 kHz, measured, against the
   current period geometry (6016 × 4).
 - CPU cost under the same geometry. Expected negligible; state the number.
-- Whether the DSP must be bypassed via `Enable OutFX` alone, or whether any
-  residual hardware processing remains that colours the output.
+- Stability and response of the normal CA0132 route with every effect module
+  disabled, separately from true Direct Mode.
+- Whether software effects should be offered in Direct Mode despite its
+  stereo-only format/rate and software-volume requirements.
 - Whether S32 becomes viable again once nothing is generating signal after
   the mute point. Do not assume it does.

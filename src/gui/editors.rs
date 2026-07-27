@@ -77,7 +77,8 @@ impl Category {
             }
             Self::Effects => {
                 "Shape the CA0132 DSP processing path. Changes are written to ALSA and read \
-                 back from the card immediately."
+                 back from the card immediately. Turning OutFX off disables the effect blocks; \
+                 only Direct Mode bypasses the complete DSP path."
             }
             Self::Equalizer => {
                 "Control the ten hardware equalizer bands and the driver's preset selector."

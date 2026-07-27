@@ -93,8 +93,8 @@ fn effects_stage(controls: &[ControlSnapshot]) -> Stage {
         }
         Some(false) => Stage {
             label: "Processing",
-            reading: "bypassed".to_owned(),
-            state: StageState::Attention,
+            reading: "effects off".to_owned(),
+            state: StageState::Passing,
         },
         None => Stage {
             label: "Processing",
@@ -290,12 +290,12 @@ mod tests {
     }
 
     #[test]
-    fn a_bypassed_processor_wants_attention_rather_than_looking_healthy() {
-        // Effects off is a legitimate state, but it is not the state the user
-        // configured, so it must not render as "fine".
+    fn effects_off_does_not_claim_that_the_processor_is_bypassed() {
+        // Enable OutFX qualifies the individual effect blocks. The normal
+        // CA0132 DSP/router path remains active; only Direct Mode bypasses it.
         let stage = effects_stage(&[switch("Enable OutFX", false)]);
-        assert_eq!(stage.state, StageState::Attention);
-        assert_eq!(stage.reading, "bypassed");
+        assert_eq!(stage.state, StageState::Passing);
+        assert_eq!(stage.reading, "effects off");
     }
 
     #[test]

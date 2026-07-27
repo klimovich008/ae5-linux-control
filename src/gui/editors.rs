@@ -276,6 +276,11 @@ pub fn control_row(
 
     let editors = gtk::Box::new(gtk::Orientation::Horizontal, 12);
     editors.set_halign(gtk::Align::End);
+    // Rows carry different editor mixes — a dropdown, a switch, a slider, or
+    // several. Reserving one width for the cluster keeps the sliders on a
+    // shared vertical line instead of stepping in and out with the label
+    // lengths beside them.
+    editors.add_css_class("control-row-editors");
     let high_gain_permission = if control.name == "AE-5: Headphone Gain" {
         let permission = gtk::CheckButton::with_label("Allow 150–600 Ω");
         permission.set_tooltip_text(Some(

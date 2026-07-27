@@ -732,6 +732,44 @@ fn sound_effects_page(
     }
     page.append(&header);
 
+    // Which profile the card is on belongs where the tweaking happens, not on a
+    // separate page. Without it, one slider nudge left every card unmarked and
+    // the interface stopped saying where the current sound came from.
+    let provenance = profile_provenance(controls);
+    let provenance_row = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+    provenance_row.add_css_class("provenance-row");
+    let provenance_label = gtk::Label::new(Some(&provenance.describe()));
+    provenance_label.set_xalign(0.0);
+    provenance_label.set_hexpand(true);
+    provenance_label.add_css_class("provenance-label");
+    provenance_label.add_css_class(provenance.css_class());
+    provenance_row.append(&provenance_label);
+
+    let save_current = gtk::Button::with_label("Save as new profile");
+    save_current.add_css_class("provenance-save");
+    save_current.set_tooltip_text(Some(
+        "Write the card's current settings to a new profile in your library.",
+    ));
+    {
+        let window = window.clone();
+        let status = status.clone();
+        save_current.connect_clicked(move |_| {
+            let window = window.clone();
+            let status = status.clone();
+            gtk::glib::spawn_future_local(async move {
+                match save_current_profile(&window, card_index).await {
+                    Ok(Some(message)) => {
+                        let _ = refresh_window(&window, Some(&message));
+                    }
+                    Ok(None) => {}
+                    Err(error) => set_status(&status, false, &format!("Save failed: {error}")),
+                }
+            });
+        });
+    }
+    provenance_row.append(&save_current);
+    page.append(&provenance_row);
+
     let profile_heading = gtk::Label::new(Some("Saved profiles"));
     profile_heading.set_xalign(0.0);
     profile_heading.add_css_class("mixer-section");
@@ -982,13 +1020,36 @@ fn sound_profile_card(
 }
 
 fn profile_matches_controls(profile: &Profile, controls: &[ControlSnapshot]) -> bool {
+    profile_mismatch_count(profile, controls) == 0
+}
+
+/// How many of a profile's controls differ from the live card.
+///
+/// Zero means the card is exactly on this profile. A small non-zero count means
+/// the user started from it and has since changed something, which is the state
+/// the interface previously had no way to express: after one slider nudge no
+/// card claimed to be active and the app went silent about provenance.
+fn profile_mismatch_count(profile: &Profile, controls: &[ControlSnapshot]) -> usize {
     let skip_equalizer_bands = profile
         .controls
         .get("FX: Equalizer Preset")
         .and_then(|control| control.choice.as_deref())
         .is_some_and(|preset| !preset.eq_ignore_ascii_case("Flat"));
 
-    profile.controls.iter().all(|(name, expected)| {
+    profile
+        .controls
+        .iter()
+        .filter(|(name, expected)| !control_matches(name, expected, controls, skip_equalizer_bands))
+        .count()
+}
+
+fn control_matches(
+    name: &str,
+    expected: &ProfileControl,
+    controls: &[ControlSnapshot],
+    skip_equalizer_bands: bool,
+) -> bool {
+    (|| {
         if capture_control_block_reason(name).is_some()
             || skip_equalizer_bands && name.starts_with("EQ Band")
         {
@@ -1030,7 +1091,74 @@ fn profile_matches_controls(profile: &Profile, controls: &[ControlSnapshot]) -> 
                     .map(|actual| actual.value)
                     == Some(*value)
             })
-    })
+    })()
+}
+
+/// Which saved profile the card is on, and whether it has since been changed.
+enum ProfileProvenance {
+    /// The card matches this profile exactly.
+    Exact(String),
+    /// The card is closest to this profile but differs in `changed` controls.
+    Modified { name: String, changed: usize },
+    /// No saved profile is close enough to claim.
+    Unmatched,
+}
+
+impl ProfileProvenance {
+    fn describe(&self) -> String {
+        match self {
+            Self::Exact(name) => format!("On “{name}”"),
+            Self::Modified { name, changed } => format!(
+                "On “{name}” with {changed} control{} changed",
+                if *changed == 1 { "" } else { "s" }
+            ),
+            Self::Unmatched => "Not saved as a profile".to_owned(),
+        }
+    }
+
+    fn css_class(&self) -> &'static str {
+        match self {
+            Self::Exact(_) => "provenance-exact",
+            Self::Modified { .. } => "provenance-modified",
+            Self::Unmatched => "provenance-unmatched",
+        }
+    }
+}
+
+/// Work out which saved profile the live card came from.
+///
+/// A profile only claims the card if fewer than half its controls differ;
+/// beyond that the user has moved somewhere else entirely and naming a profile
+/// would mislead rather than orient.
+fn profile_provenance(controls: &[ControlSnapshot]) -> ProfileProvenance {
+    let Ok(library) = profile_library() else {
+        return ProfileProvenance::Unmatched;
+    };
+
+    let mut best: Option<(String, usize, usize)> = None;
+    for entry in library.profiles {
+        let total = entry.profile.controls.len();
+        if total == 0 {
+            continue;
+        }
+        let changed = profile_mismatch_count(&entry.profile, controls);
+        if changed == 0 {
+            return ProfileProvenance::Exact(entry.profile.name);
+        }
+        let better = best
+            .as_ref()
+            .is_none_or(|(_, best_changed, _)| changed < *best_changed);
+        if better {
+            best = Some((entry.profile.name, changed, total));
+        }
+    }
+
+    match best {
+        Some((name, changed, total)) if changed * 2 < total => {
+            ProfileProvenance::Modified { name, changed }
+        }
+        _ => ProfileProvenance::Unmatched,
+    }
 }
 
 /// Describe, in words, what applying this profile will change.
@@ -1153,6 +1281,15 @@ fn effect_control_card(
     card.set_size_request(158, 198);
     card.add_css_class("effect-card");
 
+    // A switched-off effect used to keep its accent stripe and a live slider,
+    // so a control that changed nothing audible looked and behaved exactly
+    // like one that did. Off means off: grey stripe, dimmed reading, and the
+    // level editor refuses input until the effect is switched back on.
+    let effect_enabled = control.playback_switch != Some(false);
+    if !effect_enabled {
+        card.add_css_class("effect-card-off");
+    }
+
     let header = gtk::Box::new(gtk::Orientation::Horizontal, 6);
     let title = gtk::Label::new(Some(match control.name.as_str() {
         "FX: X-Bass" => "Bass",
@@ -1188,7 +1325,9 @@ fn effect_control_card(
         // An effect switched on while its level sits at the floor applies
         // nothing. The card used to show "on" next to "0" and leave the user to
         // reconcile it; say plainly which one wins.
-        let scale_note = if control.playback_switch == Some(true) && level.value <= level.min {
+        let scale_note = if !effect_enabled {
+            Some(format!("{} is off", effect_noun(&control.name)))
+        } else if level.value <= level.min {
             Some(format!(
                 "on, but {} applies nothing",
                 effect_noun(&control.name)
@@ -1217,6 +1356,13 @@ fn effect_control_card(
             direct_mode_block_reason(&control.name, all_controls)
                 .or_else(|| smart_volume_level_block_reason(&control.name, all_controls)),
         );
+        editor.set_sensitive(effect_enabled);
+        if !effect_enabled {
+            editor.set_tooltip_text(Some(&format!(
+                "Switch {} on to change its level",
+                effect_noun(&control.name)
+            )));
+        }
         if let Ok(scale) = editor.clone().downcast::<gtk::Scale>() {
             scale.set_width_request(126);
             scale.set_hexpand(true);
@@ -3854,6 +4000,47 @@ mod tests {
                 .map(|name| ((*name).to_owned(), ProfileControl::default()))
                 .collect(),
         }
+    }
+
+    #[test]
+    fn provenance_wording_covers_exact_modified_and_unmatched() {
+        assert_eq!(
+            ProfileProvenance::Exact("My profile".to_owned()).describe(),
+            "On “My profile”"
+        );
+        // Singular must not read "1 controls changed".
+        assert_eq!(
+            ProfileProvenance::Modified {
+                name: "My profile".to_owned(),
+                changed: 1,
+            }
+            .describe(),
+            "On “My profile” with 1 control changed"
+        );
+        assert_eq!(
+            ProfileProvenance::Modified {
+                name: "My profile".to_owned(),
+                changed: 3,
+            }
+            .describe(),
+            "On “My profile” with 3 controls changed"
+        );
+        assert_eq!(
+            ProfileProvenance::Unmatched.describe(),
+            "Not saved as a profile"
+        );
+        // Each state must be visually distinguishable.
+        let classes = [
+            ProfileProvenance::Exact(String::new()).css_class(),
+            ProfileProvenance::Modified {
+                name: String::new(),
+                changed: 1,
+            }
+            .css_class(),
+            ProfileProvenance::Unmatched.css_class(),
+        ];
+        let unique: std::collections::BTreeSet<_> = classes.iter().collect();
+        assert_eq!(unique.len(), classes.len());
     }
 
     #[test]

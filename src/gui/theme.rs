@@ -307,8 +307,48 @@ pub fn install_css() {
             background: #292640;
             border-top-color: #2fd0dc;
         }
-        .effect-card scale.horizontal {
-            min-width: 116px;
+        /* An accent stripe states that this effect is doing something. When it
+           is switched off the stripe goes grey and the reading dims, so the
+           card cannot be mistaken for an active one. */
+        .effect-card-off {
+            background: #201f2c;
+            border-top-color: alpha(#c1c7d0, 0.22);
+        }
+        .effect-card-off:hover {
+            background: #232231;
+            border-top-color: alpha(#c1c7d0, 0.30);
+        }
+        .effect-card-off .effect-card-title { color: #8c97a4; }
+        .effect-card-off .effect-dial-value {
+            color: #77828f;
+            border-color: alpha(#c1c7d0, 0.16);
+        }
+        /* Every horizontal level slider in the application shares one width, so
+           rows read as a column instead of a ragged edge. */
+        .effect-card scale.horizontal,
+        .control-row scale.horizontal,
+        .mixer-section scale.horizontal {
+            min-width: 126px;
+        }
+        .control-row-editors { min-width: 288px; }
+        /* Where the current sound came from. Stated where the tweaking happens,
+           because a profile that has been nudged is the normal case, not an
+           error, and the interface used to go silent about it. */
+        .provenance-row {
+            margin: -4px 0 2px 0;
+            padding: 7px 10px;
+            background: alpha(#ffffff, 0.03);
+            border-left: 2px solid alpha(#c1c7d0, 0.22);
+            border-radius: 2px;
+        }
+        .provenance-label { font-size: 12px; }
+        .provenance-exact { color: #6fd08c; }
+        .provenance-modified { color: #e8b064; }
+        .provenance-unmatched { color: #98a7b7; }
+        .provenance-save {
+            min-height: 26px;
+            padding: 2px 12px;
+            font-size: 11px;
         }
         .effect-scale-note {
             color: #98a7b7;

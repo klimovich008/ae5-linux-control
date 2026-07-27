@@ -237,11 +237,54 @@ right now?".
 
 ### Structural work this depends on
 
-`src/bin/ae5-control.rs` is a single **5,391-line** file containing all
-nine pages, both settings tabs, and the shared design system. Split it
-into per-page modules with a shared widget/theme layer before layering
-more UI on top; the current shape makes every change riskier than it
-needs to be. This is refactor-only — no behavior change, tests stay green.
+`src/bin/ae5-control.rs` was a single **5,398-line** file containing all
+nine pages, both settings tabs, and the shared design system. It is being
+split into modules under `src/gui/`, feature-gated behind `gui`.
+Refactor-only — no behaviour change, gate green after every step.
+
+Done so far (`dd3cd8d`, `b7db3f3`) — binary now **4,059 lines**, with
+1,396 lines extracted:
+
+| Module | Lines | Contents |
+|---|---:|---|
+| `gui::theme` | 453 | the entire stylesheet |
+| `gui::editors` | 728 | generic ALSA control editors, `Category` |
+| `gui::pages::compatibility` | 128 | + its ledger test |
+| `gui::pages::scout` | 54 | |
+| `gui::widgets` | 27 | shared card primitive |
+
+The extraction recipe, in order: move the function range to the new
+module; rewrite `ae5_control::` to `crate::` inside the library; in the
+binary add `use ae5_control::gui::<module>::*;` rather than rewriting
+every call site; move any test that covers the moved code. Three traps
+worth knowing: `#[derive(..)]` attributes sit *above* the item, so slice
+from the attribute; a constant used only by moved code must be deleted
+from the binary or Clippy fails it as dead; and a private method on a
+moved type needs `pub` wherever the shell still calls it.
+
+Remaining pages, largest first: `sound_effects` (233), `device` (213),
+`profile_page` (188) with `saved_profile_actions` (194) and
+`builtin_profile_actions` (62), `lighting` (161), `analog_playback` (121)
+with `playback_page`, `digital_playback` and `footer_output_selector`
+(71), `recording` (117), `mixer` (102), `equalizer` (93), `settings` (41);
+then the shell helpers (`content`, `populate_page`, `hero`, `status_rail`,
+`sidebar_brand`, `error_view`, `routing_card`, `native_rates_card`,
+`route_health_summary`, `effect_control_card`, `sound_profile_card`,
+`kernel_readiness_summary`, `start_mixer_watch`).
+
+### Windows reference material
+
+The eight private Command page captures live at
+`~/.local/share/ae5-control/windows-ui-reference/2026-07-26/`. They are
+machine-local and stay out of Git. Use them for layout, proportion and
+state, never for artwork: the profile-carousel illustrations are
+Creative's copyrighted imagery, so the cards stay text-based.
+
+A first visual pass against those captures landed in `dd3cd8d`: page
+titles moved from 20px/weight-760 to 26px/weight-450, the sidebar widened
+to 232px with 46px rows, the flat selection block became a translucent
+cyan wash behind the existing stripe, the content area gained a subtle
+violet gradient, and the tabs grew to 36px.
 
 ### Acceptance
 

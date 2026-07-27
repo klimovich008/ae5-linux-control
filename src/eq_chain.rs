@@ -61,6 +61,23 @@ impl EqChainConfig {
         }
         Ok(Some(graph))
     }
+
+    pub fn expected_responses_db(&self, sample_rate: u32) -> Result<[f64; 10], EqChainError> {
+        self.filter_graph()?.ok_or_else(|| {
+            EqChainError::Invalid(
+                "save a software equalizer profile before calculating its response".to_owned(),
+            )
+        })?;
+        if !PIPEWIRE_RATES.contains(&f64::from(sample_rate)) {
+            return Err(EqChainError::Invalid(format!(
+                "software equalizer response supports 44100, 48000, or 96000 Hz, not {sample_rate}"
+            )));
+        }
+        Ok(EQ_FREQUENCIES.map(|frequency| {
+            self.preamp_db
+                + cascade_response_db(&self.bands, f64::from(sample_rate), f64::from(frequency))
+        }))
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -933,5 +950,25 @@ mod tests {
         assert!(graph.contains("inputs = [ \"preL:In\" \"preR:In\" ]"));
         assert!(!graph.contains("libpipewire-module-filter-chain"));
         assert!(!graph.contains("target.object"));
+    }
+
+    #[test]
+    fn reports_the_exact_expected_response_of_the_saved_graph() {
+        let config = EqChainConfig {
+            path: test_path(),
+            enabled: true,
+            bands: flat_bands(),
+            target_node: Some("alsa_output.current-profile".to_owned()),
+            preamp_db: 0.0,
+        };
+
+        assert_eq!(config.expected_responses_db(48_000).unwrap(), [0.0; 10]);
+        assert!(
+            config
+                .expected_responses_db(192_000)
+                .unwrap_err()
+                .to_string()
+                .contains("44100, 48000, or 96000")
+        );
     }
 }

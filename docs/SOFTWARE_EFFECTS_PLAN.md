@@ -148,6 +148,10 @@ the physical response acceptance:
   automatic preamp and saved/runtime state, and retains separate reapply and
   disable actions. The hardware EQ pill still says `ARMED` when its child
   switch is saved but OutFX is off.
+- `ae5ctl eq-chain-response RATE` reports the exact requested filter response
+  at all ten fixture frequencies. `audio-parity.sh compare-eq` compares those
+  values with neutral/equalized What U Hear captures and fails when any
+  measured band differs by more than 1 dB.
 
 Validation completed without opening an audio stream:
 

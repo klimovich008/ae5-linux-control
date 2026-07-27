@@ -149,6 +149,15 @@ Report both absolute level delta and response delta normalized to 1 kHz.
 Equalizer acceptance concerns the relative response curve; a level mismatch
 must still be reported and investigated separately.
 
+Independently verify the Linux graph against its requested response before
+using it in the cross-OS comparison:
+
+```sh
+ae5ctl eq-chain-response 48000 > expected-eq.tsv
+bash scripts/audio-parity.sh compare-eq \
+  expected-eq.tsv linux-wuh-neutral-a.wav linux-wuh-eq-only-a.wav
+```
+
 ## Shutdown and recovery
 
 1. Mute the Windows render endpoint and stop playback.

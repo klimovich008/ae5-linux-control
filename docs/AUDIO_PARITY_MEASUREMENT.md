@@ -210,6 +210,20 @@ The comparison reports:
 - each band's response delta after normalizing both captures to 1 kHz;
 - `pass` only when the 1 kHz level and maximum response delta meet the targets.
 
+For Linux software-EQ acceptance, first save the profile and emit the exact
+response of the generated PipeWire graph:
+
+```sh
+ae5ctl eq-chain-enable ~/.config/ae5-control/profiles/windows-headphones.json
+ae5ctl eq-chain-response 48000 > expected-eq.tsv
+bash scripts/audio-parity.sh compare-eq \
+  expected-eq.tsv linux-wuh-neutral-a.wav linux-wuh-eq-only-a.wav
+```
+
+This comparison checks absolute equalized-minus-neutral level at every fixture
+frequency, including automatic preamp, and passes only when the maximum error
+is at most 1 dB.
+
 Compare captures of `parity-silence.wav`:
 
 ```sh

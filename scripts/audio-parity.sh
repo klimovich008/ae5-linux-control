@@ -25,6 +25,7 @@ usage:
   audio-parity.sh generate-transitions OUTPUT_DIRECTORY
   audio-parity.sh analyze-tones CAPTURE.wav
   audio-parity.sh compare-tones WINDOWS.wav LINUX.wav
+  audio-parity.sh compare-eq EXPECTED.tsv NEUTRAL.wav EQ.wav
   audio-parity.sh analyze-noise CAPTURE.wav
   audio-parity.sh compare-noise WINDOWS.wav LINUX.wav
   audio-parity.sh playback-preflight direct|pipewire FIXTURE.wav
@@ -613,6 +614,63 @@ compare_tones() (
 	' "$windows_levels" "$linux_levels"
 )
 
+compare_eq() (
+	local expected=$1 neutral=$2 equalized=$3 temporary_root
+	local neutral_levels equalized_levels
+
+	[[ -f $expected ]] || {
+		printf 'error: expected EQ response is not a regular file: %s\n' \
+			"$expected" >&2
+		return 1
+	}
+	validate_matching_capture_channels "$neutral" "$equalized" || return
+	temporary_root=$(mktemp -d "${TMPDIR:-/tmp}/ae5-audio-parity.XXXXXX")
+	trap 'rm -rf -- "$temporary_root"' EXIT
+	neutral_levels="$temporary_root/neutral.tsv"
+	equalized_levels="$temporary_root/equalized.tsv"
+	tone_levels "$neutral" > "$neutral_levels" || return
+	tone_levels "$equalized" > "$equalized_levels" || return
+
+	printf 'expected_response=%s\nneutral_capture=%s\nequalized_capture=%s\n' \
+		"$expected" "$neutral" "$equalized"
+	printf 'frequency_hz\texpected_delta_db\tmeasured_delta_db\terror_db\n'
+	awk -F '\t' '
+		FNR == 1 { file_index++ }
+		file_index == 1 && $1 ~ /^[0-9]+$/ {
+			expected[$1] = $2
+			expected_count++
+			next
+		}
+		file_index == 2 {
+			neutral[$1] = $2
+			next
+		}
+		file_index == 3 {
+			if (!($1 in expected) || !($1 in neutral))
+				exit 2
+			measured = $2 - neutral[$1]
+			error = measured - expected[$1]
+			absolute_error = error < 0 ? -error : error
+			if (absolute_error > maximum_error)
+				maximum_error = absolute_error
+			measured_count++
+			printf "%s\t%+.2f\t%+.2f\t%+.2f\n",
+				$1, expected[$1], measured, error
+		}
+		END {
+			if (expected_count != 10 || measured_count != 10)
+				exit 2
+			printf "max_eq_error_db=%.2f\n", maximum_error
+			if (maximum_error <= 1.0) {
+				print "eq_response_result=pass"
+				exit 0
+			}
+			print "eq_response_result=investigate"
+			exit 1
+		}
+	' "$expected" "$neutral_levels" "$equalized_levels"
+)
+
 noise_level() {
 	local input=$1 stats
 
@@ -677,7 +735,7 @@ compare_noise() {
 
 self_test() (
 	local test_root before_hash after_hash mismatch mono unsafe_fixture wrong_rate
-	local invalid_channels
+	local invalid_channels flat_response mismatched_response
 
 	test_root=$(mktemp -d "${TMPDIR:-/tmp}/ae5-audio-parity-test.XXXXXX")
 	trap 'rm -rf -- "$test_root"' EXIT
@@ -703,6 +761,24 @@ self_test() (
 	compare_tones \
 		"$test_root/fixtures/parity-tones.wav" \
 		"$test_root/fixtures/parity-tones.wav" >/dev/null
+	flat_response="$test_root/flat-response.tsv"
+	printf 'frequency_hz\texpected_delta_db\n' > "$flat_response"
+	for frequency in "${frequencies[@]}"; do
+		printf '%s\t+0.0000\n' "$frequency"
+	done >> "$flat_response"
+	compare_eq "$flat_response" \
+		"$test_root/fixtures/parity-tones.wav" \
+		"$test_root/fixtures/parity-tones.wav" |
+		grep -q '^eq_response_result=pass$'
+	mismatched_response="$test_root/mismatched-response.tsv"
+	sed 's/^31	+0\.0000$/31	+2.0000/' \
+		"$flat_response" > "$mismatched_response"
+	if compare_eq "$mismatched_response" \
+		"$test_root/fixtures/parity-tones.wav" \
+		"$test_root/fixtures/parity-tones.wav" >/dev/null 2>&1; then
+		printf 'self-test: mismatched expected EQ response unexpectedly passed\n' >&2
+		return 1
+	fi
 	compare_noise \
 		"$test_root/fixtures/parity-silence.wav" \
 		"$test_root/fixtures/parity-silence.wav" >/dev/null
@@ -879,6 +955,13 @@ compare-tones)
 		exit 2
 	}
 	compare_tones "$2" "$3"
+	;;
+compare-eq)
+	[[ $# -eq 4 ]] || {
+		usage
+		exit 2
+	}
+	compare_eq "$2" "$3" "$4"
 	;;
 analyze-noise)
 	[[ $# -eq 2 ]] || {

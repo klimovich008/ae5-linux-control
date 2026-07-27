@@ -57,6 +57,9 @@ fn run() -> Result<(), Box<dyn Error>> {
         [command] if command == "native-rates-enable" => set_native_rates(true),
         [command] if command == "native-rates-disable" => set_native_rates(false),
         [command] if command == "eq-chain-status" => print_eq_chain_status(),
+        [command, sample_rate] if command == "eq-chain-response" => {
+            print_eq_chain_response(sample_rate)
+        }
         [command, path] if command == "eq-chain-enable" => set_eq_chain(path),
         [command] if command == "eq-chain-activate" => activate_eq_chain(),
         [command] if command == "eq-chain-disable" => remove_eq_chain(),
@@ -413,6 +416,25 @@ fn print_eq_chain_status() -> Result<(), Box<dyn Error>> {
         }
         Ok(None) => println!("  Runtime graph: not applied"),
         Err(error) => println!("  Runtime graph: unavailable ({error})"),
+    }
+    Ok(())
+}
+
+fn print_eq_chain_response(sample_rate: &str) -> Result<(), Box<dyn Error>> {
+    let sample_rate = sample_rate.parse::<u32>().map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "sample rate must be 44100, 48000, or 96000",
+        )
+    })?;
+    let config = eq_chain_config()?;
+    let responses = config.expected_responses_db(sample_rate)?;
+    let reference = responses[5];
+    println!("sample_rate_hz={sample_rate}");
+    println!("preamp_db={:+.2}", config.preamp_db);
+    println!("frequency_hz\texpected_delta_db\texpected_relative_to_1khz_db");
+    for (frequency, response) in ae5_control::EQ_FREQUENCIES.into_iter().zip(responses) {
+        println!("{frequency}\t{response:+.4}\t{:+.4}", response - reference);
     }
     Ok(())
 }
@@ -1015,6 +1037,8 @@ fn print_help() {
          \x20 native-rates-enable   Allow native 44.1, 48, and 96 kHz after restart\n\
          \x20 native-rates-disable  Remove the managed native-rate configuration\n\
          \x20 eq-chain-status       Show the managed software equalizer and its bands\n\
+         \x20 eq-chain-response RATE\n\
+         \x20                       Print the exact expected 44.1/48/96 kHz EQ response\n\
          \x20 eq-chain-enable FILE  Generate the software equalizer from a native profile\n\
          \x20 eq-chain-activate     Apply the saved EQ inside the existing AE-5 sink\n\
          \x20 eq-chain-disable      Remove the managed software equalizer configuration\n\

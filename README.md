@@ -151,6 +151,7 @@ equalizer from any native or imported profile:
 ```sh
 ae5ctl eq-chain-status
 ae5ctl eq-chain-enable ~/.config/ae5-control/profiles/example.json
+ae5ctl eq-chain-response 48000
 ae5ctl eq-chain-activate
 ae5ctl eq-chain-disable
 ```
@@ -167,10 +168,13 @@ from the combined response at 44.1, 48, and 96 kHz plus 0.25 dB margin. The
 GTK Equalizer page applies a chosen profile in one action and exposes the
 saved/runtime state and preamp. The real muted and unplugged AE-5 accepted the
 full imported headphone graph at −10.80 dB preamp while both playback PCMs
-remained closed; unload restored PipeWire and ALSA state exactly. Physical
+remained closed; unload restored the prior PipeWire device/routing and ALSA
+state. Physical
 frequency-response, latency, CPU, and long-running stability acceptance remain
 pending; see
 [docs/SOFTWARE_EFFECTS_PLAN.md](docs/SOFTWARE_EFFECTS_PLAN.md).
+The response command emits the exact ten-band prediction used by
+`scripts/audio-parity.sh compare-eq` for the physical acceptance capture.
 
 With the onboard-LED kernel candidate and the packaged device rule installed,
 the same unprivileged desktop user can inspect, set, and persist the five

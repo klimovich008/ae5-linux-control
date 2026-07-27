@@ -13,6 +13,7 @@ trials=${AE5_TRANSITION_TRIALS:-5}
 tap_threshold=${AE5_TRANSITION_THRESHOLD:--25}
 ae5ctl=${AE5CTL:-ae5ctl}
 pactl=${AE5_PACTL:-pactl}
+renegotiator=${AE5_TRANSITION_RENEGOTIATOR:-"$script_root/../target/diagnostics/ae5-pw-renegotiate"}
 sink_name=
 card_index=
 run_root=
@@ -331,9 +332,35 @@ transition_plan() {
 reconnect	complete close, 50 ms gap, new client
 abrupt	TERM during playback, immediate new client
 rate-format	44.1 kHz S16 client followed by 48 kHz S32 client
+in-place	one client advertises S16/S32 and 44.1/48/96 kHz in sequence
 gapless	overlapping 48 kHz S32 and 96 kHz S32 clients
 suspend-boundary	short client, one-second idle, new client
 EOF
+}
+
+run_in_place() {
+	local label=$1 status
+	local stderr=$run_root/clients/"$label".log
+	local stdout=$run_root/clients/"$label".events
+
+	log_event client-start "$label single-client-format-renegotiation"
+	set +e
+	timeout --foreground --signal=TERM 8 \
+		"$renegotiator" \
+		--target "$sink_name" \
+		--dwell-ms 300 \
+		--cycles 1 \
+		--node-name "ae5-$label" \
+		> "$stdout" 2> "$stderr"
+	status=$?
+	set -e
+	if [[ $status != 0 ]]; then
+		log_event client-end "$label status=$status"
+		return "$status"
+	fi
+	grep -Fq 'complete updates=4 negotiated=5' "$stdout" ||
+		fail "single-client renegotiation did not complete: $label"
+	log_event client-end "$label status=$status"
 }
 
 what_u_hear_device() {
@@ -416,6 +443,9 @@ run_scenarios() {
 		"$fixtures/transition-c-48000-s32.wav"
 	probe_dsp "$prefix-rate-format"
 
+	run_in_place "$prefix-in-place"
+	probe_dsp "$prefix-in-place"
+
 	run_overlap "$prefix-gapless" \
 		"$fixtures/transition-c-48000-s32.wav" \
 		"$fixtures/transition-d-96000-s32.wav"
@@ -468,9 +498,17 @@ run_stress() {
 		fail 'AE5_TRANSITION_TRIALS must be at least 5'
 	fi
 	for tool in "$ae5ctl" "$pactl" jq pw-play pw-dump pw-mon pw-top \
-		wpctl amixer journalctl sox arecord sha256sum; do
+		wpctl amixer journalctl sox arecord sha256sum timeout; do
 		need_tool "$tool"
 	done
+	if [[ -z ${AE5_TRANSITION_RENEGOTIATOR:-} &&
+		(! -x $renegotiator ||
+			$script_root/../tools/pipewire-format-renegotiate.c -nt $renegotiator ||
+			$script_root/build-transition-helper.sh -nt $renegotiator) ]]; then
+		"$script_root/build-transition-helper.sh" "$renegotiator"
+	elif [[ ! -x $renegotiator ]]; then
+		fail "custom renegotiation helper is not executable: $renegotiator"
+	fi
 
 	card_index=$(find_ae5_card)
 	snapshot=$(sink_snapshot)
@@ -511,6 +549,9 @@ run_stress() {
 		printf 'expected_format=%s\n' "$expected"
 		printf 'trials=%s\n' "$trials"
 		printf 'tap_probe=%s\n' "${AE5_TRANSITION_TAP_PROBE:-off}"
+		printf 'renegotiator=%s\n' "$renegotiator"
+		printf 'renegotiator_sha256=%s\n' \
+			"$(sha256sum "$renegotiator" | cut -d' ' -f1)"
 		printf 'active_port=%s\n' "$port"
 	} > "$run_root/manifest.txt"
 	printf 'wall_time\tmonotonic_s\tevent\tdetail\n' > "$run_root/events.tsv"
@@ -580,7 +621,7 @@ self_test() (
 	]')
 	IFS=$'\t' read -r output _ <<< "$record"
 	[[ $output == alsa_output.pci-ae5.analog-stereo ]]
-	[[ $(transition_plan | wc -l) == 5 ]]
+	[[ $(transition_plan | wc -l) == 6 ]]
 	rms_is_anomaly -6
 	if rms_is_anomaly -38 || rms_is_anomaly -inf; then
 		fail 'clean tap level was classified as an anomaly'

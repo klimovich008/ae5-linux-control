@@ -1,9 +1,9 @@
 # S32 track-transition investigation
 
 Status on 2026-07-27: the fail-closed harness and trace tooling are implemented
-and self-tested, but no transition run has been performed. The live managed
-sink remains the stable `S16LE` path. The user's headphones are connected to
-the motherboard line-out, not an AE-5 output.
+and self-tested, but no exact-target AE-5 transition playback run has been
+performed. The live managed sink remains the stable `S16LE` path. The user's
+headphones are connected to the motherboard line-out, not an AE-5 output.
 
 ## Problem being isolated
 
@@ -47,8 +47,44 @@ No new kernel patch is needed merely to observe these values.
 - limits the exact AE-5 sink to 20% for the run and leaves the sink, `Master`,
   and `Front` muted afterward;
 - records complete close/reopen, abrupt disconnect, client format/rate
-  replacement, overlapping gapless clients, and an idle/suspend-boundary
-  transition.
+  replacement, a client-owned in-place format/rate renegotiation probe,
+  overlapping gapless clients, and an idle/suspend-boundary transition.
+
+The in-place case is not emulated with `pw-cli set-param`. A safe unlinked
+probe demonstrated that the command accepts a write to a stream node's
+write-only `Format` parameter, but it does not change the format advertised by
+the owning `pw-play` client. The development-only
+[`pipewire-format-renegotiate.c`](../tools/pipewire-format-renegotiate.c)
+helper instead calls `pw_stream_update_params()` from the owning client, as
+required by the
+[PipeWire stream API](https://docs.pipewire.org/group__pw__stream.html). It
+emits only digital silence and cycles one node through S16/S32 at 44.1, 48,
+and 96 kHz.
+
+Build the helper before a run (the harness also builds its default helper on
+demand):
+
+```sh
+sudo dnf install pipewire-devel
+bash scripts/build-transition-helper.sh
+```
+
+`--target 0` is a graph-only validation mode. On the current host, that mode
+created zero links, exposed all four advertised format/rate states on one
+stable node ID, and left both AE-5 playback PCMs closed. It did not alter the
+live AE-5 sink, mixer, routing, or volume state.
+
+That result proves that one owning client changes its advertised
+`EnumFormat`; it does not prove linked renegotiation. Two guarded linked tests
+used temporary PulseAudio-compatible null sinks, one fixed at S16/48 and one
+at S32/96. Both negotiated the initial S16/44.1 stream, entered
+`PW_STREAM_STATE_PAUSED` after the first S32/48 update, emitted no replacement
+format callback, and were rejected by a bounded timeout. Each null sink was
+unloaded afterward, the default sink stayed unchanged, and both AE-5 playback
+PCMs remained closed. This may be a limitation of those fixed-format virtual
+targets or an audio-stream/session-manager renegotiation gap; it is not
+evidence that the exact AE-5 target works. Keep the linked case open until it
+produces `complete updates=4 negotiated=5`.
 
 The optional `AE5_TRANSITION_TAP_PROBE=front-muted` probe is deliberately
 separate from the default two-switch invariant. What U Hear is downstream of
@@ -78,6 +114,10 @@ write occurred.
 Do not run this merely because the script exists. Keep the managed production
 configuration on S16. A future S32 experiment must first have a deliberate,
 reversible S32 test configuration and no AE-5 output connected to a listener.
+The current headphones are connected to the motherboard line-out and nothing
+is connected to an AE-5 output. That makes the unlinked graph validation
+non-audible, but it does not substitute for the later attenuated electrical
+capture required to qualify S32.
 
 Tracefs is root-only on this host. In a separate terminal, capture the existing
 HDA tracepoints while leaving the desktop PipeWire process under the normal
@@ -105,6 +145,7 @@ prove that the controller's DMA position remained correct.
 Treat any one of these as a failed trial:
 
 - a client exit other than normal completion or the expected timeout;
+- an in-place client log without all four completed format announcements;
 - a playback PCM that does not close after its client exits;
 - a PipeWire error count increase, XRUN, or node that does not reach the
   expected idle/suspended state;

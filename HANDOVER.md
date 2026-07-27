@@ -80,8 +80,9 @@ Working on the target host:
 - output effects, ten-band EQ, factory EQ presets, and native profiles;
 - guarded PipeWire software-EQ generation, graph-signature verification, and
   explicit default-sink activation;
-- exact-target, fail-closed track-transition stress and HDA-position trace
-  tooling, implemented and self-tested but not yet run on S32;
+- exact-target, fail-closed track-transition stress, a client-owned in-place
+  PipeWire renegotiation probe, and HDA-position trace tooling, implemented
+  and self-tested but not yet run on S32;
 - 33 embedded Command factory profiles with speaker/headphone variants;
 - import of the user's Command speaker/headphone profiles and custom EQ;
 - What U Hear digital capture;
@@ -91,8 +92,9 @@ Working on the target host:
 Important incomplete areas:
 
 - S32 desktop playback is disabled after a loud real track-switch fault;
-- the complete S32 transition campaign and true single-client in-place
-  format renegotiation remain unrun;
+- the complete exact-target S32 transition and HDA-position campaign remains
+  unrun; the single-client case passed unlinked graph validation but failed
+  closed after its first update against two fixed-format virtual null sinks;
 - matched Windows/Linux analog response, noise, and headphone-model tuning;
 - required cold-boot and bare-metal suspend/resume counts;
 - connected physical speaker layouts, line-out, optical I/O, and analog inputs;
@@ -224,8 +226,8 @@ configuration.
 Fedora/Nobara development dependencies:
 
 ```sh
-sudo dnf install cargo rust alsa-lib-devel gtk4-devel pipewire-utils \
-    pulseaudio-utils sox
+sudo dnf install cargo rust alsa-lib-devel gtk4-devel pipewire-devel \
+    pipewire-utils pulseaudio-utils sox
 ```
 
 Build and run the non-mutating checks:
@@ -233,6 +235,7 @@ Build and run the non-mutating checks:
 ```sh
 cargo build --locked --release --all-features
 cargo test --all-features
+bash scripts/build-transition-helper.sh
 cargo run -- status
 cargo run -- route-status
 cargo run -- features deferred
@@ -305,6 +308,8 @@ The latest checkpoint passed:
 | `kernel/series` | Ordered functional kernel patch queue |
 | `scripts/` | Build, validation, diagnostics, audio and VFIO gates |
 | `scripts/track-transition-stress.sh` | Exact-target client-transition and fail-closed evidence harness |
+| `scripts/build-transition-helper.sh` | Builds the development-only native PipeWire renegotiation client |
+| `tools/pipewire-format-renegotiate.c` | Silent client-owned in-place format/rate probe |
 | `scripts/hda-position-trace.sh` | Root-only consumer for upstream HDA lifecycle/position tracepoints |
 | `PORT_PLAN.md` | Original scope, architecture, phases and acceptance plan |
 | `docs/` | Detailed investigation and validation records |
@@ -350,9 +355,9 @@ Priority order:
 1. Keep S16 as the managed default. Do not run the new transition harness
    until its documented physical, volume, format, and trace preconditions are
    met.
-2. Obtain a root-capable HDA trace session, add the remaining true in-place
-   PipeWire renegotiation case, then run the n>=5 S32 campaign with the exact
-   target and fail-closed watchdog.
+2. Resolve or characterize the virtual linked in-place negotiation pause,
+   obtain a root-capable HDA trace session, then run the n>=5 S32 campaign
+   with the exact target and fail-closed watchdog.
 3. When an AE-5 output is physically available again, complete the guarded
    software-EQ response, latency, CPU, disable/restore, and stability gates in
    [`docs/SOFTWARE_EFFECTS_PLAN.md`](docs/SOFTWARE_EFFECTS_PLAN.md).

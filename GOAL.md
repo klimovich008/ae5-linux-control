@@ -79,18 +79,25 @@ return — worth pursuing because S32 matched direct DSP response within
 
 [`scripts/track-transition-stress.sh`](scripts/track-transition-stress.sh)
 now implements exact-target, five-trial-or-more close/reopen, abrupt
-disconnect, client rate/format replacement, gapless overlap, and
-suspend-boundary cases. It hard-mutes `Master` and `Front`, continuously
-watches both switches, uses bounded generated fixtures, records PCM,
-PipeWire, client, mixer, and journal evidence, and never enables S32 itself.
+disconnect, client rate/format replacement, a client-owned in-place
+renegotiation probe, gapless overlap, and suspend-boundary cases. It hard-mutes
+`Master` and `Front`, continuously watches both switches, uses bounded
+generated fixtures, records PCM, PipeWire, client, mixer, and journal
+evidence, and never enables S32 itself.
+
+The in-place helper uses PipeWire's native `pw_stream_update_params()` path
+and emits only digital silence. Its `--target 0` graph validation observed
+S16/44.1, S32/48, S32/96, and S16/48 on one node with zero links while both
+AE-5 playback PCMs remained closed. Linked tests against fixed-format virtual
+null sinks negotiated the initial format, then paused after the first update
+without a replacement format callback; the timeout rejected both runs. True
+linked in-place renegotiation and the exact-target hardware stress case
+therefore remain unproven and have not been run on the AE-5.
 
 [`scripts/hda-position-trace.sh`](scripts/hda-position-trace.sh) consumes the
 upstream `hda_controller:azx_pcm_*` and `azx_get_position` tracepoints without
 a kernel patch. Tracefs is root-only and this account has no authenticated
 `sudo`, so the complete HDA-position capture is implemented but not yet run.
-True in-place format renegotiation within one PipeWire client also remains;
-the current case models the real track replacement as one client closing and
-another opening with a different format.
 
 No transition playback was run at this checkpoint. The real sink remains S16,
 the user's 30% state was not changed, both playback PCMs stayed closed, and

@@ -610,20 +610,25 @@ No source NTFS volume, Windows image, Creative binary, private setting, or
 credential is stored in the repository.
 
 A fail-closed transition harness now covers complete close/reopen, abrupt
-disconnect, different-rate and different-format replacement clients, gapless
-overlap, and the PipeWire suspend boundary while targeting only the exact
-AE-5 sink. It continuously verifies the two hardware mutes and pairs its
+disconnect, different-rate and different-format replacement clients, a
+client-owned in-place S16/S32 and 44.1/48/96 kHz probe, gapless overlap, and
+the PipeWire suspend boundary while targeting only the exact AE-5 sink. It
+continuously verifies the two hardware mutes and pairs its
 client/PCM/PipeWire timeline with the kernel's existing HDA lifecycle and DMA
-position tracepoints. Inspect the live prerequisites without changing state:
+position tracepoints. The in-place helper's unlinked mode passed with zero
+links and both AE-5 playback PCMs closed. Fixed-format virtual sinks paused
+after its first linked update and the watchdog rejected both attempts, so
+linked in-place renegotiation remains unproven. Inspect the live prerequisites
+without changing state:
 
 ```sh
 bash scripts/track-transition-stress.sh --dry-run
 ```
 
 No stress playback has been run yet, S32 remains disabled, and the current
-headphones are connected to the motherboard line-out. The guarded run,
-root-only trace companion, evidence schema, and remaining in-place
-renegotiation gap are documented in
+headphones are connected to the motherboard line-out; nothing is connected to
+an AE-5 output. The guarded run, root-only trace companion, evidence schema,
+and remaining exact-target campaign are documented in
 [docs/TRACK_TRANSITION_INVESTIGATION.md](docs/TRACK_TRANSITION_INVESTIGATION.md).
 
 The complete patch stack now also builds, boots, and passes a guarded physical

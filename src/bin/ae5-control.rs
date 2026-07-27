@@ -3,17 +3,19 @@ use ae5_control::gui::editors::*;
 use ae5_control::linux_driver_defaults_for;
 use ae5_control::{
     Ae5Device, Ae5Lighting, Ae5Mixer, BuiltinProfile, COMMAND_DEFAULT_PROFILE_COUNT, ControlError,
-    ControlSnapshot, DIRECT_MODE_CONTROL, LINUX_DRIVER_DEFAULTS_PRESERVED, Level,
-    NativeRatesConfig, ONBOARD_LED_COUNT, PipeWireNode, PipeWireRouteState, Profile,
-    ProfileControl, RgbColor, SbCommandImport, SbCommandTarget, ae5_input, ae5_output,
-    ae5_route_state, apply_linux_driver_defaults, builtin_profiles, capture_control_block_reason,
-    direct_mode_block_reason, discover_sbcommand_installation, equalizer_band_block_reason,
+    ControlSnapshot, DIRECT_MODE_CONTROL, EqChainChange, EqChainConfig,
+    LINUX_DRIVER_DEFAULTS_PRESERVED, Level, NativeRatesConfig, ONBOARD_LED_COUNT, PipeWireNode,
+    PipeWireRouteState, Profile, ProfileControl, RgbColor, SbCommandImport, SbCommandTarget,
+    SoftwareEqOutput, ae5_input, ae5_output, ae5_route_state, apply_linux_driver_defaults,
+    builtin_profiles, capture_control_block_reason, direct_mode_block_reason, disable_eq_chain,
+    discover_sbcommand_installation, enable_eq_chain, eq_chain_config, equalizer_band_block_reason,
     export_library_profile, front_vmaster_clamp_warning, headphone_playback_issue,
     import_discovered_sbcommand_profile_with_report, import_sbcommand_profile_with_report,
     library_profile, native_rates_config, playback_switch_block_reason, profile_library,
     profile_library_directory, rename_library_profile, set_ae5_default_input,
     set_ae5_default_output, set_native_rates_enabled, set_saved_led, set_saved_lighting,
-    smart_volume_level_block_reason, snapshot_controls, validate_linux_driver_defaults,
+    set_software_eq_default_output, smart_volume_level_block_reason, snapshot_controls,
+    software_eq_output, validate_eq_chain_activation, validate_linux_driver_defaults,
 };
 use gtk::gio;
 use gtk::prelude::*;
@@ -300,7 +302,7 @@ fn populate_page(
         "settings" => settings_page(window, device, controls, status).upcast(),
         "scout" => ae5_control::gui::pages::scout::scout_page().upcast(),
         "mixer" => mixer_page(device.card_index, status, controls).upcast(),
-        "equalizer" => equalizer_page(device.card_index, status, controls).upcast(),
+        "equalizer" => equalizer_page(window, device.card_index, status, controls).upcast(),
         "effects" => sound_effects_page(window, device.card_index, status, controls).upcast(),
         "playback" => playback_page(device.card_index, status, controls).upcast(),
         "recording" => recording_page(device.card_index, status, controls).upcast(),
@@ -1720,6 +1722,7 @@ fn digital_playback_page(
 }
 
 fn equalizer_page(
+    window: &gtk::ApplicationWindow,
     card_index: i32,
     status: &gtk::Label,
     controls: &[ControlSnapshot],
@@ -1743,23 +1746,39 @@ fn equalizer_page(
         .find(|control| control.name == "FX: Equalizer Preset")
         .and_then(|control| control.selected.as_deref())
         .unwrap_or("custom");
-    let summary = gtk::Label::new(Some(&format!(
-        "EQ {} · {}",
-        if enabled { "ON" } else { "OFF" },
-        preset.to_uppercase()
-    )));
+    let outfx_enabled = controls
+        .iter()
+        .find(|control| control.name == "Enable OutFX")
+        .and_then(|control| control.playback_switch)
+        == Some(true);
+    let summary = gtk::Label::new(Some(&hardware_eq_summary(enabled, outfx_enabled, preset)));
+    if enabled && !outfx_enabled {
+        summary.set_tooltip_text(Some(
+            "The hardware EQ setting is saved, but OutFX is off so it is not processing audio.",
+        ));
+    }
     summary.add_css_class("status-pill");
     heading.append(&summary);
     page.append(&heading);
 
     let intro = gtk::Label::new(Some(
-        "Ten hardware bands follow the same center frequencies used by Sound Blaster Command. \
-         Bass maps to 62 Hz and Treble maps to 8 kHz during Windows profile migration.",
+        "Use PipeWire software EQ for desktop stereo or the CA0132 hardware EQ below. \
+         Both use the ten Sound Blaster Command center frequencies; Windows migration maps \
+         Bass to 62 Hz and Treble to 8 kHz.",
     ));
     intro.set_xalign(0.0);
     intro.set_wrap(true);
     intro.add_css_class("dim-label");
     page.append(&intro);
+
+    page.append(&software_equalizer_card(
+        window, card_index, status, controls,
+    ));
+
+    let hardware = gtk::Label::new(Some("Hardware equalizer"));
+    hardware.set_xalign(0.0);
+    hardware.add_css_class("mixer-section");
+    page.append(&hardware);
 
     page.append(&control_list(
         card_index,
@@ -1811,6 +1830,259 @@ fn equalizer_page(
         .hscrollbar_policy(gtk::PolicyType::Never)
         .child(&page)
         .build()
+}
+
+fn hardware_eq_summary(enabled: bool, outfx_enabled: bool, preset: &str) -> String {
+    format!(
+        "HW EQ {} · {}",
+        if enabled && outfx_enabled {
+            "ON"
+        } else if enabled {
+            "ARMED"
+        } else {
+            "OFF"
+        },
+        preset.to_uppercase()
+    )
+}
+
+fn software_equalizer_card(
+    window: &gtk::ApplicationWindow,
+    card_index: i32,
+    status: &gtk::Label,
+    controls: &[ControlSnapshot],
+) -> gtk::Box {
+    let config = eq_chain_config();
+    let output = software_eq_output();
+    let physical = ae5_output(card_index);
+    let outfx_disabled = controls
+        .iter()
+        .find(|control| control.name == "Enable OutFX")
+        .and_then(|control| control.playback_switch)
+        == Some(false);
+
+    let actions = gtk::Box::new(gtk::Orientation::Vertical, 10);
+    let state = gtk::Label::new(Some(&software_eq_summary(
+        config.as_ref().ok(),
+        output.as_ref().ok().and_then(|output| output.as_ref()),
+    )));
+    state.set_xalign(0.0);
+    state.set_wrap(true);
+    state.set_selectable(true);
+    actions.append(&state);
+
+    let buttons = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+    let configure = gtk::Button::with_label("Choose profile & install");
+    configure.add_css_class("suggested-action");
+    let activate = gtk::Button::with_label("Make desktop default");
+    let disable = gtk::Button::with_label("Disable");
+
+    let config_ok = config.as_ref().ok();
+    let live = output.as_ref().ok().and_then(|output| output.as_ref());
+    let current_target = physical
+        .as_ref()
+        .ok()
+        .and_then(|output| output.as_ref())
+        .map(|output| output.node_name.as_str());
+    let graph_current = config_ok.is_some_and(|config| {
+        config.enabled
+            && config.signature().as_deref() == live.and_then(|output| output.signature.as_deref())
+            && config.target_node.as_deref() == current_target
+    });
+    let is_default = live.is_some_and(|output| output.node.is_default);
+
+    configure.set_sensitive(config.is_ok() && outfx_disabled);
+    if !outfx_disabled {
+        configure.set_tooltip_text(Some(
+            "Turn OutFX off first so hardware and software effects are not applied together.",
+        ));
+    }
+    activate.set_sensitive(graph_current && !is_default && outfx_disabled);
+    if is_default {
+        activate.set_label("Desktop default");
+    } else if config_ok.is_some_and(|config| config.enabled) && !graph_current {
+        activate.set_tooltip_text(Some(
+            "Restart PipeWire after installing or updating the software equalizer.",
+        ));
+    }
+    disable.set_sensitive(config_ok.is_some_and(|config| config.enabled));
+
+    buttons.append(&configure);
+    buttons.append(&activate);
+    buttons.append(&disable);
+    actions.append(&buttons);
+
+    {
+        let window = window.clone();
+        let status = status.clone();
+        configure.connect_clicked(move |button| {
+            let window = window.clone();
+            let status = status.clone();
+            let button = button.clone();
+            button.set_sensitive(false);
+            gtk::glib::spawn_future_local(async move {
+                match install_software_eq_profile(&window, card_index).await {
+                    Ok(Some(change)) => {
+                        let message = if change.changed {
+                            "Software EQ configuration saved. Restart PipeWire or log in again, then return here and make it the desktop default."
+                        } else {
+                            "That software EQ configuration is already installed."
+                        };
+                        let _ = refresh_window(&window, Some(message));
+                    }
+                    Ok(None) => button.set_sensitive(true),
+                    Err(error) => {
+                        set_status(
+                            &status,
+                            false,
+                            &format!("Software EQ install failed: {error}"),
+                        );
+                        button.set_sensitive(true);
+                    }
+                }
+            });
+        });
+    }
+    {
+        let window = window.clone();
+        let status = status.clone();
+        activate.connect_clicked(move |button| {
+            button.set_sensitive(false);
+            match activate_software_eq(card_index) {
+                Ok(output) => {
+                    let _ = refresh_window(
+                        &window,
+                        Some(&format!(
+                            "Software EQ is now the desktop default: {}.",
+                            output.node.description
+                        )),
+                    );
+                }
+                Err(error) => {
+                    set_status(
+                        &status,
+                        false,
+                        &format!("Software EQ activation failed: {error}"),
+                    );
+                    button.set_sensitive(true);
+                }
+            }
+        });
+    }
+    {
+        let window = window.clone();
+        let status = status.clone();
+        disable.connect_clicked(move |button| {
+            button.set_sensitive(false);
+            match disable_software_eq_safely(card_index) {
+                Ok(change) => {
+                    let message = if change.changed {
+                        "Software EQ configuration removed. The physical AE-5 was restored as default when needed; restart PipeWire or log in again to unload the virtual sink."
+                    } else {
+                        "Software EQ was already disabled."
+                    };
+                    let _ = refresh_window(&window, Some(message));
+                }
+                Err(error) => {
+                    set_status(
+                        &status,
+                        false,
+                        &format!("Software EQ disable failed: {error}"),
+                    );
+                    button.set_sensitive(true);
+                }
+            }
+        });
+    }
+
+    ae5_control::gui::widgets::profile_card(
+        "01",
+        "PipeWire software equalizer",
+        "Phase A processes desktop stereo audio before the physical AE-5. It is pinned to the current AE-5 sink and refuses activation while OutFX is on or the loaded graph is stale.",
+        &actions,
+    )
+}
+
+fn software_eq_summary(
+    config: Option<&EqChainConfig>,
+    output: Option<&SoftwareEqOutput>,
+) -> String {
+    let Some(config) = config else {
+        return "Configuration unavailable or not managed by AE-5 Control.".to_owned();
+    };
+    if !config.enabled {
+        return if output.is_some() {
+            "Not installed\nA previous virtual sink is still loaded; restart PipeWire to unload it."
+                .to_owned()
+        } else {
+            "Not installed\nDesktop audio continues directly to the physical output.".to_owned()
+        };
+    }
+
+    let target = config.target_node.as_deref().unwrap_or("unavailable");
+    match output {
+        None => {
+            format!("Installed for {target}\nNot loaded yet — restart PipeWire or log in again.")
+        }
+        Some(output) if config.signature().as_deref() != output.signature.as_deref() => format!(
+            "Installed for {target}\nThe loaded graph is older than this configuration — restart PipeWire."
+        ),
+        Some(output) => format!(
+            "Installed for {target}\nLoaded and {}.",
+            if output.node.is_default {
+                "used by desktop audio"
+            } else {
+                "ready to make default"
+            }
+        ),
+    }
+}
+
+async fn install_software_eq_profile(
+    window: &gtk::ApplicationWindow,
+    card_index: i32,
+) -> Result<Option<EqChainChange>, String> {
+    let Some(path) = open_native_profile_path(window, "Choose a profile for software EQ").await?
+    else {
+        return Ok(None);
+    };
+    let profile = Profile::load(&path).map_err(|error| error.to_string())?;
+    let controls = snapshot_controls(card_index).map_err(|error| error.to_string())?;
+    let output = ae5_output(card_index)
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "PipeWire has no physical AE-5 output".to_owned())?;
+    enable_eq_chain(&profile, &controls, &output.node_name)
+        .map(Some)
+        .map_err(|error| error.to_string())
+}
+
+fn activate_software_eq(card_index: i32) -> Result<SoftwareEqOutput, String> {
+    let config = eq_chain_config().map_err(|error| error.to_string())?;
+    let controls = snapshot_controls(card_index).map_err(|error| error.to_string())?;
+    let physical = ae5_output(card_index)
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "PipeWire has no physical AE-5 output".to_owned())?;
+    let loaded = software_eq_output()
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "the software EQ sink is not loaded".to_owned())?;
+    validate_eq_chain_activation(
+        &config,
+        &controls,
+        &physical.node_name,
+        loaded.signature.as_deref(),
+    )
+    .map_err(|error| error.to_string())?;
+    set_software_eq_default_output().map_err(|error| error.to_string())
+}
+
+fn disable_software_eq_safely(card_index: i32) -> Result<EqChainChange, String> {
+    if software_eq_output()
+        .map_err(|error| error.to_string())?
+        .is_some_and(|output| output.node.is_default)
+    {
+        set_ae5_default_output(card_index).map_err(|error| error.to_string())?;
+    }
+    disable_eq_chain().map_err(|error| error.to_string())
 }
 
 fn recording_page(
@@ -4459,6 +4731,44 @@ mod tests {
         assert_eq!(
             driver_range_warnings(&controls),
             ["Wedge Angle capture value 10 is outside 20..180"]
+        );
+    }
+
+    #[test]
+    fn software_eq_summary_requires_the_current_graph_before_activation() {
+        let config = EqChainConfig {
+            path: PathBuf::from("/tmp/92-ae5-control-eq.conf"),
+            enabled: true,
+            bands: Vec::new(),
+            target_node: Some("alsa_output.pci-ae5.analog-stereo".to_owned()),
+        };
+        assert!(software_eq_summary(Some(&config), None).contains("Not loaded yet"));
+
+        let output = SoftwareEqOutput {
+            node: PipeWireNode {
+                id: 91,
+                node_name: "ae5_software_equalizer".to_owned(),
+                description: "AE-5 Software Equalizer".to_owned(),
+                is_default: true,
+                volume_percent: Some(30),
+            },
+            signature: config.signature(),
+        };
+        assert!(
+            software_eq_summary(Some(&config), Some(&output)).contains("used by desktop audio")
+        );
+    }
+
+    #[test]
+    fn hardware_eq_summary_distinguishes_saved_from_effective_state() {
+        assert_eq!(hardware_eq_summary(true, true, "Flat"), "HW EQ ON · FLAT");
+        assert_eq!(
+            hardware_eq_summary(true, false, "Flat"),
+            "HW EQ ARMED · FLAT"
+        );
+        assert_eq!(
+            hardware_eq_summary(false, false, "Custom"),
+            "HW EQ OFF · CUSTOM"
         );
     }
 

@@ -19,7 +19,7 @@ pub use controls::{
 pub use device::Ae5Device;
 pub use eq_chain::{
     EQ_FREQUENCIES, EqBand, EqChainChange, EqChainConfig, EqChainError, bands_from_profile,
-    disable_eq_chain, enable_eq_chain, eq_chain_config,
+    disable_eq_chain, enable_eq_chain, eq_chain_config, validate_eq_chain_activation,
 };
 pub use feature_parity::{FeatureParity, FeatureSupport, feature_parity};
 pub use lighting::{
@@ -27,8 +27,9 @@ pub use lighting::{
     restore_saved_lighting, saved_lighting, set_saved_led, set_saved_lighting,
 };
 pub use pipewire::{
-    NativeRatesConfig, PipeWireNode, PipeWireRouteState, ae5_input, ae5_output, ae5_route_state,
-    native_rates_config, set_ae5_default_input, set_ae5_default_output, set_native_rates_enabled,
+    NativeRatesConfig, PipeWireNode, PipeWireRouteState, SoftwareEqOutput, ae5_input, ae5_output,
+    ae5_route_state, native_rates_config, set_ae5_default_input, set_ae5_default_output,
+    set_native_rates_enabled, set_software_eq_default_output, software_eq_output,
 };
 pub use profile::{
     ApplyReport, LINUX_DRIVER_DEFAULTS_PRESERVED, Profile, ProfileControl, ProfileError,

@@ -13,6 +13,8 @@ const PIPEWIRE_MIN_GAIN_DB: f64 = -120.0;
 const CONFIG_FILE: &str = "92-ae5-control-eq.conf";
 const MANAGED_HEADER: &str = "# Managed by AE-5 Control.\n";
 const GAINS_PREFIX: &str = "# EQ gains (dB): [ ";
+const TARGET_PREFIX: &str = "# Target: ";
+const SIGNATURE_PROPERTY: &str = "ae5.control.eq.signature";
 static NEXT_TEMP_FILE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Debug, PartialEq)]
@@ -27,6 +29,18 @@ pub struct EqChainConfig {
     pub path: PathBuf,
     pub enabled: bool,
     pub bands: Vec<EqBand>,
+    pub target_node: Option<String>,
+}
+
+impl EqChainConfig {
+    pub fn signature(&self) -> Option<String> {
+        if !self.enabled {
+            return None;
+        }
+        self.target_node
+            .as_deref()
+            .map(|target| eq_chain_signature(&self.bands, target))
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -118,24 +132,65 @@ pub fn eq_chain_config() -> Result<EqChainConfig, EqChainError> {
 pub fn enable_eq_chain(
     profile: &Profile,
     controls: &[ControlSnapshot],
+    target_node: &str,
 ) -> Result<EqChainChange, EqChainError> {
+    enable_eq_chain_at(&eq_chain_path()?, profile, controls, target_node)
+}
+
+fn enable_eq_chain_at(
+    path: &Path,
+    profile: &Profile,
+    controls: &[ControlSnapshot],
+    target_node: &str,
+) -> Result<EqChainChange, EqChainError> {
+    require_outfx_disabled(controls)?;
     let bands = bands_from_profile(profile, controls)?;
-    set_eq_chain_enabled_at(&eq_chain_path()?, Some(&bands))
+    set_eq_chain_enabled_at(path, Some((&bands, target_node)))
 }
 
 pub fn disable_eq_chain() -> Result<EqChainChange, EqChainError> {
     set_eq_chain_enabled_at(&eq_chain_path()?, None)
 }
 
-fn render_config(bands: &[EqBand]) -> Result<String, EqChainError> {
+pub fn validate_eq_chain_activation(
+    config: &EqChainConfig,
+    controls: &[ControlSnapshot],
+    target_node: &str,
+    loaded_signature: Option<&str>,
+) -> Result<(), EqChainError> {
+    if !config.enabled {
+        return Err(EqChainError::Invalid(
+            "install the software equalizer before making it the desktop default".to_owned(),
+        ));
+    }
+    if config.target_node.as_deref() != Some(target_node) {
+        return Err(EqChainError::Invalid(format!(
+            "the software equalizer targets {}, but the current AE-5 output is {target_node}; reinstall it for the current output",
+            config.target_node.as_deref().unwrap_or("no PipeWire node")
+        )));
+    }
+    if config.signature().as_deref() != loaded_signature {
+        return Err(EqChainError::Invalid(
+            "PipeWire has not loaded the current software equalizer configuration; restart PipeWire before making it the desktop default"
+                .to_owned(),
+        ));
+    }
+    require_outfx_disabled(controls)
+}
+
+fn render_config(bands: &[EqBand], target_node: &str) -> Result<String, EqChainError> {
     validate_bands(bands)?;
+    validate_target_node(target_node)?;
 
     let gains = bands
         .iter()
         .map(|band| format_gain(band.gain_db))
         .collect::<Vec<_>>()
         .join(" ");
-    let mut output = format!("{MANAGED_HEADER}{GAINS_PREFIX}{gains} ]\ncontext.modules = [\n");
+    let signature = eq_chain_signature(bands, target_node);
+    let mut output = format!(
+        "{MANAGED_HEADER}{GAINS_PREFIX}{gains} ]\n{TARGET_PREFIX}{target_node}\ncontext.modules = [\n"
+    );
     output.push_str(
         "  { name = libpipewire-module-filter-chain\n\
          \x20   args = {\n\
@@ -170,13 +225,26 @@ fn render_config(bands: &[EqBand]) -> Result<String, EqChainError> {
          \x20     }\n\
          \x20     capture.props = {\n\
          \x20       node.name = \"ae5_software_equalizer\"\n\
+         \x20       ",
+    );
+    output.push_str(SIGNATURE_PROPERTY);
+    output.push_str(" = \"");
+    output.push_str(&signature);
+    output.push_str(
+        "\"\n\
          \x20       media.class = Audio/Sink\n\
          \x20       audio.channels = 2\n\
          \x20       audio.position = [ FL FR ]\n\
          \x20     }\n\
          \x20     playback.props = {\n\
          \x20       node.name = \"ae5_software_equalizer_output\"\n\
+         \x20       target.object = \"",
+    );
+    output.push_str(target_node);
+    output.push_str(
+        "\"\n\
          \x20       node.passive = true\n\
+         \x20       node.dont-fallback = true\n\
          \x20       audio.channels = 2\n\
          \x20       audio.position = [ FL FR ]\n\
          \x20     }\n\
@@ -187,12 +255,23 @@ fn render_config(bands: &[EqBand]) -> Result<String, EqChainError> {
     Ok(output)
 }
 
+fn eq_chain_signature(bands: &[EqBand], target_node: &str) -> String {
+    format!(
+        "{target_node}|{}",
+        bands
+            .iter()
+            .map(|band| format_gain(band.gain_db))
+            .collect::<Vec<_>>()
+            .join(",")
+    )
+}
+
 fn set_eq_chain_enabled_at(
     path: &Path,
-    bands: Option<&[EqBand]>,
+    request: Option<(&[EqBand], &str)>,
 ) -> Result<EqChainChange, EqChainError> {
     let current = eq_chain_config_at(path)?;
-    let Some(bands) = bands else {
+    let Some((bands, target_node)) = request else {
         if !current.enabled {
             return Ok(EqChainChange {
                 config: current,
@@ -206,8 +285,11 @@ fn set_eq_chain_enabled_at(
         });
     };
 
-    let contents = render_config(bands)?;
-    if current.enabled && current.bands == bands {
+    let contents = render_config(bands, target_node)?;
+    if current.enabled
+        && current.bands == bands
+        && current.target_node.as_deref() == Some(target_node)
+    {
         return Ok(EqChainChange {
             config: current,
             changed: false,
@@ -255,6 +337,37 @@ fn validate_bands(bands: &[EqBand]) -> Result<(), EqChainError> {
     Ok(())
 }
 
+fn validate_target_node(target_node: &str) -> Result<(), EqChainError> {
+    if target_node.is_empty()
+        || !target_node
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte))
+    {
+        return Err(EqChainError::Invalid(format!(
+            "PipeWire target node '{target_node}' contains unsupported characters"
+        )));
+    }
+    Ok(())
+}
+
+fn require_outfx_disabled(controls: &[ControlSnapshot]) -> Result<(), EqChainError> {
+    match controls
+        .iter()
+        .find(|control| control.name == "Enable OutFX")
+        .and_then(|control| control.playback_switch)
+    {
+        Some(false) => Ok(()),
+        Some(true) => Err(EqChainError::Invalid(
+            "turn OutFX off before enabling the software equalizer; otherwise both the hardware and software effect paths remain active"
+                .to_owned(),
+        )),
+        None => Err(EqChainError::Invalid(
+            "live Enable OutFX state is unavailable; refusing to enable a second processing path"
+                .to_owned(),
+        )),
+    }
+}
+
 fn format_gain(gain: f64) -> String {
     let formatted = format!("{gain:.2}");
     let trimmed = formatted.trim_end_matches('0').trim_end_matches('.');
@@ -291,21 +404,29 @@ fn eq_chain_path() -> Result<PathBuf, EqChainError> {
 
 fn eq_chain_config_at(path: &Path) -> Result<EqChainConfig, EqChainError> {
     match fs::read_to_string(path) {
-        Ok(contents) => Ok(EqChainConfig {
-            path: path.to_owned(),
-            enabled: true,
-            bands: parse_managed_config(path, &contents)?,
-        }),
+        Ok(contents) => {
+            let (bands, target_node) = parse_managed_config(path, &contents)?;
+            Ok(EqChainConfig {
+                path: path.to_owned(),
+                enabled: true,
+                bands,
+                target_node,
+            })
+        }
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(EqChainConfig {
             path: path.to_owned(),
             enabled: false,
             bands: Vec::new(),
+            target_node: None,
         }),
         Err(error) => Err(error.into()),
     }
 }
 
-fn parse_managed_config(path: &Path, contents: &str) -> Result<Vec<EqBand>, EqChainError> {
+fn parse_managed_config(
+    path: &Path,
+    contents: &str,
+) -> Result<(Vec<EqBand>, Option<String>), EqChainError> {
     let gains = contents
         .lines()
         .nth(1)
@@ -324,10 +445,15 @@ fn parse_managed_config(path: &Path, contents: &str) -> Result<Vec<EqBand>, EqCh
             gain_db,
         })
         .collect::<Vec<_>>();
-    if render_config(&bands).ok().as_deref() != Some(contents) {
+    let target_node = contents
+        .lines()
+        .nth(2)
+        .and_then(|line| line.strip_prefix(TARGET_PREFIX))
+        .ok_or_else(|| foreign_config(path))?;
+    if render_config(&bands, target_node).ok().as_deref() != Some(contents) {
         return Err(foreign_config(path));
     }
-    Ok(bands)
+    Ok((bands, Some(target_node.to_owned())))
 }
 
 fn foreign_config(path: &Path) -> EqChainError {
@@ -436,7 +562,7 @@ mod tests {
     }
 
     fn live_controls() -> Vec<ControlSnapshot> {
-        (0..10)
+        let mut controls = (0..10)
             .map(|index| ControlSnapshot {
                 name: format!("EQ Band{index}"),
                 selected: None,
@@ -457,7 +583,19 @@ mod tests {
                 playback_channels: Vec::new(),
                 capture_channels: Vec::new(),
             })
-            .collect()
+            .collect::<Vec<_>>();
+        controls.push(ControlSnapshot {
+            name: "Enable OutFX".to_owned(),
+            selected: None,
+            choices: Vec::new(),
+            playback_switch: Some(false),
+            capture_switch: None,
+            playback_level: None,
+            capture_level: None,
+            playback_channels: Vec::new(),
+            capture_channels: Vec::new(),
+        });
+        controls
     }
 
     fn flat_bands() -> Vec<EqBand> {
@@ -502,15 +640,15 @@ mod tests {
     fn renders_the_same_profile_byte_identically() {
         let bands = flat_bands();
         assert_eq!(
-            render_config(&bands).unwrap(),
-            render_config(&bands).unwrap()
+            render_config(&bands, "alsa_output.pci-ae5.analog-stereo").unwrap(),
+            render_config(&bands, "alsa_output.pci-ae5.analog-stereo").unwrap()
         );
     }
 
     #[test]
     fn rejects_gains_pipewire_would_silently_clamp() {
         let bands = bands_from_profile(&profile_with([48; 10]), &live_controls()).unwrap();
-        let error = render_config(&bands).unwrap_err();
+        let error = render_config(&bands, "alsa_output.pci-ae5.analog-stereo").unwrap_err();
         assert!(error.to_string().contains("supports -120..+20 dB"));
     }
 
@@ -518,7 +656,11 @@ mod tests {
     fn generated_config_is_accepted_by_pipewire_config_parser_when_available() {
         let path = test_path();
         fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, render_config(&flat_bands()).unwrap()).unwrap();
+        fs::write(
+            &path,
+            render_config(&flat_bands(), "alsa_output.pci-ae5.analog-stereo").unwrap(),
+        )
+        .unwrap();
 
         match Command::new("pw-config")
             .args(["-n", path.to_str().unwrap(), "merge", "context.modules"])
@@ -543,9 +685,13 @@ mod tests {
         let path = test_path();
         let bands = flat_bands();
 
-        let first = set_eq_chain_enabled_at(&path, Some(&bands)).unwrap();
+        let first =
+            set_eq_chain_enabled_at(&path, Some((&bands, "alsa_output.pci-ae5.analog-stereo")))
+                .unwrap();
         let installed = fs::read(&path).unwrap();
-        let second = set_eq_chain_enabled_at(&path, Some(&bands)).unwrap();
+        let second =
+            set_eq_chain_enabled_at(&path, Some((&bands, "alsa_output.pci-ae5.analog-stereo")))
+                .unwrap();
         let installed_again = fs::read(&path).unwrap();
         let disabled = set_eq_chain_enabled_at(&path, None).unwrap();
 
@@ -564,7 +710,10 @@ mod tests {
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(&path, "user configuration\n").unwrap();
 
-        let enable_error = set_eq_chain_enabled_at(&path, Some(&flat_bands())).unwrap_err();
+        let bands = flat_bands();
+        let enable_error =
+            set_eq_chain_enabled_at(&path, Some((&bands, "alsa_output.pci-ae5.analog-stereo")))
+                .unwrap_err();
         let disable_error = set_eq_chain_enabled_at(&path, None).unwrap_err();
 
         assert!(enable_error.to_string().contains("not managed"));
@@ -572,5 +721,101 @@ mod tests {
         assert_eq!(fs::read_to_string(&path).unwrap(), "user configuration\n");
 
         fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn rendered_chain_targets_the_physical_ae5_sink() {
+        let config = render_config(&flat_bands(), "alsa_output.pci-ae5.analog-stereo").unwrap();
+        assert!(config.contains("target.object = \"alsa_output.pci-ae5.analog-stereo\""));
+    }
+
+    #[test]
+    fn enabling_software_eq_rejects_active_hardware_effects() {
+        let profile = profile_with([24; 10]);
+        let mut controls = live_controls();
+        controls
+            .iter_mut()
+            .find(|control| control.name == "Enable OutFX")
+            .unwrap()
+            .playback_switch = Some(true);
+
+        let error = enable_eq_chain_at(
+            &test_path(),
+            &profile,
+            &controls,
+            "alsa_output.pci-ae5.analog-stereo",
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("turn OutFX off"));
+    }
+
+    #[test]
+    fn activation_rejects_a_stale_physical_target() {
+        let config = EqChainConfig {
+            path: test_path(),
+            enabled: true,
+            bands: flat_bands(),
+            target_node: Some("alsa_output.old-profile".to_owned()),
+        };
+
+        let error = validate_eq_chain_activation(
+            &config,
+            &live_controls(),
+            "alsa_output.current-profile",
+            config.signature().as_deref(),
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("reinstall it"));
+    }
+
+    #[test]
+    fn activation_rejects_a_graph_that_has_not_reloaded() {
+        let config = EqChainConfig {
+            path: test_path(),
+            enabled: true,
+            bands: flat_bands(),
+            target_node: Some("alsa_output.current-profile".to_owned()),
+        };
+
+        let error = validate_eq_chain_activation(
+            &config,
+            &live_controls(),
+            "alsa_output.current-profile",
+            Some("stale"),
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("restart PipeWire"));
+    }
+
+    #[test]
+    fn activation_accepts_the_current_graph_with_outfx_off() {
+        let config = EqChainConfig {
+            path: test_path(),
+            enabled: true,
+            bands: flat_bands(),
+            target_node: Some("alsa_output.current-profile".to_owned()),
+        };
+
+        validate_eq_chain_activation(
+            &config,
+            &live_controls(),
+            "alsa_output.current-profile",
+            config.signature().as_deref(),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn target_node_rejects_pipewire_config_injection() {
+        let error = render_config(
+            &flat_bands(),
+            "alsa_output.valid\" node.dont-fallback=false",
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("unsupported characters"));
     }
 }

@@ -104,6 +104,28 @@ On the target AE-5, guarded 44.1 and 96 kHz physical What U Hear captures
 matched direct ALSA and PipeWire by 0.00 dB in level and response when the PCM
 mixer was at 0 dB; alternative-rate switching remains an explicit opt-in.
 
+Phase A of the software-effects path can generate a ten-band PipeWire
+equalizer from any native or imported profile:
+
+```sh
+ae5ctl eq-chain-status
+ae5ctl eq-chain-enable ~/.config/ae5-control/profiles/example.json
+systemctl --user restart pipewire.service pipewire-pulse.service
+ae5ctl eq-chain-activate
+ae5ctl eq-chain-disable
+```
+
+Enabling only writes a managed per-user fragment; it does not restart audio
+services or change the desktop default. The generated playback stream targets
+the exact current AE-5 sink and refuses fallback to another device. Activation
+requires OutFX to remain off, the physical target to remain current, and the
+loaded graph signature to match the configuration on disk. Disabling first
+restores the physical AE-5 if the virtual equalizer is the current default.
+The GTK Equalizer page exposes the same explicit install, restart, activate,
+and disable states. Frequency-response, latency, CPU, and long-running
+physical stability acceptance remain pending; see
+[docs/SOFTWARE_EFFECTS_PLAN.md](docs/SOFTWARE_EFFECTS_PLAN.md).
+
 With the onboard-LED kernel candidate and the packaged device rule installed,
 the same unprivileged desktop user can inspect, set, and persist the five
 onboard RGB colors:
@@ -317,6 +339,9 @@ privacy-conscious diagnostics report as `ae5-collect-report` without invoking a
 shell or requiring root. The **System audio** page can make the AE-5 the default
 PipeWire playback or recording device and opt into native-rate switching
 without changing its ALSA mixer controls.
+The **Equalizer** page separates the saved CA0132 hardware EQ state from the
+PipeWire software path. It labels a hardware EQ child setting as `ARMED` when
+OutFX is off instead of claiming that it is processing audio.
 
 The **Lighting** page uses native GTK color dialogs for a unified color or five
 individual LED colors. It shares the CLI's verified, transactional backend and

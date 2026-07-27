@@ -98,3 +98,57 @@ routes at 20%. The mechanism works; what remains is engineering.
   stereo-only format/rate and software-volume requirements.
 - Whether S32 becomes viable again once nothing is generating signal after
   the mute point. Do not assume it does.
+
+## Phase A implementation status — 2026-07-27
+
+The configuration and control plane are implemented. This is not yet the
+physical response acceptance:
+
+- `src/eq_chain.rs` converts all ten profile EQ values through the live ALSA
+  dB mapping and emits twenty `bq_peaking` nodes: ten for left and ten for
+  right.
+- The filter playback stream uses `target.object` for the exact current AE-5
+  PipeWire sink plus `node.dont-fallback=true`. A missing or renamed target
+  therefore fails closed instead of sending processed audio to another
+  device.
+- Enabling refuses to create a second processing path unless live
+  `Enable OutFX` is readable and off.
+- The generated virtual sink carries a deterministic signature containing the
+  physical target and ten gains. Activation verifies that this live signature
+  equals the managed file, so an old graph cannot be selected after an EQ
+  update without a PipeWire restart.
+- `ae5ctl eq-chain-enable FILE` only writes or updates the managed user
+  fragment. `eq-chain-activate` separately verifies the target, signature, and
+  OutFX state before changing the desktop default.
+- `eq-chain-disable` restores the physical AE-5 first when the software sink
+  is the default, then removes only the managed fragment.
+- The GTK Equalizer page presents the same install, restart, activate, and
+  disable workflow. Disabled actions remain non-interactive and explain the
+  blocking state. The hardware EQ pill says `ARMED` when its child switch is
+  saved but OutFX is off.
+
+Validation completed without opening an audio stream:
+
+1. The real `EQ · SHP9500 test` profile generated `+9, +6, +10, 0, +1, -2,
+   0, -3, 0, +1 dB` against the live card and targeted
+   `alsa_output.pci-0000_29_00.0.analog-stereo`.
+2. `pw-config` parsed the complete generated fragment.
+3. A separate temporary PipeWire daemon loaded the twenty-node graph and
+   exposed the exact target/gain signature on `ae5_software_equalizer`. It had
+   no WirePlumber session manager, no hardware node, and no playback stream.
+4. The real per-user configuration, desktop default, ALSA mixer, and PipeWire
+   services were left unchanged.
+
+Still required before Phase A can be called accepted:
+
+- install one selected profile in the real per-user configuration, restart
+  PipeWire, and confirm that the live sink signature matches;
+- make the virtual sink default through the guarded action and verify desktop
+  routing;
+- measure the requested versus captured response curve and state the
+  tolerance;
+- measure latency and CPU cost;
+- run the stated long-duration stability gate with every CA0132 effect module
+  disabled;
+- repeat the safe disable/restart path and prove that the physical AE-5
+  default is restored.

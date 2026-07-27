@@ -14,6 +14,8 @@ context.properties = {
 }
 ";
 const AE5_PROFILE_SET: &str = "sound-blaster-ae5.conf";
+const SOFTWARE_EQ_NODE_NAME: &str = "ae5_software_equalizer";
+const SOFTWARE_EQ_SIGNATURE_PROPERTY: &str = "ae5.control.eq.signature";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PipeWireNode {
@@ -22,6 +24,12 @@ pub struct PipeWireNode {
     pub description: String,
     pub is_default: bool,
     pub volume_percent: Option<u16>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SoftwareEqOutput {
+    pub node: PipeWireNode,
+    pub signature: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -169,6 +177,26 @@ pub fn set_ae5_default_output(card_index: i32) -> io::Result<PipeWireNode> {
 
 pub fn set_ae5_default_input(card_index: i32) -> io::Result<PipeWireNode> {
     set_ae5_default_node(card_index, "sources", "recording input")
+}
+
+pub fn software_eq_output() -> io::Result<Option<SoftwareEqOutput>> {
+    named_node("sinks", SOFTWARE_EQ_NODE_NAME)
+}
+
+pub fn set_software_eq_default_output() -> io::Result<SoftwareEqOutput> {
+    let output = software_eq_output()?.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            "the AE-5 software equalizer is not loaded; restart PipeWire after installing it",
+        )
+    })?;
+    if output.node.is_default {
+        return Ok(output);
+    }
+    run_wpctl(&["set-default", &output.node.id.to_string()])?;
+    software_eq_output()?
+        .filter(|output| output.node.is_default)
+        .ok_or_else(|| io::Error::other("PipeWire did not retain the software equalizer default"))
 }
 
 pub(crate) fn suspend_ae5_output(card_index: i32) -> io::Result<SuspendedAe5Output> {
@@ -337,6 +365,42 @@ fn ae5_node(card_index: i32, nodes: &str) -> io::Result<Option<PipeWireNode>> {
         fallback.get_or_insert(node);
     }
     Ok(fallback)
+}
+
+fn named_node(nodes: &str, target_name: &str) -> io::Result<Option<SoftwareEqOutput>> {
+    let status = run_wpctl(&["status", "-n"])?;
+    let mut matched = None;
+    for listing in parse_status_node_list(&status, nodes) {
+        let details = run_wpctl(&["inspect", &listing.id.to_string()])?;
+        let Some(node) = node_from_details(listing, &details) else {
+            continue;
+        };
+        if node.node_name != target_name {
+            continue;
+        }
+        let output = SoftwareEqOutput {
+            node,
+            signature: property(&details, SOFTWARE_EQ_SIGNATURE_PROPERTY),
+        };
+        if matched.replace(output).is_some() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("PipeWire has duplicate nodes named '{target_name}'"),
+            ));
+        }
+    }
+    Ok(matched)
+}
+
+fn node_from_details(listing: NodeListing, details: &str) -> Option<PipeWireNode> {
+    let node_name = property(details, "node.name")?;
+    Some(PipeWireNode {
+        id: listing.id,
+        description: property(details, "node.description").unwrap_or_else(|| node_name.clone()),
+        node_name,
+        is_default: listing.is_default,
+        volume_percent: listing.volume_percent,
+    })
 }
 
 #[derive(Debug)]
@@ -983,6 +1047,23 @@ id 58, type PipeWire:Interface:Node
         assert_eq!(
             property(details, "node.name").as_deref(),
             Some("alsa_output.pci-ae5.analog-stereo")
+        );
+        assert_eq!(
+            node_from_details(
+                NodeListing {
+                    id: 49,
+                    is_default: true,
+                    volume_percent: Some(40),
+                },
+                details,
+            ),
+            Some(PipeWireNode {
+                id: 49,
+                node_name: "alsa_output.pci-ae5.analog-stereo".to_owned(),
+                description: "Creative Sound BlasterX AE-5".to_owned(),
+                is_default: true,
+                volume_percent: Some(40),
+            })
         );
     }
 

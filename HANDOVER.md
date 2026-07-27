@@ -5,13 +5,15 @@ supersedes older current-state claims elsewhere as of the snapshot date. The
 main README contains useful cumulative evidence, but some passages describe
 earlier milestones rather than the current development host.
 
-Snapshot date: **2026-07-26**
+Snapshot date: **2026-07-27**
 
 ## Start from the correct revision
 
 - Public repository: <https://github.com/klimovich008/ae5-linux-control>
 - Active integration branch: `agent/refine-gtk-ui`
-- Minimum code/config checkpoint: `75de6ae` (`Roll back unsafe S32 track switching`)
+- Minimum analysis checkpoint: `dc3a36c` (`Correct OutFX bypass semantics`)
+- Use the active branch head for the guarded PipeWire software-EQ Phase A
+  implementation described below.
 - Active review: [draft PR #75](https://github.com/klimovich008/ae5-linux-control/pull/75)
 - PR #75 is stacked on `agent/import-windows-settings`.
 - The default `main` branch is more than 140 commits behind the active
@@ -76,6 +78,8 @@ Working on the target host:
 - card-specific headphone, speaker-layout, and input routing;
 - PipeWire software volume and explicit route health/repair;
 - output effects, ten-band EQ, factory EQ presets, and native profiles;
+- guarded PipeWire software-EQ generation, graph-signature verification, and
+  explicit default-sink activation;
 - 33 embedded Command factory profiles with speaker/headphone variants;
 - import of the user's Command speaker/headphone profiles and custom EQ;
 - What U Hear digital capture;
@@ -89,7 +93,9 @@ Important incomplete areas:
 - required cold-boot and bare-metal suspend/resume counts;
 - connected physical speaker layouts, line-out, optical I/O, and analog inputs;
 - final host acceptance for Direct Mode and several kernel patches;
-- external AE-5 LED strip support.
+- external AE-5 LED strip support;
+- physical response, latency, CPU, and long-duration stability acceptance for
+  the new software-EQ path.
 
 ## Non-negotiable audio safety
 
@@ -170,22 +176,30 @@ collecting evidence.
 
 ## Development-host snapshot
 
-At this handover snapshot:
+At this handover snapshot, no AE-5 output is connected to the user's
+headphones. The headphones are connected directly to the motherboard line
+out, so no acoustic AE-5 test is possible without a separate physical
+reconnection:
 
 ```text
-Kernel:            7.1.4-ae5-current
+Kernel:            7.1.4-200.nobara.fc44.x86_64
 Kernel taint:      0
-Installed RPM:     kernel-7.1.4_ae5_current-1.x86_64
 ALSA card:         0, HDA Creative
 Output:            Headphone, 2.0
 Input:             Microphone
-Desktop sink:      AE-5 default, S16LE/48 kHz, 5%, muted
-Headphone gain:    Low
-Direct Mode:       off
-OutFX:             on
+Desktop sink:      AE-5 default, 30%
+Listening output:  motherboard line out
+Headphone gain:    Medium
+Direct Mode:       unavailable on the stock kernel
+OutFX:             off
+Software EQ:       not installed in the real per-user PipeWire configuration
 Playback PCMs:     closed
-GUI:               installed release running natively on Wayland
+GUI test:          current debug build opened natively on Wayland
 ```
+
+The current 30% desktop volume is above the project's 20% test ceiling. It is
+a user state, not an approved playback-test state; lower it and rerun the
+relevant preflight before any audio-producing test.
 
 The installed GUI and CLI are from the reversible per-user installation. The
 WirePlumber configuration is linked to
@@ -278,6 +292,7 @@ The latest checkpoint passed:
 | `src/device.rs` | Exact PCI/subsystem and ALSA-card discovery |
 | `src/controls.rs` | Typed ALSA controls, guards, route repair |
 | `src/pipewire.rs` | PipeWire discovery, profiles, routes, suspension |
+| `src/eq_chain.rs` | Managed ten-band PipeWire software-EQ graph |
 | `src/profile*.rs` | Native profiles and profile library |
 | `src/sbcommand.rs` | Bounded Windows settings interoperability |
 | `src/bin/ae5-control.rs` | GTK 4 application |
@@ -293,7 +308,8 @@ Read these next according to the task:
 - routing or the S16/S32 issue:
   [`docs/DRIVER_ROUTING_INVESTIGATION.md`](docs/DRIVER_ROUTING_INVESTIGATION.md);
 - effects or EQ:
-  [`docs/DSP_EFFECT_MEASUREMENT.md`](docs/DSP_EFFECT_MEASUREMENT.md);
+  [`docs/DSP_EFFECT_MEASUREMENT.md`](docs/DSP_EFFECT_MEASUREMENT.md) and
+  [`docs/SOFTWARE_EFFECTS_PLAN.md`](docs/SOFTWARE_EFFECTS_PLAN.md);
 - Windows comparison:
   [`docs/WINDOWS_MIGRATION_VALIDATION.md`](docs/WINDOWS_MIGRATION_VALIDATION.md)
   and [`docs/VFIO_TEST_PLAN.md`](docs/VFIO_TEST_PLAN.md);
@@ -327,9 +343,12 @@ Priority order:
    fault only with Master and Front hard-muted.
 2. Add enough instrumentation to distinguish stream teardown, HDA DMA/position,
    PipeWire suspend, and stale CA0132 DSP state before another acoustic test.
-3. Complete the required cold-boot and bare-metal suspend/resume matrices.
-4. Run matched, safely attenuated Windows/Linux analog measurements.
-5. Finish physical speaker, line-out, optical, and analog-input acceptance.
+3. When an AE-5 output is physically available again, complete the guarded
+   software-EQ response, latency, CPU, disable/restore, and stability gates in
+   [`docs/SOFTWARE_EFFECTS_PLAN.md`](docs/SOFTWARE_EFFECTS_PLAN.md).
+4. Complete the required cold-boot and bare-metal suspend/resume matrices.
+5. Run matched, safely attenuated Windows/Linux analog measurements.
+6. Finish physical speaker, line-out, optical, and analog-input acceptance.
 
 Do not spend the next session redesigning the GUI or adding another abstraction
 before the loud-buzz path is understood. Safety and reproducibility are the

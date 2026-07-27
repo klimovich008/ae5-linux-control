@@ -26,29 +26,19 @@ pub fn install_css() {
             background: #162040;
             border-right: 1px solid alpha(#ffffff, 0.08);
         }
+        /* Brand and hero share one height so the rule under the top bar runs
+           unbroken across both columns. */
         .sidebar-brand {
-            padding: 20px 18px 16px 18px;
+            min-height: 34px;
+            padding: 6px 18px;
             background: #0d1828;
             border-bottom: 1px solid alpha(#ffffff, 0.08);
         }
         .sidebar-title {
             color: #21c6d4;
-            font-size: 19px;
+            font-size: 15px;
             font-weight: 700;
             letter-spacing: 0.6px;
-        }
-        .sidebar-device {
-            color: #8ca0b4;
-            font-size: 11px;
-        }
-        .sidebar-footer {
-            padding: 14px 16px;
-            color: #7890a5;
-            background: #101a2d;
-            border-top: 1px solid alpha(#ffffff, 0.08);
-            font-family: monospace;
-            font-size: 10px;
-            font-weight: 700;
         }
         .main-panel {
             background: linear-gradient(160deg, #241f3d 0%, #1d1c2e 46%, #191a2a 100%);
@@ -91,24 +81,24 @@ pub fn install_css() {
             font-size: 11px;
             padding: 0;
         }
+        /* The one footer, spanning the full window width. */
         .status-rail {
-            min-height: 34px;
-            padding: 5px 14px;
+            min-height: 28px;
+            padding: 3px 14px;
             background: #0d1828;
             border-top: 1px solid alpha(#ffffff, 0.08);
         }
-        /* The signal path. Colour here means one thing only: whether signal
-           passes. Nothing else in the interface may use these three hues. */
+        /* The signal path, drawn down the sidebar. Colour here means one thing
+           only: whether signal passes. Nothing else may use these hues. */
         .signal-path {
-            padding: 7px 14px;
-            background: #14161a;
+            padding: 10px 14px 12px 14px;
+            background: #101a2d;
             border-top: 1px solid alpha(#ffffff, 0.07);
         }
         .signal-path-blocked {
             background: #23161a;
             border-top: 1px solid alpha(#e2564f, 0.55);
         }
-        .path-stage { padding: 0 16px 0 0; }
         .path-stage-label {
             color: #7c8590;
             font-size: 10px;
@@ -117,7 +107,7 @@ pub fn install_css() {
         }
         .path-stage-reading {
             font-family: monospace;
-            font-size: 12px;
+            font-size: 11px;
             font-weight: 600;
         }
         .path-stage-mark { font-size: 9px; }
@@ -129,11 +119,6 @@ pub fn install_css() {
         .stage-blocked .path-stage-mark { color: #f0736b; }
         .stage-unknown .path-stage-reading,
         .stage-unknown .path-stage-mark { color: #8b949e; }
-        .path-link {
-            padding: 0 14px 0 0;
-            color: #4a525c;
-            font-size: 12px;
-        }
         .status-mark {
             color: #eef3f7;
             font-size: 14px;

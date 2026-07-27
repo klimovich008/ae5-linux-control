@@ -170,37 +170,41 @@ fn jack_stage(controls: &[ControlSnapshot]) -> Stage {
 }
 
 fn stage_widget(stage: &Stage) -> gtk::Box {
-    let column = gtk::Box::new(gtk::Orientation::Vertical, 3);
-    column.add_css_class("path-stage");
-    column.add_css_class(stage.state.css_class());
+    let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    row.add_css_class("path-stage");
+    row.add_css_class(stage.state.css_class());
 
-    let label = gtk::Label::new(Some(stage.label));
-    label.set_xalign(0.0);
-    label.add_css_class("path-stage-label");
-
-    let reading_row = gtk::Box::new(gtk::Orientation::Horizontal, 6);
     let mark = gtk::Label::new(Some(stage.state.mark()));
     mark.add_css_class("path-stage-mark");
+    let label = gtk::Label::new(Some(stage.label));
+    label.set_xalign(0.0);
+    label.set_hexpand(true);
+    label.add_css_class("path-stage-label");
     let reading = gtk::Label::new(Some(&stage.reading));
-    reading.set_xalign(0.0);
+    reading.set_xalign(1.0);
+    reading.set_ellipsize(gtk::pango::EllipsizeMode::End);
     // Monospace is reserved for readings. If it is in this face, it is
     // something the hardware reported.
     reading.add_css_class("path-stage-reading");
-    reading_row.append(&mark);
-    reading_row.append(&reading);
 
-    column.append(&label);
-    column.append(&reading_row);
-    column.update_property(&[gtk::accessible::Property::Label(&format!(
+    row.append(&mark);
+    row.append(&label);
+    row.append(&reading);
+    row.update_property(&[gtk::accessible::Property::Label(&format!(
         "{}: {}",
         stage.label, stage.reading
     ))]);
-    column
+    row
 }
 
-/// Build the signal path across the card, source-side first.
+/// Build the signal path as a sidebar block, source-side at the top.
+///
+/// The strip originally ran horizontally above the footer, where it cost the
+/// main column ~48 vertical pixels — the difference between the Sound effects
+/// page fitting and growing a scrollbar. The sidebar has that space to spare,
+/// and a chain drawn top-to-bottom reads just as well.
 pub fn signal_path(controls: &[ControlSnapshot]) -> gtk::Box {
-    let path = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    let path = gtk::Box::new(gtk::Orientation::Vertical, 6);
     path.add_css_class("signal-path");
 
     let stages = [
@@ -208,23 +212,14 @@ pub fn signal_path(controls: &[ControlSnapshot]) -> gtk::Box {
         output_stage(controls),
         jack_stage(controls),
     ];
-    let blocked = stages
+    if stages
         .iter()
-        .any(|stage| stage.state == StageState::Blocked);
-
-    for (index, stage) in stages.iter().enumerate() {
-        if index > 0 {
-            // The arrow states the direction signal travels; it is content,
-            // not ornament.
-            let link = gtk::Label::new(Some("\u{2192}"));
-            link.add_css_class("path-link");
-            path.append(&link);
-        }
-        path.append(&stage_widget(stage));
-    }
-
-    if blocked {
+        .any(|stage| stage.state == StageState::Blocked)
+    {
         path.add_css_class("signal-path-blocked");
+    }
+    for stage in &stages {
+        path.append(&stage_widget(stage));
     }
     path
 }

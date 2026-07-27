@@ -17,7 +17,7 @@ use ae5_control::{
 };
 use gtk::gio;
 use gtk::prelude::*;
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::ffi::OsString;
 use std::fs;
 use std::io::Write;
@@ -189,8 +189,12 @@ fn content(
     message: Option<&str>,
     visible_page: Option<&str>,
 ) -> gtk::Box {
-    let root = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    // One footer, spanning the full window. Two per-column footers could never
+    // stay aligned because their contents had different natural heights.
+    let root = gtk::Box::new(gtk::Orientation::Vertical, 0);
     root.add_css_class("application-shell");
+    let columns = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    columns.set_vexpand(true);
     let status = gtk::Label::new(Some(
         message.unwrap_or("Ready — every change is verified against the hardware."),
     ));
@@ -249,10 +253,9 @@ fn content(
     sidebar_panel.add_css_class("sidebar-panel");
     sidebar_panel.append(&sidebar_brand(device));
     sidebar_panel.append(&sidebar);
-    let sidebar_footer = gtk::Label::new(Some("LINUX NATIVE  ·  WAYLAND"));
-    sidebar_footer.set_xalign(0.0);
-    sidebar_footer.add_css_class("sidebar-footer");
-    sidebar_panel.append(&sidebar_footer);
+    // The signal path lives in the sidebar's spare space; in the main column it
+    // cost the height that forced pages to scroll.
+    sidebar_panel.append(&ae5_control::gui::signal_path::signal_path(controls));
 
     let main = gtk::Box::new(gtk::Orientation::Vertical, 0);
     main.set_hexpand(true);
@@ -260,11 +263,11 @@ fn content(
     main.add_css_class("main-panel");
     main.append(&hero(device, controls));
     main.append(&stack);
-    main.append(&ae5_control::gui::signal_path::signal_path(controls));
-    main.append(&status_rail(&status, device.card_index, controls));
 
-    root.append(&sidebar_panel);
-    root.append(&main);
+    columns.append(&sidebar_panel);
+    columns.append(&main);
+    root.append(&columns);
+    root.append(&status_rail(&status, device.card_index, controls));
     root
 }
 
@@ -320,25 +323,20 @@ fn populate_page(
     holder.append(&page);
 }
 
-fn sidebar_brand(device: &Ae5Device) -> gtk::Box {
-    let brand = gtk::Box::new(gtk::Orientation::Vertical, 3);
+/// The application mark, sized to share the top bar's baseline with the hero.
+///
+/// It used to stack the app name over the device name at its own taller
+/// height, so the rule under it never met the rule under the hero. The device
+/// name is the hero's job; repeating it here only broke the line.
+fn sidebar_brand(_device: &Ae5Device) -> gtk::Box {
+    let brand = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     brand.add_css_class("sidebar-brand");
 
     let title = gtk::Label::new(Some("AE-5 CONTROL"));
     title.set_xalign(0.0);
+    title.set_valign(gtk::Align::Center);
     title.add_css_class("sidebar-title");
-    let device = gtk::Label::new(Some(
-        device
-            .codec_name
-            .as_deref()
-            .unwrap_or("Sound BlasterX AE-5"),
-    ));
-    device.set_xalign(0.0);
-    device.set_ellipsize(gtk::pango::EllipsizeMode::End);
-    device.add_css_class("sidebar-device");
-
     brand.append(&title);
-    brand.append(&device);
     brand
 }
 
@@ -921,7 +919,7 @@ fn sound_effects_page(
     let profiles = gtk::ScrolledWindow::builder()
         .hscrollbar_policy(gtk::PolicyType::Automatic)
         .vscrollbar_policy(gtk::PolicyType::Never)
-        .min_content_height(178)
+        .min_content_height(172)
         .child(&profile_strip)
         .build();
     profiles.set_widget_name(PERSONAL_PROFILE_CAROUSEL_NAME);
@@ -980,7 +978,7 @@ fn sound_profile_card(
     // Wide enough for a two-line scope sentence and a wrapped title. The card
     // used to ellipsize its title, which turned real profile names into
     // "Adventure And Ac..." and made the list unreadable.
-    card.set_size_request(206, 152);
+    card.set_size_request(206, 146);
     card.add_css_class("sound-profile-card");
     if active {
         card.add_css_class("sound-profile-card-active");
@@ -1278,7 +1276,7 @@ fn effect_control_card(
     all_controls: &[ControlSnapshot],
 ) -> gtk::Box {
     let card = gtk::Box::new(gtk::Orientation::Vertical, 10);
-    card.set_size_request(158, 180);
+    card.set_size_request(158, 168);
     card.add_css_class("effect-card");
 
     // A switched-off effect used to keep its accent stripe and a live slider,
@@ -3642,18 +3640,30 @@ fn restore_refresh_view_state(window: &gtk::ApplicationWindow, state: &RefreshVi
         });
     }
 
-    // Restore the reader's place last, and on idle: the page has just been
-    // rebuilt, so its adjustment does not know its own extent until GTK has
-    // allocated the new children.
+    // Restore the reader's place the moment the rebuilt page learns its own
+    // extent. Restoring on idle painted one frame at the top first and then
+    // jumped, which read as flicker on every single edit; the adjustment's
+    // changed signal fires during allocation, before that frame is drawn.
     if let Some(value) = state.page_scroll
         && let Some(scroll) = visible_page_scroller(window)
     {
         let adjustment = scroll.vadjustment();
-        gtk::glib::idle_add_local_once(move || {
-            let lower = adjustment.lower();
-            let upper = (adjustment.upper() - adjustment.page_size()).max(lower);
-            adjustment.set_value(value.clamp(lower, upper));
-        });
+        let pending: Rc<RefCell<Option<gtk::glib::SignalHandlerId>>> = Rc::new(RefCell::new(None));
+        let handler = {
+            let pending = pending.clone();
+            adjustment.connect_changed(move |adjustment| {
+                let lower = adjustment.lower();
+                let upper = (adjustment.upper() - adjustment.page_size()).max(lower);
+                if upper <= lower {
+                    return;
+                }
+                adjustment.set_value(value.clamp(lower, upper));
+                if let Some(handler) = pending.borrow_mut().take() {
+                    adjustment.disconnect(handler);
+                }
+            })
+        };
+        *pending.borrow_mut() = Some(handler);
     }
 }
 

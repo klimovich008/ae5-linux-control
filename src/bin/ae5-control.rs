@@ -1598,13 +1598,34 @@ fn footer_output_selector(
             }) {
                 Ok(actual) => {
                     verified.set(index);
-                    set_status(
-                        &status,
-                        true,
-                        &format!("Applied and verified: {}", control_summary(&actual)),
+                    // Deliberately NOT marked as a self-originated write. A
+                    // route change cascades: the driver re-runs its output
+                    // path, WirePlumber re-applies the managed route, and gain
+                    // staging, headphone gain and channel map all move with it.
+                    // The button reflects one control; the rest of the window
+                    // must rebuild to stay truthful.
+                    ae5_control::gui::tracelog::trace(
+                        "route",
+                        &format!("switch -> {requested}: {}", control_summary(&actual)),
                     );
+                    let message = format!("Applied and verified: {}", control_summary(&actual));
+                    set_status(&status, true, &message);
+                    // Rebuild explicitly rather than waiting for an ALSA event
+                    // to arrive. The driver and WirePlumber both settle after a
+                    // route change, so the window that drew the old route is
+                    // stale the moment this write returns — and a window that
+                    // shows the wrong route is worse than one that flickers.
+                    gtk::glib::idle_add_local_once(move || {
+                        if let Some(window) = active_main_window() {
+                            let _ = refresh_window(&window, Some(&message));
+                        }
+                    });
                 }
                 Err(error) => {
+                    ae5_control::gui::tracelog::trace(
+                        "route",
+                        &format!("switch -> {requested} FAILED: {error}"),
+                    );
                     updating.set(true);
                     buttons[verified.get()].set_active(true);
                     updating.set(false);

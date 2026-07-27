@@ -254,6 +254,7 @@ fn content(
     main.add_css_class("main-panel");
     main.append(&hero(device, controls));
     main.append(&stack);
+    main.append(&ae5_control::gui::signal_path::signal_path(controls));
     main.append(&status_rail(&status, device.card_index, controls));
 
     root.append(&sidebar_panel);
@@ -344,20 +345,8 @@ fn status_rail(status: &gtk::Label, card_index: i32, controls: &[ControlSnapshot
     rail.append(&mark);
     rail.append(status);
 
-    let output = controls
-        .iter()
-        .find(|control| control.name == "Master")
-        .map(
-            |control| match (&control.playback_level, control.playback_switch) {
-                (_, Some(false)) => "OUTPUT MUTED".to_owned(),
-                (Some(level), _) => format!("HARDWARE {}", hardware_level_label(level)),
-                _ => "OUTPUT ACTIVE".to_owned(),
-            },
-        )
-        .unwrap_or_else(|| "OUTPUT UNKNOWN".to_owned());
-    let output = gtk::Label::new(Some(&output));
-    output.add_css_class("output-state");
-    rail.append(&output);
+    // Output level and mute now live in the signal path above, where they read
+    // as a stage rather than as small caps competing with a build string.
     if let Some(route) = controls
         .iter()
         .find(|control| control.name == "Output Select")

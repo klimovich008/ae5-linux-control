@@ -92,6 +92,43 @@ pub fn install_css() {
             background: #0d1828;
             border-top: 1px solid alpha(#ffffff, 0.08);
         }
+        /* The signal path. Colour here means one thing only: whether signal
+           passes. Nothing else in the interface may use these three hues. */
+        .signal-path {
+            padding: 7px 14px;
+            background: #14161a;
+            border-top: 1px solid alpha(#ffffff, 0.07);
+        }
+        .signal-path-blocked {
+            background: #23161a;
+            border-top: 1px solid alpha(#e2564f, 0.55);
+        }
+        .path-stage { padding: 0 16px 0 0; }
+        .path-stage-label {
+            color: #7c8590;
+            font-size: 10px;
+            letter-spacing: 0.7px;
+            text-transform: uppercase;
+        }
+        .path-stage-reading {
+            font-family: monospace;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .path-stage-mark { font-size: 9px; }
+        .stage-passing .path-stage-reading,
+        .stage-passing .path-stage-mark { color: #6fd08c; }
+        .stage-attention .path-stage-reading,
+        .stage-attention .path-stage-mark { color: #e8b064; }
+        .stage-blocked .path-stage-reading,
+        .stage-blocked .path-stage-mark { color: #f0736b; }
+        .stage-unknown .path-stage-reading,
+        .stage-unknown .path-stage-mark { color: #8b949e; }
+        .path-link {
+            padding: 0 14px 0 0;
+            color: #4a525c;
+            font-size: 12px;
+        }
         .status-mark {
             color: #eef3f7;
             font-size: 14px;

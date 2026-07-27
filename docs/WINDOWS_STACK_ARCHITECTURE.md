@@ -108,6 +108,30 @@ does manage DSP firmware, playback routing and unmute state, so absence of
 that master ID is not proof that no individual endpoint property is ever
 mirrored into hardware.
 
+## Normal playback transport comparison
+
+The 0065 `CtxHda.sys` stream-control and helper paths were disassembled
+separately from the OutFX property path. Its normal AE-5 setup programs the
+same visible transport shape used by Linux:
+
+- stream `0x05` routes source `0x43` to destination `0x00`;
+- stream `0x18` routes source `0x09` to destination `0xd0`;
+- the `0xd0` connection runs at 96 kHz with six stream channels; and
+- the stream is enabled after the normal PLL/connection sequence.
+
+This supports the Linux fix's scope: the reproducible reopen corruption came
+from clearing and reassigning the HDA playback converter, not from an obvious
+steady-state mismatch in those visible Windows/Linux routes. It does not
+establish bit-identical hidden DSP state.
+
+The OutFX conclusion is independent and stronger: Sound Blaster Command's
+managed setter reaches the native endpoint-property write path, and
+`CtxRFX64.dll` consumes those properties in its software processing chain.
+The hardware driver disassembly contains normal routing and DSP setup but no
+matching implementation of the `0x60000001` master feature. Thus a rejected
+Linux CA0132 hardware-OutFX write cannot be called a Windows OutFX-on
+comparison.
+
 ## Why this matters here
 
 Linux takes the opposite approach. `snd_hda_codec_ca0132` implements the same

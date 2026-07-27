@@ -6,30 +6,34 @@ The production queue is the ordered list in [`series`](series). It no longer
 contains the Direct Mode candidate. It now includes
 [`ca0132-ae5-disable-unsafe-outfx.patch`](ca0132-ae5-disable-unsafe-outfx.patch),
 which initializes AE-5 output effects off, rejects hardware OutFX enable with
-`-EOPNOTSUPP`, and makes redundant off replay a no-op.
+`-EOPNOTSUPP`, and makes redundant off replay a no-op. The final patch,
+[`ca0132-ae5-stable-playback-stream.patch`](ca0132-ae5-stable-playback-stream.patch),
+fixes the independent PCM-reopen corruption by retaining the AE-5 playback
+converter assignment across PCM close and holding an AE-5-specific runtime-PM
+reference so idle autosuspend cannot clear it. Controller DMA still stops and
+is released normally; system suspend retains the HDA core's normal
+all-stream cleanup.
 
-This is a fail-closed guard, not a complete fix for the underlying codec
-state defect. On the exact guarded module, repeatedly closing and reopening
-normal analog playback alternated between clean output and approximately
-26.4% THD even with OutFX always off. A held-open playback PCM stayed clean
-across ten What U Hear captures on one managed-PCI-reset boot and five on a
-second guest boot (0.00064–0.00081% THD). A raw OutFX-enable control write was
-rejected with `EOPNOTSUPP` without disturbing the held stream.
+The exact functional candidate completed 50/50 clean playback reopens after a
+fresh host-driver-to-VFIO boot, with 0.000829% THD in every internal What U
+Hear capture. Separate warm, repeated-idle, 48/96 kHz, and 2/6-channel
+matrices were also clean. A hardware-OutFX enable request was rejected and
+eight subsequent captures remained clean. The exact-card WirePlumber
+no-suspend policy remains defense in depth rather than the primary fix.
 
-The companion exact-card WirePlumber policy therefore sets
-`session.suspend-timeout-seconds = 0` and keeps playback open. A physical
-power-removal cold boot, matched analog output capture, and runtime Windows
-same-settings comparison remain pending. The Direct Mode section below is
-historical candidate documentation only.
+These are internal digital captures with the AE-5 analog outputs unplugged.
+A physical power-removal cold boot, matched analog output capture, and runtime
+Windows same-settings comparison remain pending. The Direct Mode section
+below is historical candidate documentation only.
 
 The current queue applies cleanly to ALSA `for-next`
 `61471f29f3157f33a61194bf82b4a289cc03e1f1`. Its series SHA-256 is
-`298333722ceb859dcab345296ea6421f7ff9881ba1cfb88bb29c39e46b8d0b5f`,
-the seven-patch aggregate is
-`cb89ce2f96ae010bc0e9daf6e48963f1892200a9b7f400311667606136d3cf18`,
-and the OutFX guard patch is
-`cd2a242facf1ee0aab7e9ff0632e282e644ba4fbf390ee19af17e85743b67fa1`.
-Strict `checkpatch.pl` reports zero findings for the guard.
+`c0093c53597db2128dfbc24c8375fab34cc3a41608c70e1e6291ec1c2e84151f`,
+the eight-patch aggregate is
+`17decd4c9bc79d20565ca2c94fe00f2a4bcce7853219236c93d3e2be27bfe1a4`,
+and the stable-playback patch is
+`26a4599bdab8a75cce5bddb06e4cb3ca2de081706148040b240201df44ad8dc7`.
+Strict `checkpatch.pl` reports zero findings across its 44 lines.
 
 These patches are independent, reviewable Linux changes and diagnostic
 experiments. The original four functional patches were loaded together on the
@@ -57,9 +61,9 @@ production queue because it contains Direct Mode and lacks the OutFX guard.
 The earlier Linux 6.18 artifact has not been installed on the host; its build
 details are in
 [`HOST_KERNEL_BUILD.md`](../docs/HOST_KERNEL_BUILD.md). The exact-host Nobara
-7.1.4 build is installed side by side and scheduled for one boot without
-changing the stock saved default. It has not yet been loaded on the host. Its
-artifact hashes, rollback path, and fail-closed 20% first-boot gate are in
+7.1.4 build installed side by side predates the stable-playback patch and is
+now historical. It must be rebuilt before a physical test boot. Its artifact
+hashes, rollback path, and the 20% first-boot gate are in
 [`KERNEL_MAINTENANCE.md`](../docs/KERNEL_MAINTENANCE.md).
 
 ## Current upstream validation
@@ -83,6 +87,12 @@ all four cases under x86-64 KVM in 58.419 seconds. The LED-only upstream tree
 also built `ca0132.o` with the same warning gate, and strict `checkpatch.pl`
 reported zero findings for its 217 changed lines. No patch content needed
 rebasing or correction.
+
+The current eight-patch queue was applied to a second clean worktree at the
+same `for-next` commit. `git diff --check` passed and
+`sound/hda/codecs/ca0132.o` rebuilt with `W=1 KCFLAGS=-Werror`. The same
+functional change also rebuilt as an exact Nobara 7.1.4 external module with
+that warning gate.
 
 Historical note: the Direct Mode raw diff was regenerated on 2026-07-26 after a clean-tree
 check found that its first context hunk unnecessarily depended on constants

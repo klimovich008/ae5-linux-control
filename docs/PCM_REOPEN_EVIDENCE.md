@@ -1,7 +1,9 @@
 # AE-5 playback PCM reopen evidence
 
-Current conclusion as of 2026-07-27: the immediate production path is
-mitigated, but the kernel-level reopen defect is not fixed.
+Current conclusion as of 2026-07-27: the kernel-level reopen defect is fixed
+in the maintained patch queue and qualified on the physical AE-5 through
+VFIO. Physical-host installation, a true power-removal cold boot, and analog
+output acceptance remain separate gates.
 
 ## Reproducible failure
 
@@ -51,6 +53,54 @@ disturbing the held stream. OutFX read back off before and after.
 These starts are cold-like PCI-reset tests, not a physical motherboard
 power-removal cold boot.
 
+## Root cause and fix
+
+The standard CA0132 cleanup path cleared the AE-5 HDA playback converter on
+every PCM close. Reassigning that converter on a later open corrupted hidden
+CA0132 stream state even though the visible stream/router fields remained
+correct. Skipping only that converter cleanup on AE-5 made 12/12 immediate
+reopens clean.
+
+The first candidate still failed after an idle interval because HDA runtime
+autosuspend performed its own stream cleanup. Retaining only the HDA core's
+cached stream state caused silence after resume, while globally disabling HDA
+power saving proved clean but was too broad. The final patch takes a balanced
+runtime-PM reference for the AE-5 codec only and releases it in codec teardown.
+This leaves the motherboard codec and global `power_save=10` policy
+untouched. System suspend still uses the normal HDA all-stream cleanup.
+
+The implementation is
+`kernel/ca0132-ae5-stable-playback-stream.patch`.
+
+## Fixed-candidate qualification
+
+The exact functional module loaded in the guest had SHA-256
+`7089c4493d1acf530cca4fefe9860b6df96540c263fcf6874d2ab482f953be68`.
+The following internal What U Hear tests used bounded fixtures with the AE-5
+analog outputs unplugged:
+
+| Matrix | Result |
+|---|---|
+| Immediate warm reopen | 12/12 clean, 0.000760% THD |
+| Redundant safe controls and mute/unmute | all clean, 0.000760% THD |
+| Two 20-second idle intervals, global `power_save=10` | all clean, 0.000760% THD; codec remained active |
+| Rejected hardware-OutFX enable | 8/8 clean, 0.000760–0.000761% THD |
+| Fresh host-driver to VFIO cycle | first open and 12/12 reopens clean, 0.000829% THD |
+| Final reopen qualification | 50/50 clean; zero corrupt and zero silent |
+| 48/96 kHz transitions | 12/12 clean; 0.000829–0.000857% THD |
+| 2/6-channel transitions | 12/12 clean, 0.000829% THD |
+
+The fresh-cycle test shut the Linux guest down, let managed hostdev rebind the
+AE-5 to the host `snd_hda_intel` driver and reload its DSP, then restarted the
+guest and passed the card through after VFIO reset. This exercises a fresh
+driver/DSP initialization path, but it is still cold-like rather than a
+motherboard power-removal cold boot.
+
+Hardware OutFX remains deliberately fail-closed. Its enable request returns
+`-EOPNOTSUPP` and readback stays off. Windows Command OutFX is instead the
+master for a software APO effect chain, so the rejected Linux hardware
+control is not an active-effects parity test.
+
 ## Host keepalive proof
 
 The installed exact-card WirePlumber rule sets
@@ -60,9 +110,9 @@ separate `pw-play` clients and ten seconds idle left the PCM `RUNNING`.
 client ten, and after the idle interval.
 
 The host test proves that normal desktop clients no longer close/reopen the
-hardware PCM. It is not an analog-output result: the AE-5 outputs were
-physically unplugged and the user's headphones were on the motherboard
-line-out.
+hardware PCM. It remains useful defense in depth after the kernel fix. It is
+not an analog-output result: the AE-5 outputs were physically unplugged and
+the user's headphones were on the motherboard line-out.
 
 ## Production guards
 
@@ -81,10 +131,10 @@ failed before writing; the complete ALSA mixer SHA-256 remained
 
 ## Remaining acceptance
 
-1. Find and fix the CA0132/HDA operation that corrupts playback on reopen.
-2. Build and install the current guarded kernel on the physical host.
-3. Run a true power-removal cold boot.
-4. Capture the reconnected AE-5 analog output safely.
-5. Complete a runtime Windows/Linux same-settings capture. Static disassembly
+1. Build and install a new host kernel containing the eight-patch queue. The
+   already installed `7.1.4-ae5-guarded` artifact predates this fix.
+2. Run a true power-removal cold boot and bare-metal suspend/resume.
+3. Capture the reconnected AE-5 analog output safely.
+4. Complete a runtime Windows/Linux same-settings capture. Static disassembly
    already establishes that Windows Command OutFX controls the
    `CtxRFX64.dll` software APO chain rather than Linux's hardware OutFX path.

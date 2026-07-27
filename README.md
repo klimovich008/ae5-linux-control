@@ -18,15 +18,20 @@ initializes OutFX off and rejects an enable request with `-EOPNOTSUPP`.
 Windows Command's OutFX is a software APO master switch; it is not equivalent
 to Linux's unsafe CA0132 hardware control.
 
-Waveform-qualified tests found a second trigger: closing and reopening normal
-analog playback can change a clean stream into approximately 26.4% THD even
-with OutFX off. The exact-card WirePlumber rule therefore keeps the managed
-S16 playback PCM open with `session.suspend-timeout-seconds = 0`. Two
-managed-reset VM boots with one PCM held open produced 15 clean What U Hear
-captures at 0.00064–0.00081% THD, including rejected OutFX-enable and harmless
-redundant-off attempts. This is a tested mitigation, not a complete kernel
-root-cause fix. A physical power-removal cold boot and runtime Windows
-same-settings capture remain pending. The compact evidence table is in
+Waveform-qualified tests found a second trigger: clearing and later
+reassigning the AE-5 HDA playback converter could change a clean stream into
+approximately 26.4% THD even with OutFX off. The current kernel queue fixes
+that lifetime error and prevents AE-5 runtime autosuspend from invalidating
+the retained assignment. It completed 50/50 clean reopens after a fresh
+host-driver-to-VFIO boot, plus clean warm, idle, 48/96 kHz, and 2/6-channel
+matrices. A rejected hardware-OutFX enable attempt left eight further captures
+clean. The WirePlumber no-suspend rule remains defense in depth.
+
+This is an internally captured digital result. The AE-5 analog outputs were
+unplugged and the user's headphones were connected to the motherboard
+line-out. A physical power-removal cold boot, safe AE-5 analog capture, and
+runtime Windows same-settings capture remain pending. The compact evidence is
+in
 [docs/PCM_REOPEN_EVIDENCE.md](docs/PCM_REOPEN_EVIDENCE.md).
 
 Earlier Direct Mode patch stacks produced host-configured side-by-side RPMs
@@ -35,13 +40,12 @@ not be installed: they contain Direct Mode and predate the OutFX guard. See
 [docs/HOST_KERNEL_BUILD.md](docs/HOST_KERNEL_BUILD.md) only for build-history
 evidence.
 
-The current seven-patch queue applies cleanly to ALSA `for-next`, excludes
-Direct Mode, and includes the OutFX guard. Release `7.1.4-ae5-guarded` has
-been built, non-installingly verified, full-system guest-booted, and installed
-side by side. The machine is still running the stock Nobara kernel; the
-guarded entry is scheduled for the next boot only, while stock remains the
-saved/default kernel. The reproducible hashes, validation evidence, and
-physical acceptance sequence are in
+The current eight-patch queue applies cleanly to ALSA `for-next`, excludes
+Direct Mode, and includes both the OutFX guard and stable-playback fix. The
+previously installed `7.1.4-ae5-guarded` artifact predates the stable-playback
+patch and is historical; it must be rebuilt before physical use. The machine
+still runs the stock Nobara kernel. Reproducible hashes, validation evidence,
+and the physical acceptance sequence are in
 [docs/KERNEL_MAINTENANCE.md](docs/KERNEL_MAINTENANCE.md).
 
 ## Current milestone: guarded persistent playback, profiles, and onboard lighting
@@ -92,8 +96,9 @@ cargo run -- set-default-input
 `Input Source` choice disagrees with PipeWire's active hardware routes, or
 when normal-mode Headphone output has a muted or unreadable `Front` playback
 switch. `route-repair` remains explicit and may repair the input or unmute the
-current headphone DAC, but it refuses an output/profile transition while the
-PCM-reopen defect is unresolved. The GTK Device page uses the same guard.
+current headphone DAC, but it refuses an output/profile transition until the
+new kernel fix is rebuilt, installed, and passes the physical-host acceptance
+gate. The GTK Device page uses the same guard.
 Nothing repairs or unmutes a route automatically at login.
 The default-device actions invoke `wpctl` directly without a shell and verify
 the new default. They do not change the card's ALSA mixer controls. CLI status

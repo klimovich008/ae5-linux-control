@@ -1,0 +1,52 @@
+diff --git a/sound/hda/codecs/ca0132.c b/sound/hda/codecs/ca0132.c
+--- a/sound/hda/codecs/ca0132.c
++++ b/sound/hda/codecs/ca0132.c
+@@ -16,6 +16,7 @@
+ #include <linux/firmware.h>
+ #include <linux/kernel.h>
+ #include <linux/led-class-multicolor.h>
++#include <linux/pm_runtime.h>
+ #include <linux/types.h>
+ #include <linux/io.h>
+ #include <linux/pci.h>
+@@ -1160,6 +1161,7 @@
+ 	struct ca0132_ae5_led ae5_leds[AE5_INTERNAL_LED_COUNT];
+ 	unsigned int ae5_leds_registered;
+ 	bool ae5_led_cache_valid;
++	bool ae5_pm_held;
+ 	u8 ae5_led_colors[AE5_INTERNAL_LED_COUNT][AE5_LED_COLOR_COUNT];
+ 	/* ZxR Control Values */
+ 	unsigned char zxr_gain_set;
+@@ -4027,7 +4029,9 @@
+ 	if (spec->effects_switch[PLAY_ENHANCEMENT - EFFECT_START_NID])
+ 		msleep(50);
+ 
+-	snd_hda_codec_cleanup_stream(codec, spec->dacs[0]);
++	/* Reassigning the AE-5 converter can corrupt its playback stream. */
++	if (ca0132_quirk(spec) != QUIRK_AE5)
++		snd_hda_codec_cleanup_stream(codec, spec->dacs[0]);
+ 
+ 	return 0;
+ }
+@@ -9858,6 +9862,8 @@
+ 	ca0132_exit_chip(codec);
+ 
+ 	snd_hda_power_down(codec);
++	if (spec->ae5_pm_held)
++		pm_runtime_put_noidle(hda_codec_dev(codec));
+ #ifdef CONFIG_PCI
+ 	if (spec->mem_base)
+ 		pci_iounmap(codec->bus->pci, spec->mem_base);
+@@ -10268,6 +10274,12 @@
+ 
+ 	ca0132_setup_unsol(codec);
+ 
++	/* Runtime suspend clears the converter assignment retained above. */
++	if (ca0132_quirk(spec) == QUIRK_AE5) {
++		pm_runtime_get_noresume(hda_codec_dev(codec));
++		spec->ae5_pm_held = true;
++	}
++
+ 	return 0;
+ 
+  error:

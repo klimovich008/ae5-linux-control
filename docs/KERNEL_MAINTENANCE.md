@@ -1,11 +1,11 @@
 # Maintainable AE-5 kernel workflow
 
-> **Current guarded candidate (2026-07-27):** the authoritative
-> `kernel/series` excludes Direct Mode and includes the fail-closed AE-5 OutFX
-> guard. Release `7.1.4-ae5-guarded` was built, non-installingly verified,
-> booted in a cardless full-system guest, and installed side by side on the
-> physical host. The stock Nobara kernel remains the saved/default entry and
-> the guarded candidate is scheduled for one boot through `next_entry`.
+> **Current queue (2026-07-27):** the authoritative `kernel/series` excludes
+> Direct Mode and includes both the fail-closed AE-5 OutFX guard and the
+> qualified stable-playback fix. The installed `7.1.4-ae5-guarded` release
+> predates the final fix and is historical; do not select it for physical
+> testing. Rebuild the current eight-patch queue under a new release name.
+> The stock Nobara kernel remains the running and saved/default entry.
 
 The AE-5 changes are maintained as an ordered patch queue, not as one frozen
 kernel binary. The same queue can be checked against every new kernel source
@@ -26,7 +26,7 @@ patches changes CA0132. The matching `kernel-devel`, `.config`, and
 `Module.symvers` are installed. `CONFIG_SND_HDA_CODEC_CA0132=m`, and Secure
 Boot is disabled.
 
-The current guarded build used:
+The already installed historical guarded build used:
 
 - source RPM SHA-256
   `3c832ad0c6ceacf76c94648d5d2964a338fa9e734c6ca8c09e17ed05dd015fd7`;
@@ -73,7 +73,8 @@ or emulated audio: the guest rebooted into the guarded release, reached
 check` reported no errors.
 
 The exact RPM is installed side by side on the physical host. Installation
-did not reboot or load custom code. The boot-loader state read back as:
+did not reboot or load custom code. At installation time, the boot-loader
+state read back as:
 
 ```text
 saved_entry=fca8dc3f5d9347008f0dfcd322dbdcd8-7.1.4-200.nobara.fc44.x86_64
@@ -82,10 +83,29 @@ default_kernel=/boot/vmlinuz-7.1.4-200.nobara.fc44.x86_64
 running_kernel=7.1.4-200.nobara.fc44.x86_64
 ```
 
-The next ordinary reboot therefore selects the guarded kernel once. The
-saved/default entry remains stock for the boot after that. The first physical
-boot is still an acceptance gate, not proof that the waveform corruption is
-root-cause fixed.
+The obsolete one-shot selection was cleared after the stable-playback fix was
+qualified because this artifact lacks
+`ca0132-ae5-stable-playback-stream.patch`. `next_entry` is now absent, and both
+the saved/default entry and `grubby --default-kernel` resolve to stock
+`7.1.4-200.nobara.fc44.x86_64`. A new build must use a distinct release name
+and pass the full gate below before it is scheduled.
+
+## Current stable-playback queue
+
+The authoritative queue now has eight patches. Against ALSA `for-next`
+`61471f29f3157f33a61194bf82b4a289cc03e1f1`, its series SHA-256 is
+`c0093c53597db2128dfbc24c8375fab34cc3a41608c70e1e6291ec1c2e84151f`
+and aggregate patchset SHA-256 is
+`17decd4c9bc79d20565ca2c94fe00f2a4bcce7853219236c93d3e2be27bfe1a4`.
+The stable-playback patch SHA-256 is
+`26a4599bdab8a75cce5bddb06e4cb3ca2de081706148040b240201df44ad8dc7`.
+
+The queue passed isolated apply/reverse compatibility, `git diff --check`,
+strict checkpatch with no findings for the new patch, and an upstream
+`ca0132.o` build with `W=1 KCFLAGS=-Werror`. The exact Nobara 7.1.4 functional
+candidate passed the same warning gate and physical-card VFIO qualification;
+see
+[`PCM_REOPEN_EVIDENCE.md`](PCM_REOPEN_EVIDENCE.md).
 
 The exact source RPM can be obtained without root:
 
@@ -262,9 +282,11 @@ For every future kernel:
 10. Keep playback at or below 20% for the first physical matrix; validate
    boot stability, signed-module state, LEDs, logs, rejected OutFX enable,
    harmless redundant OutFX-off requests, and a managed persistent S16 stream.
-   Do not test Direct Mode, hardware OutFX enable as a listening mode,
-   hardware EQ/effects, output transitions, or suspend/resume while the
-   PCM-reopen defect remains unresolved.
+   Do not test Direct Mode or hardware OutFX enable as a listening mode.
+   Keep hardware EQ/effects and output transitions blocked until the rebuilt
+   kernel passes its cold-start and analog-output acceptance gate. Treat
+   suspend/resume as a separate bounded test because only runtime PM was
+   qualified in VFIO.
 
 A normal reboot validates the guarded physical boot. A true cold-start test
 requires a later complete shutdown and physical power removal. Keep AE-5

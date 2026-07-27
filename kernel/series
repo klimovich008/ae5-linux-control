@@ -7,3 +7,4 @@ kernel/ca0132-dsp-image-bounds.patch
 kernel/ca0132-ae5-disable-unsafe-outfx.patch
 kernel/ca0132-ae5-onboard-leds.patch
 kernel/ca0132-restore-smart-volume-resume.patch
+kernel/ca0132-ae5-stable-playback-stream.patch

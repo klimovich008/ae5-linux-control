@@ -743,19 +743,16 @@ fn sound_effects_page(
     }
     page.append(&header);
 
-    let profile_heading = gtk::Label::new(Some("Your profiles"));
+    let profile_heading = gtk::Label::new(Some("Saved profiles"));
     profile_heading.set_xalign(0.0);
     profile_heading.add_css_class("mixer-section");
     page.append(&profile_heading);
 
+    // Live hardware state is deliberately not a card here. A card in a row of
+    // appliable profiles reads as "click me to apply", and state is not
+    // appliable; that mismatch is what made the row ambiguous. The active
+    // profile is marked on its own card instead.
     let profile_strip = gtk::Box::new(gtk::Orientation::Horizontal, 12);
-    profile_strip.append(&sound_profile_card(
-        "LIVE",
-        "Current hardware",
-        &format!("{} controls read from the AE-5", controls.len()),
-        None,
-        false,
-    ));
     match profile_library() {
         Ok(library) => {
             for entry in library.profiles {
@@ -763,7 +760,7 @@ fn sound_effects_page(
                 let detail = if active {
                     active_profile_detail(&entry.profile)
                 } else {
-                    format!("{} validated controls", entry.profile.controls.len())
+                    profile_scope_summary(&entry.profile)
                 };
                 let card = sound_profile_card(
                     if active { "ACTIVE" } else { "PROFILE" },
@@ -813,7 +810,7 @@ fn sound_effects_page(
     let profiles = gtk::ScrolledWindow::builder()
         .hscrollbar_policy(gtk::PolicyType::Automatic)
         .vscrollbar_policy(gtk::PolicyType::Never)
-        .min_content_height(148)
+        .min_content_height(174)
         .child(&profile_strip)
         .build();
     profiles.set_widget_name(PERSONAL_PROFILE_CAROUSEL_NAME);
@@ -895,7 +892,7 @@ fn sound_effects_page(
     let defaults = gtk::ScrolledWindow::builder()
         .hscrollbar_policy(gtk::PolicyType::Automatic)
         .vscrollbar_policy(gtk::PolicyType::Never)
-        .min_content_height(148)
+        .min_content_height(174)
         .child(&defaults_strip)
         .build();
     defaults.set_widget_name(BUILTIN_PROFILE_CAROUSEL_NAME);
@@ -951,7 +948,10 @@ fn sound_profile_card(
     active: bool,
 ) -> gtk::Box {
     let card = gtk::Box::new(gtk::Orientation::Vertical, 6);
-    card.set_size_request(178, 126);
+    // Wide enough for a two-line scope sentence and a wrapped title. The card
+    // used to ellipsize its title, which turned real profile names into
+    // "Adventure And Ac..." and made the list unreadable.
+    card.set_size_request(206, 152);
     card.add_css_class("sound-profile-card");
     if active {
         card.add_css_class("sound-profile-card-active");
@@ -963,6 +963,8 @@ fn sound_profile_card(
     let accessible_title = title.to_owned();
     let title = gtk::Label::new(Some(title));
     title.set_xalign(0.0);
+    title.set_wrap(true);
+    title.set_lines(2);
     title.set_ellipsize(gtk::pango::EllipsizeMode::End);
     title.add_css_class("profile-card-title");
     let detail = gtk::Label::new(Some(detail));
@@ -1042,6 +1044,59 @@ fn profile_matches_controls(profile: &Profile, controls: &[ControlSnapshot]) -> 
     })
 }
 
+/// Describe, in words, what applying this profile will change.
+///
+/// The card previously showed a control count, which told the user nothing
+/// about consequence: a ten-band equalizer preset and a profile that rewrites
+/// routing and every effect looked equally harmless. Naming the affected areas
+/// is the difference between an informed click and a guess.
+fn profile_scope_summary(profile: &Profile) -> String {
+    let mut equalizer = 0usize;
+    let mut effects = 0usize;
+    let mut routing = 0usize;
+    let mut other = 0usize;
+
+    for name in profile.controls.keys() {
+        if name.starts_with("EQ Band") {
+            equalizer += 1;
+        } else if name.starts_with("FX: ") || name == "Enable OutFX" {
+            effects += 1;
+        } else if matches!(
+            name.as_str(),
+            "Output Select" | "Input Source" | "Surround Channel Config"
+        ) || name.contains("Auto Detect")
+        {
+            routing += 1;
+        } else {
+            other += 1;
+        }
+    }
+
+    let plural = |count: usize| if count == 1 { "" } else { "s" };
+    let mut parts: Vec<String> = Vec::new();
+    if equalizer > 0 {
+        parts.push(format!("{equalizer} equalizer band{}", plural(equalizer)));
+    }
+    if effects > 0 {
+        parts.push(format!("{effects} effect{}", plural(effects)));
+    }
+    if routing > 0 {
+        parts.push("output routing".to_owned());
+    }
+    if other > 0 {
+        parts.push(format!("{other} more control{}", plural(other)));
+    }
+
+    match parts.len() {
+        0 => "Changes nothing on this card".to_owned(),
+        1 => format!("Changes {}", parts[0]),
+        _ => {
+            let last = parts.pop().unwrap_or_default();
+            format!("Changes {} and {last}", parts.join(", "))
+        }
+    }
+}
+
 fn active_profile_detail(profile: &Profile) -> String {
     let effects = [
         "FX: Surround",
@@ -1087,6 +1142,18 @@ fn active_profile_detail(profile: &Profile) -> String {
     }
 }
 
+/// The user-facing noun for an effect, used in prose rather than headings.
+fn effect_noun(name: &str) -> &str {
+    match name {
+        "FX: X-Bass" => "bass boost",
+        "FX: Dialog Plus" => "dialog enhancement",
+        "FX: Smart Volume" => "levelling",
+        "FX: Crystalizer" => "crystalizer",
+        "FX: Surround" => "surround",
+        other => other.strip_prefix("FX: ").unwrap_or(other),
+    }
+}
+
 fn effect_control_card(
     card_index: i32,
     status: &gtk::Label,
@@ -1094,7 +1161,7 @@ fn effect_control_card(
     all_controls: &[ControlSnapshot],
 ) -> gtk::Box {
     let card = gtk::Box::new(gtk::Orientation::Vertical, 10);
-    card.set_size_request(152, 176);
+    card.set_size_request(158, 198);
     card.add_css_class("effect-card");
 
     let header = gtk::Box::new(gtk::Orientation::Horizontal, 6);
@@ -1123,7 +1190,33 @@ fn effect_control_card(
         let value = gtk::Label::new(Some(&level.value.to_string()));
         value.set_halign(gtk::Align::Center);
         value.add_css_class("effect-dial-value");
+        value.set_tooltip_text(Some(&format!(
+            "{} of {}..{}",
+            level.value, level.min, level.max
+        )));
         card.append(&value);
+
+        // An effect switched on while its level sits at the floor applies
+        // nothing. The card used to show "on" next to "0" and leave the user to
+        // reconcile it; say plainly which one wins.
+        let scale_note = if control.playback_switch == Some(true) && level.value <= level.min {
+            Some(format!(
+                "on, but {} applies nothing",
+                effect_noun(&control.name)
+            ))
+        } else if control.name == "FX: Smart Volume" {
+            Some("night \u{2194} loud".to_owned())
+        } else {
+            None
+        };
+        if let Some(note) = scale_note {
+            let hint = gtk::Label::new(Some(&note));
+            hint.set_halign(gtk::Align::Center);
+            hint.set_wrap(true);
+            hint.set_justify(gtk::Justification::Center);
+            hint.add_css_class("effect-scale-note");
+            card.append(&hint);
+        }
 
         let editor = level_editor(
             card_index,
@@ -3760,6 +3853,56 @@ mod tests {
         ] {
             assert_eq!(rgb_from_rgba(&rgba_from_rgb(color)), color);
         }
+    }
+
+    fn profile_with(names: &[&str]) -> Profile {
+        Profile {
+            format_version: 1,
+            name: "Scope".to_owned(),
+            target: "1102:0012/1102:0051".to_owned(),
+            controls: names
+                .iter()
+                .map(|name| ((*name).to_owned(), ProfileControl::default()))
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn profile_scope_distinguishes_equalizer_presets_from_full_profiles() {
+        // An equalizer-only preset and a routing-plus-effects profile used to
+        // render the same way, so a destructive apply looked harmless.
+        let eq_only = profile_scope_summary(&profile_with(&[
+            "EQ Band0", "EQ Band1", "EQ Band2", "EQ Band3",
+        ]));
+        assert_eq!(eq_only, "Changes 4 equalizer bands");
+        assert!(!eq_only.contains("routing"));
+
+        let full = profile_scope_summary(&profile_with(&[
+            "Output Select",
+            "FX: X-Bass",
+            "FX: Crystalizer",
+            "EQ Band0",
+        ]));
+        assert!(full.contains("output routing"), "{full}");
+        assert!(full.contains("2 effects"), "{full}");
+        assert!(full.contains("1 equalizer band"), "{full}");
+
+        assert_eq!(
+            profile_scope_summary(&profile_with(&[])),
+            "Changes nothing on this card"
+        );
+        // Singular and plural must both read naturally.
+        assert_eq!(
+            profile_scope_summary(&profile_with(&["FX: X-Bass"])),
+            "Changes 1 effect"
+        );
+    }
+
+    #[test]
+    fn effect_nouns_read_as_prose() {
+        assert_eq!(effect_noun("FX: X-Bass"), "bass boost");
+        assert_eq!(effect_noun("FX: Dialog Plus"), "dialog enhancement");
+        assert_eq!(effect_noun("FX: Crystalizer"), "crystalizer");
     }
 
     #[test]

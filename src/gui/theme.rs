@@ -273,6 +273,10 @@ pub fn install_css() {
         .effect-card scale.horizontal {
             min-width: 116px;
         }
+        .effect-scale-note {
+            color: #98a7b7;
+            font-size: 10px;
+        }
         .effect-card-title {
             color: #edf2f7;
             font-size: 13px;

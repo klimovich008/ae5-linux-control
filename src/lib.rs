@@ -28,8 +28,8 @@ pub use lighting::{
 };
 pub use pipewire::{
     NativeRatesConfig, PipeWireNode, PipeWireRouteState, SoftwareEqOutput, ae5_input, ae5_output,
-    ae5_route_state, native_rates_config, set_ae5_default_input, set_ae5_default_output,
-    set_native_rates_enabled, set_software_eq_default_output, software_eq_output,
+    ae5_route_state, apply_software_eq, native_rates_config, set_ae5_default_input,
+    set_ae5_default_output, set_native_rates_enabled, software_eq_output, unload_software_eq,
 };
 pub use profile::{
     ApplyReport, LINUX_DRIVER_DEFAULTS_PRESERVED, Profile, ProfileControl, ProfileError,

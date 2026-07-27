@@ -7,15 +7,16 @@ use ae5_control::{
     LINUX_DRIVER_DEFAULTS_PRESERVED, Level, NativeRatesConfig, ONBOARD_LED_COUNT, PipeWireNode,
     PipeWireRouteState, Profile, ProfileControl, RgbColor, SbCommandImport, SbCommandTarget,
     SoftwareEqOutput, ae5_input, ae5_output, ae5_route_state, apply_linux_driver_defaults,
-    builtin_profiles, capture_control_block_reason, direct_mode_block_reason, disable_eq_chain,
-    discover_sbcommand_installation, enable_eq_chain, eq_chain_config, equalizer_band_block_reason,
-    export_library_profile, front_vmaster_clamp_warning, headphone_playback_issue,
-    import_discovered_sbcommand_profile_with_report, import_sbcommand_profile_with_report,
-    library_profile, native_rates_config, playback_switch_block_reason, profile_library,
-    profile_library_directory, rename_library_profile, set_ae5_default_input,
-    set_ae5_default_output, set_native_rates_enabled, set_saved_led, set_saved_lighting,
-    set_software_eq_default_output, smart_volume_level_block_reason, snapshot_controls,
-    software_eq_output, unsafe_playback_control_block_reason, validate_eq_chain_activation,
+    apply_software_eq, builtin_profiles, capture_control_block_reason, direct_mode_block_reason,
+    disable_eq_chain, discover_sbcommand_installation, enable_eq_chain, eq_chain_config,
+    equalizer_band_block_reason, export_library_profile, front_vmaster_clamp_warning,
+    headphone_playback_issue, import_discovered_sbcommand_profile_with_report,
+    import_sbcommand_profile_with_report, library_profile, native_rates_config,
+    playback_switch_block_reason, profile_library, profile_library_directory,
+    rename_library_profile, set_ae5_default_input, set_ae5_default_output,
+    set_native_rates_enabled, set_saved_led, set_saved_lighting, smart_volume_level_block_reason,
+    snapshot_controls, software_eq_output, unload_software_eq,
+    unsafe_playback_control_block_reason, validate_eq_chain_activation,
     validate_linux_driver_defaults,
 };
 use gtk::gio;
@@ -1880,7 +1881,7 @@ fn software_equalizer_card(
     controls: &[ControlSnapshot],
 ) -> gtk::Box {
     let config = eq_chain_config();
-    let output = software_eq_output();
+    let output = software_eq_output(card_index);
     let physical = ae5_output(card_index);
     let outfx_disabled = controls
         .iter()
@@ -1899,9 +1900,9 @@ fn software_equalizer_card(
     actions.append(&state);
 
     let buttons = gtk::Box::new(gtk::Orientation::Horizontal, 10);
-    let configure = gtk::Button::with_label("Choose profile & install");
+    let configure = gtk::Button::with_label("Choose profile & apply");
     configure.add_css_class("suggested-action");
-    let activate = gtk::Button::with_label("Make desktop default");
+    let activate = gtk::Button::with_label("Apply saved EQ");
     let disable = gtk::Button::with_label("Disable");
 
     let config_ok = config.as_ref().ok();
@@ -1916,23 +1917,19 @@ fn software_equalizer_card(
             && config.signature().as_deref() == live.and_then(|output| output.signature.as_deref())
             && config.target_node.as_deref() == current_target
     });
-    let is_default = live.is_some_and(|output| output.node.is_default);
-
     configure.set_sensitive(config.is_ok() && outfx_disabled);
     if !outfx_disabled {
         configure.set_tooltip_text(Some(
             "Turn OutFX off first so hardware and software effects are not applied together.",
         ));
     }
-    activate.set_sensitive(graph_current && !is_default && outfx_disabled);
-    if is_default {
-        activate.set_label("Desktop default");
-    } else if config_ok.is_some_and(|config| config.enabled) && !graph_current {
-        activate.set_tooltip_text(Some(
-            "Restart PipeWire after installing or updating the software equalizer.",
-        ));
+    activate.set_sensitive(
+        config_ok.is_some_and(|config| config.enabled) && !graph_current && outfx_disabled,
+    );
+    if graph_current {
+        activate.set_label("Applied in place");
     }
-    disable.set_sensitive(config_ok.is_some_and(|config| config.enabled));
+    disable.set_sensitive(config_ok.is_some_and(|config| config.enabled) || live.is_some());
 
     buttons.append(&configure);
     buttons.append(&activate);
@@ -1950,12 +1947,24 @@ fn software_equalizer_card(
             gtk::glib::spawn_future_local(async move {
                 match install_software_eq_profile(&window, card_index).await {
                     Ok(Some(change)) => {
-                        let message = if change.changed {
-                            "Software EQ configuration saved. Restart PipeWire or log in again, then return here and make it the desktop default."
-                        } else {
-                            "That software EQ configuration is already installed."
+                        let message = match activate_software_eq(card_index) {
+                            Ok(output) => format!(
+                                "Software EQ {} and applied inside {}. Automatic preamp: {:+.2} dB.",
+                                if change.changed { "saved" } else { "was already saved" },
+                                output.node.description,
+                                change.config.preamp_db
+                            ),
+                            Err(error) => {
+                                set_status(
+                                    &status,
+                                    false,
+                                    &format!("Software EQ apply failed: {error}"),
+                                );
+                                button.set_sensitive(true);
+                                return;
+                            }
                         };
-                        let _ = refresh_window(&window, Some(message));
+                        let _ = refresh_window(&window, Some(&message));
                     }
                     Ok(None) => button.set_sensitive(true),
                     Err(error) => {
@@ -1980,7 +1989,7 @@ fn software_equalizer_card(
                     let _ = refresh_window(
                         &window,
                         Some(&format!(
-                            "Software EQ is now the desktop default: {}.",
+                            "Software EQ is active inside the existing output: {}.",
                             output.node.description
                         )),
                     );
@@ -2004,9 +2013,9 @@ fn software_equalizer_card(
             match disable_software_eq_safely(card_index) {
                 Ok(change) => {
                     let message = if change.changed {
-                        "Software EQ configuration removed. The physical AE-5 was restored as default when needed; restart PipeWire or log in again to unload the virtual sink."
+                        "Software EQ unloaded from the physical AE-5 and its saved configuration was removed."
                     } else {
-                        "Software EQ was already disabled."
+                        "Software EQ runtime graph was cleared; no saved configuration existed."
                     };
                     let _ = refresh_window(&window, Some(message));
                 }
@@ -2024,8 +2033,8 @@ fn software_equalizer_card(
 
     ae5_control::gui::widgets::profile_card(
         "01",
-        "PipeWire software equalizer",
-        "Phase A processes desktop stereo audio before the physical AE-5. It is pinned to the current AE-5 sink and refuses activation while OutFX is on or the loaded graph is stale.",
+        "PipeWire in-place equalizer",
+        "Phase A processes stereo audio inside the existing physical AE-5 sink, so volume and mute remain single-stage. Response-aware preamp headroom is automatic, and activation is refused while OutFX is on.",
         &actions,
     )
 }
@@ -2039,28 +2048,26 @@ fn software_eq_summary(
     };
     if !config.enabled {
         return if output.is_some() {
-            "Not installed\nA previous virtual sink is still loaded; restart PipeWire to unload it."
+            "Not configured\nAn in-place runtime graph is still marked active; use Disable to clear it."
                 .to_owned()
         } else {
-            "Not installed\nDesktop audio continues directly to the physical output.".to_owned()
+            "Not configured\nDesktop audio uses the physical output without software EQ.".to_owned()
         };
     }
 
     let target = config.target_node.as_deref().unwrap_or("unavailable");
     match output {
-        None => {
-            format!("Installed for {target}\nNot loaded yet — restart PipeWire or log in again.")
-        }
+        None => format!(
+            "Saved for {target}\nNot applied in this PipeWire session · automatic preamp {:+.2} dB.",
+            config.preamp_db
+        ),
         Some(output) if config.signature().as_deref() != output.signature.as_deref() => format!(
-            "Installed for {target}\nThe loaded graph is older than this configuration — restart PipeWire."
+            "Saved for {target}\nA different runtime graph is active · automatic preamp {:+.2} dB.",
+            config.preamp_db
         ),
         Some(output) => format!(
-            "Installed for {target}\nLoaded and {}.",
-            if output.node.is_default {
-                "used by desktop audio"
-            } else {
-                "ready to make default"
-            }
+            "Applied in place to {} · one volume stage · automatic preamp {:+.2} dB.",
+            output.node.description, config.preamp_db
         ),
     }
 }
@@ -2089,26 +2096,20 @@ fn activate_software_eq(card_index: i32) -> Result<SoftwareEqOutput, String> {
     let physical = ae5_output(card_index)
         .map_err(|error| error.to_string())?
         .ok_or_else(|| "PipeWire has no physical AE-5 output".to_owned())?;
-    let loaded = software_eq_output()
+    validate_eq_chain_activation(&config, &controls, &physical.node_name)
+        .map_err(|error| error.to_string())?;
+    let graph = config
+        .filter_graph()
         .map_err(|error| error.to_string())?
-        .ok_or_else(|| "the software EQ sink is not loaded".to_owned())?;
-    validate_eq_chain_activation(
-        &config,
-        &controls,
-        &physical.node_name,
-        loaded.signature.as_deref(),
-    )
-    .map_err(|error| error.to_string())?;
-    set_software_eq_default_output(card_index).map_err(|error| error.to_string())
+        .ok_or_else(|| "the saved software EQ has no graph".to_owned())?;
+    let signature = config
+        .signature()
+        .ok_or_else(|| "the saved software EQ has no signature".to_owned())?;
+    apply_software_eq(card_index, &graph, &signature).map_err(|error| error.to_string())
 }
 
 fn disable_software_eq_safely(card_index: i32) -> Result<EqChainChange, String> {
-    if software_eq_output()
-        .map_err(|error| error.to_string())?
-        .is_some_and(|output| output.node.is_default)
-    {
-        set_ae5_default_output(card_index).map_err(|error| error.to_string())?;
-    }
+    unload_software_eq(card_index).map_err(|error| error.to_string())?;
     disable_eq_chain().map_err(|error| error.to_string())
 }
 
@@ -4814,27 +4815,26 @@ mod tests {
     #[test]
     fn software_eq_summary_requires_the_current_graph_before_activation() {
         let config = EqChainConfig {
-            path: PathBuf::from("/tmp/92-ae5-control-eq.conf"),
+            path: PathBuf::from("/tmp/software-eq.state"),
             enabled: true,
             bands: Vec::new(),
             target_node: Some("alsa_output.pci-ae5.analog-stereo".to_owned()),
+            preamp_db: -10.25,
         };
-        assert!(software_eq_summary(Some(&config), None).contains("Not loaded yet"));
+        assert!(software_eq_summary(Some(&config), None).contains("Not applied"));
 
         let output = SoftwareEqOutput {
             node: PipeWireNode {
                 id: 91,
-                node_name: "ae5_software_equalizer".to_owned(),
-                description: "AE-5 Software Equalizer".to_owned(),
+                node_name: "alsa_output.pci-ae5.analog-stereo".to_owned(),
+                description: "Creative Sound BlasterX AE-5".to_owned(),
                 is_default: true,
                 volume_percent: Some(30),
                 muted: Some(false),
             },
             signature: config.signature(),
         };
-        assert!(
-            software_eq_summary(Some(&config), Some(&output)).contains("used by desktop audio")
-        );
+        assert!(software_eq_summary(Some(&config), Some(&output)).contains("Applied in place"));
     }
 
     #[test]

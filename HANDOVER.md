@@ -85,9 +85,9 @@ Working on the target host:
 - PipeWire software volume and explicit route health/repair;
 - native profiles, retained imported effect metadata, and a guarded PipeWire
   software-EQ path; unsafe hardware output effects are not applied;
-- guarded PipeWire software-EQ generation, graph-signature verification, and
-  explicit default-sink activation with fail-closed volume/mute transfer in
-  both directions;
+- guarded in-place PipeWire software-EQ generation, response-aware automatic
+  preamp, runtime graph-signature verification, and suspend/load/resume on the
+  existing physical sink; no virtual sink or second volume stage is used;
 - exact-target, fail-closed track-transition stress, a client-owned in-place
   PipeWire renegotiation probe, and HDA-position trace tooling, implemented
   and self-tested but not yet run on S32;
@@ -215,9 +215,10 @@ not equivalent to Linux's rejected CA0132 hardware control.
 If effects appear inactive, do not toggle hardware OutFX or reapply hardware
 effect controls. Preserve logs and mixer readback, keep the physical output
 muted, verify the persistent-playback rule, and inspect the PipeWire software
-effects graph. Software-EQ activation copies and verifies the current
-PipeWire volume and mute state before changing the default sink; an unknown or
-mismatched readback must block activation.
+effects graph. Software-EQ activation must leave the physical sink as the
+desktop default and keep its existing volume/mute state. A missing
+`audioconvert.filter-graph.N` capability, stale target, active OutFX, or
+runtime-signature mismatch must block or roll back activation.
 
 ## Development-host snapshot
 
@@ -239,7 +240,7 @@ Listening output:  motherboard line out
 Headphone gain:    Low
 Direct Mode:       unavailable on the stock kernel
 OutFX:             off
-Software EQ:       not installed in the real per-user PipeWire configuration
+Software EQ:       runtime unloaded; managed state absent after full-graph probe
 Playback PCMs:     closed
 Audio services:    PipeWire, PipeWire Pulse, and WirePlumber active
 System VMs:        both powered off; Windows domain has no hostdev
@@ -333,7 +334,7 @@ physical cold-boot/suspend gate.
 
 The latest checkpoint passed:
 
-- Rust formatting, strict Clippy, and all tests;
+- Rust formatting, strict Clippy, release build, and 125 GUI-enabled tests;
 - ACP and 54-row feature-ledger validators;
 - audio-parity self-test;
 - fail-closed stable-playback instrument self-test and a 22/22 clean
@@ -347,8 +348,8 @@ The latest checkpoint passed:
 |---|---|
 | `src/device.rs` | Exact PCI/subsystem and ALSA-card discovery |
 | `src/controls.rs` | Typed ALSA controls, guards, route repair |
-| `src/pipewire.rs` | PipeWire discovery, profiles, routes, suspension |
-| `src/eq_chain.rs` | Managed ten-band PipeWire software-EQ graph |
+| `src/pipewire.rs` | PipeWire discovery, profiles, routes, suspension, direct graph load/unload |
+| `src/eq_chain.rs` | Managed ten-band software EQ and automatic-headroom response model |
 | `src/profile*.rs` | Native profiles and profile library |
 | `src/sbcommand.rs` | Bounded Windows settings interoperability |
 | `src/bin/ae5-control.rs` | GTK 4 application |

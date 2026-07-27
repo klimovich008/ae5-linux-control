@@ -10,11 +10,15 @@ pub const EQ_FREQUENCIES: [u32; 10] = [31, 62, 125, 250, 500, 1000, 2000, 4000, 
 const EQ_Q: f64 = 1.4;
 const PIPEWIRE_MAX_GAIN_DB: f64 = 20.0;
 const PIPEWIRE_MIN_GAIN_DB: f64 = -120.0;
-const CONFIG_FILE: &str = "92-ae5-control-eq.conf";
+const PIPEWIRE_RATES: [f64; 3] = [44_100.0, 48_000.0, 96_000.0];
+const RESPONSE_STEPS: usize = 65_536;
+const AUTO_HEADROOM_MARGIN_DB: f64 = 0.25;
+const CONFIG_FILE: &str = "software-eq.state";
 const MANAGED_HEADER: &str = "# Managed by AE-5 Control.\n";
+const FORMAT_LINE: &str = "# Format: direct-filter-v1\n";
 const GAINS_PREFIX: &str = "# EQ gains (dB): [ ";
 const TARGET_PREFIX: &str = "# Target: ";
-const SIGNATURE_PROPERTY: &str = "ae5.control.eq.signature";
+const PREAMP_PREFIX: &str = "# Automatic preamp (dB): ";
 static NEXT_TEMP_FILE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Debug, PartialEq)]
@@ -30,6 +34,7 @@ pub struct EqChainConfig {
     pub enabled: bool,
     pub bands: Vec<EqBand>,
     pub target_node: Option<String>,
+    pub preamp_db: f64,
 }
 
 impl EqChainConfig {
@@ -39,7 +44,22 @@ impl EqChainConfig {
         }
         self.target_node
             .as_deref()
-            .map(|target| eq_chain_signature(&self.bands, target))
+            .map(|target| eq_chain_signature(&self.bands, target, self.preamp_db))
+    }
+
+    pub fn filter_graph(&self) -> Result<Option<String>, EqChainError> {
+        if !self.enabled {
+            return Ok(None);
+        }
+        let graph = render_filter_graph(&self.bands)?;
+        let expected = automatic_preamp_db(&self.bands)?;
+        if self.preamp_db != expected {
+            return Err(EqChainError::Invalid(format!(
+                "saved software equalizer preamp {:+.2} dB does not match the required {:+.2} dB",
+                self.preamp_db, expected
+            )));
+        }
+        Ok(Some(graph))
     }
 }
 
@@ -156,11 +176,10 @@ pub fn validate_eq_chain_activation(
     config: &EqChainConfig,
     controls: &[ControlSnapshot],
     target_node: &str,
-    loaded_signature: Option<&str>,
 ) -> Result<(), EqChainError> {
     if !config.enabled {
         return Err(EqChainError::Invalid(
-            "install the software equalizer before making it the desktop default".to_owned(),
+            "save a software equalizer profile before applying it".to_owned(),
         ));
     }
     if config.target_node.as_deref() != Some(target_node) {
@@ -169,12 +188,7 @@ pub fn validate_eq_chain_activation(
             config.target_node.as_deref().unwrap_or("no PipeWire node")
         )));
     }
-    if config.signature().as_deref() != loaded_signature {
-        return Err(EqChainError::Invalid(
-            "PipeWire has not loaded the current software equalizer configuration; restart PipeWire before making it the desktop default"
-                .to_owned(),
-        ));
-    }
+    config.filter_graph()?;
     require_outfx_disabled(controls)
 }
 
@@ -187,77 +201,61 @@ fn render_config(bands: &[EqBand], target_node: &str) -> Result<String, EqChainE
         .map(|band| format_gain(band.gain_db))
         .collect::<Vec<_>>()
         .join(" ");
-    let signature = eq_chain_signature(bands, target_node);
-    let mut output = format!(
-        "{MANAGED_HEADER}{GAINS_PREFIX}{gains} ]\n{TARGET_PREFIX}{target_node}\ncontext.modules = [\n"
-    );
-    output.push_str(
-        "  { name = libpipewire-module-filter-chain\n\
-         \x20   args = {\n\
-         \x20     node.description = \"AE-5 Software Equalizer\"\n\
-         \x20     filter.graph = {\n\
-         \x20       nodes = [\n",
-    );
+    let preamp_db = automatic_preamp_db(bands)?;
+    Ok(format!(
+        "{MANAGED_HEADER}{FORMAT_LINE}{GAINS_PREFIX}{gains} ]\n\
+         {TARGET_PREFIX}{target_node}\n\
+         {PREAMP_PREFIX}{}\n",
+        format_gain(preamp_db)
+    ))
+}
+
+fn render_filter_graph(bands: &[EqBand]) -> Result<String, EqChainError> {
+    validate_bands(bands)?;
+    let preamp_db = automatic_preamp_db(bands)?;
+    let multiplier = 10.0_f64.powf(preamp_db / 20.0);
+    let mut output = String::from("{ nodes = [\n");
+    for channel in ['L', 'R'] {
+        output.push_str(&format!(
+            "  {{ type = builtin name = pre{channel} label = linear \
+             control = {{ Mult = {} Add = 0.0 }} }}\n",
+            format_multiplier(multiplier)
+        ));
+    }
     for channel in ['L', 'R'] {
         for (index, band) in bands.iter().enumerate() {
             output.push_str(&format!(
-                "          {{ type = builtin name = eq{channel}{index} label = bq_peaking\n\
-                 \x20           control = {{ Freq = {} Q = {:.1} Gain = {} }} }}\n",
+                "  {{ type = builtin name = eq{channel}{index} label = bq_peaking \
+                 control = {{ Freq = {} Q = {:.1} Gain = {} }} }}\n",
                 band.frequency,
                 band.q,
                 format_gain(band.gain_db)
             ));
         }
     }
-    output.push_str("        ]\n        links = [\n");
+    output.push_str("] links = [\n");
     for channel in ['L', 'R'] {
+        output.push_str(&format!(
+            "  {{ output = \"pre{channel}:Out\" input = \"eq{channel}0:In\" }}\n"
+        ));
         for index in 0..bands.len() - 1 {
             output.push_str(&format!(
-                "          {{ output = \"eq{channel}{index}:Out\" input = \"eq{channel}{}:In\" }}\n",
+                "  {{ output = \"eq{channel}{index}:Out\" input = \"eq{channel}{}:In\" }}\n",
                 index + 1
             ));
         }
     }
     output.push_str(
-        "        ]\n\
-         \x20       inputs  = [ \"eqL0:In\" \"eqR0:In\" ]\n\
-         \x20       outputs = [ \"eqL9:Out\" \"eqR9:Out\" ]\n\
-         \x20     }\n\
-         \x20     capture.props = {\n\
-         \x20       node.name = \"ae5_software_equalizer\"\n\
-         \x20       ",
-    );
-    output.push_str(SIGNATURE_PROPERTY);
-    output.push_str(" = \"");
-    output.push_str(&signature);
-    output.push_str(
-        "\"\n\
-         \x20       media.class = Audio/Sink\n\
-         \x20       audio.channels = 2\n\
-         \x20       audio.position = [ FL FR ]\n\
-         \x20     }\n\
-         \x20     playback.props = {\n\
-         \x20       node.name = \"ae5_software_equalizer_output\"\n\
-         \x20       target.object = \"",
-    );
-    output.push_str(target_node);
-    output.push_str(
-        "\"\n\
-         \x20       node.passive = true\n\
-         \x20       node.dont-fallback = true\n\
-         \x20       audio.channels = 2\n\
-         \x20       audio.position = [ FL FR ]\n\
-         \x20     }\n\
-         \x20   }\n\
-         \x20 }\n\
-         ]\n",
+        "] inputs = [ \"preL:In\" \"preR:In\" ] \
+         outputs = [ \"eqL9:Out\" \"eqR9:Out\" ] }\n",
     );
     Ok(output)
 }
 
-fn eq_chain_signature(bands: &[EqBand], target_node: &str) -> String {
+fn eq_chain_signature(bands: &[EqBand], target_node: &str, preamp_db: f64) -> String {
     format!(
-        "{target_node}|{}",
+        "direct-v1|{target_node}|{}|{}",
+        format_gain(preamp_db),
         bands
             .iter()
             .map(|band| format_gain(band.gain_db))
@@ -378,22 +376,96 @@ fn format_gain(gain: f64) -> String {
     }
 }
 
+fn format_multiplier(multiplier: f64) -> String {
+    let formatted = format!("{multiplier:.9}");
+    let trimmed = formatted.trim_end_matches('0').trim_end_matches('.');
+    if trimmed.contains('.') {
+        trimmed.to_owned()
+    } else {
+        format!("{trimmed}.0")
+    }
+}
+
+fn automatic_preamp_db(bands: &[EqBand]) -> Result<f64, EqChainError> {
+    let peak_db = maximum_response_db(bands)?;
+    if peak_db <= 0.0 {
+        return Ok(0.0);
+    }
+    Ok(-((peak_db + AUTO_HEADROOM_MARGIN_DB) * 100.0).ceil() / 100.0)
+}
+
+fn maximum_response_db(bands: &[EqBand]) -> Result<f64, EqChainError> {
+    validate_bands(bands)?;
+    let mut maximum = 0.0_f64;
+    for sample_rate in PIPEWIRE_RATES {
+        let nyquist = sample_rate / 2.0;
+        for step in 0..=RESPONSE_STEPS {
+            let frequency = nyquist * step as f64 / RESPONSE_STEPS as f64;
+            maximum = maximum.max(cascade_response_db(bands, sample_rate, frequency));
+        }
+        for band in bands {
+            maximum = maximum.max(cascade_response_db(
+                bands,
+                sample_rate,
+                f64::from(band.frequency),
+            ));
+        }
+    }
+    if !maximum.is_finite() {
+        return Err(EqChainError::Invalid(
+            "equalizer response calculation produced a non-finite peak".to_owned(),
+        ));
+    }
+    Ok(maximum)
+}
+
+fn cascade_response_db(bands: &[EqBand], sample_rate: f64, frequency: f64) -> f64 {
+    bands
+        .iter()
+        .map(|band| peaking_response_db(band, sample_rate, frequency))
+        .sum()
+}
+
+fn peaking_response_db(band: &EqBand, sample_rate: f64, frequency: f64) -> f64 {
+    let centre = 2.0 * std::f64::consts::PI * f64::from(band.frequency) / sample_rate;
+    let alpha = centre.sin() / (2.0 * band.q);
+    let amplitude = 10.0_f64.powf(band.gain_db / 40.0);
+    let a0 = 1.0 + alpha / amplitude;
+    let b0 = (1.0 + alpha * amplitude) / a0;
+    let b1 = -2.0 * centre.cos() / a0;
+    let b2 = (1.0 - alpha * amplitude) / a0;
+    let a1 = b1;
+    let a2 = (1.0 - alpha / amplitude) / a0;
+
+    let omega = 2.0 * std::f64::consts::PI * frequency / sample_rate;
+    let cosine = omega.cos();
+    let sine = omega.sin();
+    let cosine2 = (2.0 * omega).cos();
+    let sine2 = (2.0 * omega).sin();
+    let numerator_real = b0 + b1 * cosine + b2 * cosine2;
+    let numerator_imaginary = -b1 * sine - b2 * sine2;
+    let denominator_real = 1.0 + a1 * cosine + a2 * cosine2;
+    let denominator_imaginary = -a1 * sine - a2 * sine2;
+    let numerator_power =
+        numerator_real * numerator_real + numerator_imaginary * numerator_imaginary;
+    let denominator_power =
+        denominator_real * denominator_real + denominator_imaginary * denominator_imaginary;
+    10.0 * (numerator_power / denominator_power).log10()
+}
+
 fn eq_chain_path() -> Result<PathBuf, EqChainError> {
     if let Some(path) = env::var_os("XDG_CONFIG_HOME")
         .filter(|path| !path.is_empty())
         .map(PathBuf::from)
         .filter(|path| path.is_absolute())
     {
-        return Ok(path.join("pipewire/pipewire.conf.d").join(CONFIG_FILE));
+        return Ok(path.join("ae5-control").join(CONFIG_FILE));
     }
     env::var_os("HOME")
         .filter(|path| !path.is_empty())
         .map(PathBuf::from)
         .filter(|path| path.is_absolute())
-        .map(|path| {
-            path.join(".config/pipewire/pipewire.conf.d")
-                .join(CONFIG_FILE)
-        })
+        .map(|path| path.join(".config/ae5-control").join(CONFIG_FILE))
         .ok_or_else(|| {
             EqChainError::Io(io::Error::new(
                 io::ErrorKind::NotFound,
@@ -405,12 +477,13 @@ fn eq_chain_path() -> Result<PathBuf, EqChainError> {
 fn eq_chain_config_at(path: &Path) -> Result<EqChainConfig, EqChainError> {
     match fs::read_to_string(path) {
         Ok(contents) => {
-            let (bands, target_node) = parse_managed_config(path, &contents)?;
+            let (bands, target_node, preamp_db) = parse_managed_config(path, &contents)?;
             Ok(EqChainConfig {
                 path: path.to_owned(),
                 enabled: true,
                 bands,
                 target_node,
+                preamp_db,
             })
         }
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(EqChainConfig {
@@ -418,6 +491,7 @@ fn eq_chain_config_at(path: &Path) -> Result<EqChainConfig, EqChainError> {
             enabled: false,
             bands: Vec::new(),
             target_node: None,
+            preamp_db: 0.0,
         }),
         Err(error) => Err(error.into()),
     }
@@ -426,10 +500,10 @@ fn eq_chain_config_at(path: &Path) -> Result<EqChainConfig, EqChainError> {
 fn parse_managed_config(
     path: &Path,
     contents: &str,
-) -> Result<(Vec<EqBand>, Option<String>), EqChainError> {
+) -> Result<(Vec<EqBand>, Option<String>, f64), EqChainError> {
     let gains = contents
         .lines()
-        .nth(1)
+        .nth(2)
         .and_then(|line| line.strip_prefix(GAINS_PREFIX))
         .and_then(|line| line.strip_suffix(" ]"))
         .ok_or_else(|| foreign_config(path))?
@@ -447,13 +521,19 @@ fn parse_managed_config(
         .collect::<Vec<_>>();
     let target_node = contents
         .lines()
-        .nth(2)
+        .nth(3)
         .and_then(|line| line.strip_prefix(TARGET_PREFIX))
+        .ok_or_else(|| foreign_config(path))?;
+    let preamp_db = contents
+        .lines()
+        .nth(4)
+        .and_then(|line| line.strip_prefix(PREAMP_PREFIX))
+        .and_then(|value| value.parse::<f64>().ok())
         .ok_or_else(|| foreign_config(path))?;
     if render_config(&bands, target_node).ok().as_deref() != Some(contents) {
         return Err(foreign_config(path));
     }
-    Ok((bands, Some(target_node.to_owned())))
+    Ok((bands, Some(target_node.to_owned()), preamp_db))
 }
 
 fn foreign_config(path: &Path) -> EqChainError {
@@ -609,7 +689,7 @@ mod tests {
                 std::process::id(),
                 NEXT_TEST_DIRECTORY.fetch_add(1, Ordering::Relaxed)
             ))
-            .join("92-ae5-control-eq.conf")
+            .join(CONFIG_FILE)
     }
 
     #[test]
@@ -654,11 +734,12 @@ mod tests {
 
     #[test]
     fn generated_config_is_accepted_by_pipewire_config_parser_when_available() {
-        let path = test_path();
+        let path = test_path().with_file_name("graph.conf");
         fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let graph = render_filter_graph(&flat_bands()).unwrap();
         fs::write(
             &path,
-            render_config(&flat_bands(), "alsa_output.pci-ae5.analog-stereo").unwrap(),
+            format!("context.properties = {{ ae5.test.graph = {graph} }}\n"),
         )
         .unwrap();
 
@@ -726,7 +807,8 @@ mod tests {
     #[test]
     fn rendered_chain_targets_the_physical_ae5_sink() {
         let config = render_config(&flat_bands(), "alsa_output.pci-ae5.analog-stereo").unwrap();
-        assert!(config.contains("target.object = \"alsa_output.pci-ae5.analog-stereo\""));
+        assert!(config.contains("# Target: alsa_output.pci-ae5.analog-stereo"));
+        assert!(!config.contains("target.object"));
     }
 
     #[test]
@@ -757,37 +839,31 @@ mod tests {
             enabled: true,
             bands: flat_bands(),
             target_node: Some("alsa_output.old-profile".to_owned()),
+            preamp_db: 0.0,
         };
 
-        let error = validate_eq_chain_activation(
-            &config,
-            &live_controls(),
-            "alsa_output.current-profile",
-            config.signature().as_deref(),
-        )
-        .unwrap_err();
+        let error =
+            validate_eq_chain_activation(&config, &live_controls(), "alsa_output.current-profile")
+                .unwrap_err();
 
         assert!(error.to_string().contains("reinstall it"));
     }
 
     #[test]
-    fn activation_rejects_a_graph_that_has_not_reloaded() {
+    fn activation_rejects_stale_automatic_preamp_state() {
         let config = EqChainConfig {
             path: test_path(),
             enabled: true,
             bands: flat_bands(),
             target_node: Some("alsa_output.current-profile".to_owned()),
+            preamp_db: -1.0,
         };
 
-        let error = validate_eq_chain_activation(
-            &config,
-            &live_controls(),
-            "alsa_output.current-profile",
-            Some("stale"),
-        )
-        .unwrap_err();
+        let error =
+            validate_eq_chain_activation(&config, &live_controls(), "alsa_output.current-profile")
+                .unwrap_err();
 
-        assert!(error.to_string().contains("restart PipeWire"));
+        assert!(error.to_string().contains("required"));
     }
 
     #[test]
@@ -797,15 +873,11 @@ mod tests {
             enabled: true,
             bands: flat_bands(),
             target_node: Some("alsa_output.current-profile".to_owned()),
+            preamp_db: 0.0,
         };
 
-        validate_eq_chain_activation(
-            &config,
-            &live_controls(),
-            "alsa_output.current-profile",
-            config.signature().as_deref(),
-        )
-        .unwrap();
+        validate_eq_chain_activation(&config, &live_controls(), "alsa_output.current-profile")
+            .unwrap();
     }
 
     #[test]
@@ -817,5 +889,49 @@ mod tests {
         .unwrap_err();
 
         assert!(error.to_string().contains("unsupported characters"));
+    }
+
+    #[test]
+    fn flat_equalizer_needs_no_automatic_preamp() {
+        assert_eq!(automatic_preamp_db(&flat_bands()).unwrap(), 0.0);
+    }
+
+    #[test]
+    fn automatic_preamp_covers_a_single_boost_and_margin() {
+        let mut bands = flat_bands();
+        bands[5].gain_db = 10.0;
+
+        let preamp = automatic_preamp_db(&bands).unwrap();
+
+        assert!((-10.27..=-10.25).contains(&preamp), "{preamp}");
+    }
+
+    #[test]
+    fn automatic_preamp_keeps_the_imported_curve_below_full_scale() {
+        let bands = bands_from_profile(
+            &profile_with([33, 30, 34, 24, 25, 22, 24, 21, 24, 25]),
+            &live_controls(),
+        )
+        .unwrap();
+        let preamp = automatic_preamp_db(&bands).unwrap();
+        let peak = maximum_response_db(&bands).unwrap();
+
+        assert!(preamp < -10.0, "{preamp}");
+        assert!(peak + preamp <= -0.24, "peak={peak} preamp={preamp}");
+    }
+
+    #[test]
+    fn direct_graph_has_headroom_and_no_virtual_sink() {
+        let mut bands = flat_bands();
+        bands[5].gain_db = 10.0;
+
+        let graph = render_filter_graph(&bands).unwrap();
+
+        assert!(graph.contains("name = preL label = linear"));
+        assert!(graph.contains("name = preR label = linear"));
+        assert!(graph.contains("preL:Out"));
+        assert!(graph.contains("inputs = [ \"preL:In\" \"preR:In\" ]"));
+        assert!(!graph.contains("libpipewire-module-filter-chain"));
+        assert!(!graph.contains("target.object"));
     }
 }

@@ -14,8 +14,9 @@ context.properties = {
 }
 ";
 const AE5_PROFILE_SET: &str = "sound-blaster-ae5.conf";
-const SOFTWARE_EQ_NODE_NAME: &str = "ae5_software_equalizer";
 const SOFTWARE_EQ_SIGNATURE_PROPERTY: &str = "ae5.control.eq.signature";
+const SOFTWARE_EQ_METADATA_NAME: &str = "settings";
+const DIRECT_FILTER_PARAMETER: &str = "audioconvert.filter-graph.0";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PipeWireNode {
@@ -181,22 +182,6 @@ pub fn ae5_input(card_index: i32) -> io::Result<Option<PipeWireNode>> {
 }
 
 pub fn set_ae5_default_output(card_index: i32) -> io::Result<PipeWireNode> {
-    if let Some(equalizer) = software_eq_output()?.filter(|output| output.node.is_default) {
-        let physical = ae5_output(card_index)?.ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::NotFound,
-                format!("PipeWire has no playback output for ALSA card {card_index}"),
-            )
-        })?;
-        let level = transfer_node_level(&equalizer.node, &physical)?;
-        let physical = ae5_output(card_index)?.ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::NotFound,
-                format!("PipeWire lost the playback output for ALSA card {card_index}"),
-            )
-        })?;
-        require_node_level(&physical, level)?;
-    }
     set_ae5_default_node(card_index, "sinks", "playback output")
 }
 
@@ -204,42 +189,77 @@ pub fn set_ae5_default_input(card_index: i32) -> io::Result<PipeWireNode> {
     set_ae5_default_node(card_index, "sources", "recording input")
 }
 
-pub fn software_eq_output() -> io::Result<Option<SoftwareEqOutput>> {
-    named_node("sinks", SOFTWARE_EQ_NODE_NAME)
+pub fn software_eq_output(card_index: i32) -> io::Result<Option<SoftwareEqOutput>> {
+    let Some(node) = ae5_output(card_index)? else {
+        return Ok(None);
+    };
+    Ok(
+        software_eq_signature(node.id)?.map(|signature| SoftwareEqOutput {
+            node,
+            signature: Some(signature),
+        }),
+    )
 }
 
-pub fn set_software_eq_default_output(card_index: i32) -> io::Result<SoftwareEqOutput> {
-    let output = software_eq_output()?.ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::NotFound,
-            "the AE-5 software equalizer is not loaded; restart PipeWire after installing it",
-        )
-    })?;
-    if output.node.is_default {
-        return Ok(output);
+pub fn apply_software_eq(
+    card_index: i32,
+    graph: &str,
+    signature: &str,
+) -> io::Result<SoftwareEqOutput> {
+    if graph.is_empty() || signature.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "software equalizer graph and signature must not be empty",
+        ));
     }
-    let physical = ae5_output(card_index)?.ok_or_else(|| {
+    let output = ae5_output(card_index)?.ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::NotFound,
             format!("PipeWire has no playback output for ALSA card {card_index}"),
         )
     })?;
-    let level = transfer_node_level(&physical, &output.node)?;
-    let output = software_eq_output()?.ok_or_else(|| {
+    require_direct_filter_support(output.id)?;
+    let suspended = suspend_ae5_output(card_index)?;
+    set_direct_filter(output.id, graph)?;
+    if let Err(error) = set_software_eq_signature(output.id, Some(signature))
+        .and_then(|_| require_software_eq_signature(output.id, Some(signature)))
+    {
+        let _ = set_direct_filter(output.id, "");
+        let _ = set_software_eq_signature(output.id, None);
+        return Err(error);
+    }
+    suspended.resume()?;
+    let node = ae5_output(card_index)?.ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::NotFound,
-            "PipeWire lost the software equalizer while copying its safe output level",
+            "PipeWire lost the AE-5 output after loading the software equalizer",
         )
     })?;
-    require_node_level(&output.node, level)?;
-    run_wpctl(&["set-default", &output.node.id.to_string()])?;
-    let output = software_eq_output()?
-        .filter(|output| output.node.is_default)
-        .ok_or_else(|| {
-            io::Error::other("PipeWire did not retain the software equalizer default")
-        })?;
-    require_node_level(&output.node, level)?;
-    Ok(output)
+    Ok(SoftwareEqOutput {
+        node,
+        signature: Some(signature.to_owned()),
+    })
+}
+
+pub fn unload_software_eq(card_index: i32) -> io::Result<PipeWireNode> {
+    let output = ae5_output(card_index)?.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("PipeWire has no playback output for ALSA card {card_index}"),
+        )
+    })?;
+    require_direct_filter_support(output.id)?;
+    let suspended = suspend_ae5_output(card_index)?;
+    set_direct_filter(output.id, "")?;
+    set_software_eq_signature(output.id, None)?;
+    require_software_eq_signature(output.id, None)?;
+    suspended.resume()?;
+    ae5_output(card_index)?.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            "PipeWire lost the AE-5 output after unloading the software equalizer",
+        )
+    })
 }
 
 pub(crate) fn suspend_ae5_output(card_index: i32) -> io::Result<SuspendedAe5Output> {
@@ -419,31 +439,7 @@ fn ae5_node(card_index: i32, nodes: &str) -> io::Result<Option<PipeWireNode>> {
     Ok(fallback)
 }
 
-fn named_node(nodes: &str, target_name: &str) -> io::Result<Option<SoftwareEqOutput>> {
-    let status = run_wpctl(&["status", "-n"])?;
-    let mut matched = None;
-    for listing in parse_status_node_list(&status, nodes) {
-        let details = run_wpctl(&["inspect", &listing.id.to_string()])?;
-        let Some(node) = node_from_details(listing, &details) else {
-            continue;
-        };
-        if node.node_name != target_name {
-            continue;
-        }
-        let output = SoftwareEqOutput {
-            node,
-            signature: property(&details, SOFTWARE_EQ_SIGNATURE_PROPERTY),
-        };
-        if matched.replace(output).is_some() {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("PipeWire has duplicate nodes named '{target_name}'"),
-            ));
-        }
-    }
-    Ok(matched)
-}
-
+#[cfg(test)]
 fn node_from_details(listing: NodeListing, details: &str) -> Option<PipeWireNode> {
     let node_name = property(details, "node.name")?;
     Some(PipeWireNode {
@@ -454,62 +450,6 @@ fn node_from_details(listing: NodeListing, details: &str) -> Option<PipeWireNode
         volume_percent: listing.volume_percent,
         muted: listing.muted,
     })
-}
-
-fn transfer_node_level(source: &PipeWireNode, target: &PipeWireNode) -> io::Result<(u16, bool)> {
-    let level = node_level(source)?;
-    run_wpctl(&[
-        "set-volume",
-        &target.id.to_string(),
-        &format!("{}%", level.0),
-    ])?;
-    run_wpctl(&[
-        "set-mute",
-        &target.id.to_string(),
-        if level.1 { "1" } else { "0" },
-    ])?;
-    Ok(level)
-}
-
-fn node_level(node: &PipeWireNode) -> io::Result<(u16, bool)> {
-    let volume = node.volume_percent.ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!(
-                "PipeWire did not report the volume of '{}' ({})",
-                node.description, node.node_name
-            ),
-        )
-    })?;
-    let muted = node.muted.ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!(
-                "PipeWire did not report the mute state of '{}' ({})",
-                node.description, node.node_name
-            ),
-        )
-    })?;
-    Ok((volume, muted))
-}
-
-fn require_node_level(node: &PipeWireNode, expected: (u16, bool)) -> io::Result<()> {
-    let actual = node_level(node)?;
-    if actual != expected {
-        return Err(io::Error::other(format!(
-            "PipeWire did not retain the safe output level for '{}' (expected {}% {}, read back {}% {})",
-            node.description,
-            expected.0,
-            mute_label(expected.1),
-            actual.0,
-            mute_label(actual.1),
-        )));
-    }
-    Ok(())
-}
-
-fn mute_label(muted: bool) -> &'static str {
-    if muted { "muted" } else { "unmuted" }
 }
 
 #[derive(Debug)]
@@ -846,6 +786,101 @@ fn single_param_name(
         })
 }
 
+fn require_direct_filter_support(node_id: u32) -> io::Result<()> {
+    let output = run_pw_cli(&["enum-params", &node_id.to_string(), "PropInfo"])?;
+    if output.contains(r#"String "audioconvert.filter-graph.N""#) {
+        Ok(())
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "this PipeWire output does not support in-place audioconvert filter graphs; PipeWire 1.4 or newer is required",
+        ))
+    }
+}
+
+fn set_direct_filter(node_id: u32, graph: &str) -> io::Result<()> {
+    let parameter = direct_filter_parameter(graph)?;
+    run_pw_cli(&["set-param", &node_id.to_string(), "Props", &parameter]).map(|_| ())
+}
+
+fn direct_filter_parameter(graph: &str) -> io::Result<String> {
+    let graph = escape_spa_string(graph)?;
+    Ok(format!(
+        "{{ params = [ \"{DIRECT_FILTER_PARAMETER}\" \"{graph}\" ] }}"
+    ))
+}
+
+fn escape_spa_string(value: &str) -> io::Result<String> {
+    let mut escaped = String::with_capacity(value.len());
+    for character in value.chars() {
+        match character {
+            '\\' => escaped.push_str("\\\\"),
+            '"' => escaped.push_str("\\\""),
+            '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            '\t' => escaped.push_str("\\t"),
+            character if character.is_control() => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "software equalizer graph contains an unsupported control character",
+                ));
+            }
+            character => escaped.push(character),
+        }
+    }
+    Ok(escaped)
+}
+
+fn set_software_eq_signature(node_id: u32, signature: Option<&str>) -> io::Result<()> {
+    let id = node_id.to_string();
+    let mut arguments = vec!["-n", SOFTWARE_EQ_METADATA_NAME];
+    if signature.is_none() {
+        arguments.push("-d");
+    }
+    arguments.extend([id.as_str(), SOFTWARE_EQ_SIGNATURE_PROPERTY]);
+    if let Some(signature) = signature {
+        arguments.extend([signature, "Spa:String"]);
+    }
+    run_pw_metadata(&arguments).map(|_| ())
+}
+
+fn require_software_eq_signature(node_id: u32, expected: Option<&str>) -> io::Result<()> {
+    let actual = software_eq_signature(node_id)?;
+    if actual.as_deref() == expected {
+        return Ok(());
+    }
+    Err(io::Error::other(format!(
+        "PipeWire did not retain the software equalizer marker (expected {}, read back {})",
+        expected.unwrap_or("not loaded"),
+        actual.as_deref().unwrap_or("not loaded")
+    )))
+}
+
+fn software_eq_signature(node_id: u32) -> io::Result<Option<String>> {
+    parse_metadata_value(
+        &run_pw_metadata(&["-n", SOFTWARE_EQ_METADATA_NAME])?,
+        node_id,
+        SOFTWARE_EQ_SIGNATURE_PROPERTY,
+    )
+}
+
+fn parse_metadata_value(output: &str, id: u32, key: &str) -> io::Result<Option<String>> {
+    let prefix = format!("update: id:{id} key:'{key}' value:'");
+    let mut values = output.lines().filter_map(|line| {
+        line.strip_prefix(&prefix)
+            .and_then(|value| value.split_once("' type:'"))
+            .map(|(value, _)| value.to_owned())
+    });
+    let value = values.next();
+    if values.next().is_some() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("PipeWire metadata has duplicate '{key}' values for node {id}"),
+        ));
+    }
+    Ok(value)
+}
+
 fn run_wpctl(arguments: &[&str]) -> io::Result<String> {
     let output = Command::new("wpctl")
         .args(arguments)
@@ -864,6 +899,56 @@ fn run_wpctl(arguments: &[&str]) -> io::Result<String> {
         let detail = String::from_utf8_lossy(&output.stderr).trim().to_owned();
         return Err(io::Error::other(if detail.is_empty() {
             format!("wpctl {} failed", arguments.join(" "))
+        } else {
+            detail
+        }));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+fn run_pw_cli(arguments: &[&str]) -> io::Result<String> {
+    let output = Command::new("pw-cli")
+        .args(arguments)
+        .output()
+        .map_err(|error| {
+            if error.kind() == io::ErrorKind::NotFound {
+                io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "pw-cli is unavailable; install PipeWire utilities",
+                )
+            } else {
+                error
+            }
+        })?;
+    if !output.status.success() {
+        let detail = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+        return Err(io::Error::other(if detail.is_empty() {
+            format!("pw-cli {} failed", arguments.join(" "))
+        } else {
+            detail
+        }));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+fn run_pw_metadata(arguments: &[&str]) -> io::Result<String> {
+    let output = Command::new("pw-metadata")
+        .args(arguments)
+        .output()
+        .map_err(|error| {
+            if error.kind() == io::ErrorKind::NotFound {
+                io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "pw-metadata is unavailable; install PipeWire utilities",
+                )
+            } else {
+                error
+            }
+        })?;
+    if !output.status.success() {
+        let detail = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+        return Err(io::Error::other(if detail.is_empty() {
+            format!("pw-metadata {} failed", arguments.join(" "))
         } else {
             detail
         }));
@@ -1193,32 +1278,45 @@ id 58, type PipeWire:Interface:Node
     }
 
     #[test]
-    fn requires_complete_pipewire_level_readback() {
-        let mut node = PipeWireNode {
-            id: 49,
-            node_name: "ae5".to_owned(),
-            description: "AE-5".to_owned(),
-            is_default: false,
-            volume_percent: Some(20),
-            muted: Some(true),
-        };
-
-        assert_eq!(node_level(&node).unwrap(), (20, true));
-        require_node_level(&node, (20, true)).unwrap();
+    fn builds_a_single_in_place_filter_parameter_without_shell_parsing() {
         assert_eq!(
-            require_node_level(&node, (20, false)).unwrap_err().kind(),
-            io::ErrorKind::Other
+            direct_filter_parameter("{ inputs = [ \"preL:In\" ] }\n").unwrap(),
+            "{ params = [ \"audioconvert.filter-graph.0\" \"{ inputs = [ \\\"preL:In\\\" ] }\\n\" ] }"
+        );
+        assert_eq!(
+            direct_filter_parameter("").unwrap(),
+            "{ params = [ \"audioconvert.filter-graph.0\" \"\" ] }"
+        );
+        assert_eq!(
+            direct_filter_parameter("bad\u{7f}").unwrap_err().kind(),
+            io::ErrorKind::InvalidInput
+        );
+    }
+
+    #[test]
+    fn reads_only_the_exact_direct_filter_metadata_marker() {
+        let metadata = "\
+Found \"settings\" metadata 32
+update: id:0 key:'clock.rate' value:'48000' type:''
+update: id:51 key:'ae5.control.eq.signature' value:'direct-v1|sink|-10.25|0,10' type:'Spa:String'
+update: id:52 key:'ae5.control.eq.signature' value:'other' type:'Spa:String'
+";
+        assert_eq!(
+            parse_metadata_value(metadata, 51, SOFTWARE_EQ_SIGNATURE_PROPERTY).unwrap(),
+            Some("direct-v1|sink|-10.25|0,10".to_owned())
+        );
+        assert_eq!(
+            parse_metadata_value(metadata, 50, SOFTWARE_EQ_SIGNATURE_PROPERTY).unwrap(),
+            None
         );
 
-        node.muted = None;
-        assert_eq!(
-            node_level(&node).unwrap_err().kind(),
-            io::ErrorKind::InvalidData
+        let duplicate = format!(
+            "{metadata}update: id:51 key:'{SOFTWARE_EQ_SIGNATURE_PROPERTY}' value:'duplicate' type:'Spa:String'\n"
         );
-        node.muted = Some(true);
-        node.volume_percent = None;
         assert_eq!(
-            node_level(&node).unwrap_err().kind(),
+            parse_metadata_value(&duplicate, 51, SOFTWARE_EQ_SIGNATURE_PROPERTY)
+                .unwrap_err()
+                .kind(),
             io::ErrorKind::InvalidData
         );
     }

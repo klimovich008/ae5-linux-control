@@ -151,20 +151,25 @@ equalizer from any native or imported profile:
 ```sh
 ae5ctl eq-chain-status
 ae5ctl eq-chain-enable ~/.config/ae5-control/profiles/example.json
-systemctl --user restart pipewire.service pipewire-pulse.service
 ae5ctl eq-chain-activate
 ae5ctl eq-chain-disable
 ```
 
-Enabling only writes a managed per-user fragment; it does not restart audio
-services or change the desktop default. The generated playback stream targets
-the exact current AE-5 sink and refuses fallback to another device. Activation
-requires OutFX to remain off, the physical target to remain current, and the
-loaded graph signature to match the configuration on disk. Disabling first
-restores the physical AE-5 if the virtual equalizer is the current default.
-The GTK Equalizer page exposes the same explicit install, restart, activate,
-and disable states. Frequency-response, latency, CPU, and long-running
-physical stability acceptance remain pending; see
+Enabling saves only a managed AE-5 Control state file. Activation suspends the
+exact current AE-5 sink, hot-loads the graph into that sink's PipeWire
+`audioconvert` stage, verifies a runtime signature marker, and resumes it. It
+does not create a virtual sink, change the desktop default, stack a second
+cubic volume control, or require a PipeWire restart. Activation requires
+OutFX to remain readable and off and the physical target to remain current.
+
+The ten imported bands receive a deterministic automatic preamp calculated
+from the combined response at 44.1, 48, and 96 kHz plus 0.25 dB margin. The
+GTK Equalizer page applies a chosen profile in one action and exposes the
+saved/runtime state and preamp. The real muted and unplugged AE-5 accepted the
+full imported headphone graph at −10.80 dB preamp while both playback PCMs
+remained closed; unload restored PipeWire and ALSA state exactly. Physical
+frequency-response, latency, CPU, and long-running stability acceptance remain
+pending; see
 [docs/SOFTWARE_EFFECTS_PLAN.md](docs/SOFTWARE_EFFECTS_PLAN.md).
 
 With the onboard-LED kernel candidate and the packaged device rule installed,

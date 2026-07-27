@@ -87,13 +87,19 @@ This is required independently of OutFX: waveform testing found that a
 playback close/reopen can corrupt the normal route with every output effect
 already off.
 
-## Validated before writing this
+## PipeWire mechanism selected
 
-PipeWire 1.6.8 on this host, `libpipewire-module-filter-chain` present. A
-two-band `bq_peaking` chain declared in a
-`~/.config/pipewire/pipewire.conf.d/` drop-in loads and appears as a real
-sink and stream pair. The probe was removed and the card returned to matched
-routes at 20%. The mechanism works; what remains is engineering.
+PipeWire 1.6.8 exposes `audioconvert.filter-graph.N` on the existing AE-5
+sink. The property is explicitly intended for runtime-swappable filter graphs.
+Using it avoids the extra virtual sink, playback stream, desktop-default
+transition, and second software-volume stage created by
+`libpipewire-module-filter-chain`.
+
+An isolated null-sink probe logged successful load and removal of a builtin
+`linear` graph at order zero. The real AE-5 then accepted an identity graph
+while suspended, 5%, muted, and physically unplugged. Both playback PCMs
+remained closed and PipeWire/ALSA state matched after removal. No audio was
+played by either probe.
 
 ## Open questions for measurement, not opinion
 
@@ -110,63 +116,66 @@ routes at 20%. The mechanism works; what remains is engineering.
 
 ## Phase A implementation status — 2026-07-27
 
-The configuration and control plane are implemented. This is not yet the
-physical response acceptance:
+The direct configuration and control plane are implemented. This is not yet
+the physical response acceptance:
 
 - `src/eq_chain.rs` converts all ten profile EQ values through the live ALSA
-  dB mapping and emits twenty `bq_peaking` nodes: ten for left and ten for
-  right.
-- The filter playback stream uses `target.object` for the exact current AE-5
-  PipeWire sink plus `node.dont-fallback=true`. A missing or renamed target
-  therefore fails closed instead of sending processed audio to another
-  device.
+  dB mapping and emits ten `bq_peaking` nodes per channel.
+- A builtin `linear` stage precedes each channel. Its automatic preamp is the
+  rounded-up attenuation required by the measured combined biquad response
+  across 44.1, 48, and 96 kHz, plus 0.25 dB margin. A flat or cuts-only curve
+  receives 0 dB preamp.
+- The saved state pins the exact current AE-5 PipeWire node name. A missing or
+  renamed target fails before any runtime graph change.
 - Enabling refuses to create a second processing path unless live
   `Enable OutFX` is readable and off.
-- The generated virtual sink carries a deterministic signature containing the
-  physical target and ten gains. Activation verifies that this live signature
-  equals the managed file, so an old graph cannot be selected after an EQ
-  update without a PipeWire restart.
+- Activation verifies that the sink exposes
+  `audioconvert.filter-graph.N`, suspends that exact sink, loads the graph at
+  order zero through `pw-cli set-param`, stores a per-node runtime signature,
+  verifies the signature readback, and resumes the sink.
+- The runtime signature contains the graph version, target, automatic preamp,
+  and ten gains. A PipeWire restart or node recreation drops the marker, so
+  the UI correctly requires reapplication instead of claiming stale state.
 - `ae5ctl eq-chain-enable FILE` only writes or updates the managed user
-  fragment. `eq-chain-activate` separately verifies the target, signature, and
-  OutFX state before changing the desktop default.
-- Activation copies the physical AE-5 sink's current PipeWire volume and mute
-  state to the software-EQ sink and verifies both values before selecting it
-  as default. Returning to the physical sink performs and verifies the reverse
-  transfer. Missing level metadata or a mismatched readback stops the
-  transition while the destination is still non-default.
-- `eq-chain-disable` restores the physical AE-5 first when the software sink
-  is the default, then removes only the managed fragment.
-- The GTK Equalizer page presents the same install, restart, activate, and
-  disable workflow. Disabled actions remain non-interactive and explain the
-  blocking state. The hardware EQ pill says `ARMED` when its child switch is
-  saved but OutFX is off.
+  state. `eq-chain-activate` applies it in place without changing the desktop
+  default or restarting PipeWire. `eq-chain-disable` unloads order zero,
+  clears and verifies the marker, then removes only the managed state file.
+- There is now one user-visible volume/mute stage: the original physical AE-5
+  sink. This fixes the former design in which copying 5% to a virtual sink
+  while the physical sink also remained at 5% compounded PipeWire's cubic
+  software attenuation and could make output effectively inaudible.
+- The GTK Equalizer page chooses and applies a profile in one action, exposes
+  automatic preamp and saved/runtime state, and retains separate reapply and
+  disable actions. The hardware EQ pill still says `ARMED` when its child
+  switch is saved but OutFX is off.
 
 Validation completed without opening an audio stream:
 
-1. The real `EQ · SHP9500 test` profile generated `+9, +6, +10, 0, +1, -2,
-   0, -3, 0, +1 dB` against the live card and targeted
-   `alsa_output.pci-0000_29_00.0.analog-stereo`.
-2. `pw-config` parsed the complete generated fragment.
-3. A separate temporary PipeWire daemon loaded the twenty-node graph and
-   exposed the exact target/gain signature on `ae5_software_equalizer`. It had
-   no WirePlumber session manager, no hardware node, and no playback stream.
-4. The real per-user configuration, desktop default, ALSA mixer, and PipeWire
-   services were left unchanged.
-5. The real sink's `wpctl` status was parsed read-only at 5% and muted; focused
-   tests cover muted and unmuted listings plus missing or mismatched transfer
-   readback. No real graph activation or playback was attempted on the stock
-   host kernel.
+1. The imported `Windows My profile — Headphone` curve generated `+9, +6,
+   +8, +4, +1, -2, -2, 0, +6, +6 dB`, targeted
+   `alsa_output.pci-0000_29_00.0.analog-stereo`, and calculated −10.80 dB
+   automatic preamp.
+2. `pw-config` parsed the complete graph object. Unit tests independently
+   verify flat, single-boost, and imported multi-band headroom.
+3. A separate temporary PipeWire daemon loaded and removed the direct
+   audioconvert graph API against a null sink.
+4. The real muted/unplugged AE-5 loaded the complete imported graph, exposed
+   the exact runtime signature, and unloaded it. Both playback PCMs remained
+   closed throughout.
+5. The physical sink remained default, 5%, and muted. The full `wpctl` state,
+   raw ALSA controls, and both PCM status files matched before and after.
+   The managed state file and runtime marker were absent after cleanup.
+6. The GUI-enabled Rust gate passed 125 tests, strict Clippy, release build,
+   and formatting.
 
 Still required before Phase A can be called accepted:
 
-- install one selected profile in the real per-user configuration, restart
-  PipeWire, and confirm that the live sink signature matches;
-- make the virtual sink default through the guarded action and verify desktop
-  routing;
-- measure the requested versus captured response curve and state the
-  tolerance;
+- boot the physical host into `7.1.4-ae5-stable`, apply the imported curve,
+  and measure requested versus What U Hear response with a stated tolerance;
 - measure latency and CPU cost;
 - run the stated long-duration stability gate with every CA0132 effect module
   disabled;
-- repeat the safe disable/restart path and prove that the physical AE-5
-  default is restored.
+- repeat apply/disable across first-open, warm reopen, idle, and a true
+  power-removal cold boot;
+- compare the normalized response with Windows Command's same ten bands while
+  Windows OutFX remains off.

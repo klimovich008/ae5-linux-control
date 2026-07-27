@@ -2,15 +2,15 @@ use ae5_control::{
     Ae5Device, Ae5Lighting, Ae5Mixer, DIRECT_MODE_CONTROL, EqBand, FeatureSupport,
     LINUX_DRIVER_DEFAULTS_PRESERVED, ONBOARD_LED_COUNT, PipeWireNode, PipeWireRouteState, Profile,
     RgbColor, SbCommandImportReport, SbCommandTarget, ae5_input, ae5_output, ae5_route_state,
-    apply_linux_driver_defaults, disable_eq_chain, discover_sbcommand_installation,
-    enable_eq_chain, eq_chain_config, export_library_profile, feature_parity,
-    front_vmaster_clamp_warning, headphone_playback_issue,
+    apply_linux_driver_defaults, apply_software_eq, disable_eq_chain,
+    discover_sbcommand_installation, enable_eq_chain, eq_chain_config, export_library_profile,
+    feature_parity, front_vmaster_clamp_warning, headphone_playback_issue,
     import_active_sbcommand_profile_with_report, import_discovered_sbcommand_profile_with_report,
     import_sbcommand_profile_with_report, lighting_config_path, linux_driver_defaults,
     native_rates_config, profile_library, profile_library_directory, rename_library_profile,
     restore_saved_lighting, set_ae5_default_input, set_ae5_default_output,
-    set_native_rates_enabled, set_saved_led, set_saved_lighting, set_software_eq_default_output,
-    snapshot_controls, software_eq_output, validate_eq_chain_activation,
+    set_native_rates_enabled, set_saved_led, set_saved_lighting, snapshot_controls,
+    software_eq_output, unload_software_eq, validate_eq_chain_activation,
     validate_linux_driver_defaults,
 };
 use std::error::Error;
@@ -381,26 +381,38 @@ fn set_native_rates(enabled: bool) -> Result<(), Box<dyn Error>> {
 
 fn print_eq_chain_status() -> Result<(), Box<dyn Error>> {
     let config = eq_chain_config()?;
+    let device = require_device()?;
     println!(
-        "PipeWire software equalizer: {}\n  {}",
+        "PipeWire in-place software equalizer: {}\n  {}",
         if config.enabled {
-            "installed"
+            "configured"
         } else {
-            "not installed"
+            "not configured"
         },
         config.path.display()
     );
     if let Some(target) = &config.target_node {
         println!("  Physical target: {target}");
     }
+    println!("  Automatic preamp: {:+.2} dB", config.preamp_db);
     print_eq_bands(&config.bands);
-    match software_eq_output() {
-        Ok(Some(output)) => print_pipewire_node("software EQ output", &output.node),
-        Ok(None) if config.enabled => {
-            println!("  Software EQ output: not loaded; restart PipeWire")
+    match software_eq_output(device.card_index) {
+        Ok(Some(output)) => {
+            print_pipewire_node("software EQ physical output", &output.node);
+            println!(
+                "  Runtime graph: {}",
+                if output.signature == config.signature() {
+                    "current"
+                } else {
+                    "different from saved state"
+                }
+            );
         }
-        Ok(None) => println!("  Software EQ output: not loaded"),
-        Err(error) => println!("  Software EQ output: unavailable ({error})"),
+        Ok(None) if config.enabled => {
+            println!("  Runtime graph: not applied; run eq-chain-activate")
+        }
+        Ok(None) => println!("  Runtime graph: not applied"),
+        Err(error) => println!("  Runtime graph: unavailable ({error})"),
     }
     Ok(())
 }
@@ -430,9 +442,10 @@ fn set_eq_chain(path: &str) -> Result<(), Box<dyn Error>> {
         change.config.path.display()
     );
     print_eq_bands(&change.config.bands);
-    if change.changed {
-        print_pipewire_restart_command();
-    }
+    println!(
+        "  Automatic preamp: {:+.2} dB\nRun `ae5ctl eq-chain-activate` to apply it in place; no PipeWire restart is required.",
+        change.config.preamp_db
+    );
     Ok(())
 }
 
@@ -449,23 +462,30 @@ fn activate_eq_chain() -> Result<(), Box<dyn Error>> {
         &config,
         &snapshot_controls(device.card_index)?,
         &output.node_name,
-        software_eq_output()?
-            .and_then(|output| output.signature)
-            .as_deref(),
     )?;
-    let equalizer = set_software_eq_default_output(device.card_index)?;
+    let graph = config.filter_graph()?.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "the saved software equalizer has no filter graph",
+        )
+    })?;
+    let signature = config.signature().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "the saved software equalizer has no signature",
+        )
+    })?;
+    let equalizer = apply_software_eq(device.card_index, &graph, &signature)?;
     println!(
-        "AE-5 software equalizer is now the PipeWire default output: {} ({})",
+        "AE-5 software equalizer is active inside the existing PipeWire output: {} ({})",
         equalizer.node.description, equalizer.node.node_name
     );
     Ok(())
 }
 
 fn remove_eq_chain() -> Result<(), Box<dyn Error>> {
-    if software_eq_output()?.is_some_and(|output| output.node.is_default) {
-        let device = require_device()?;
-        set_ae5_default_output(device.card_index)?;
-    }
+    let device = require_device()?;
+    unload_software_eq(device.card_index)?;
     let change = disable_eq_chain()?;
     println!(
         "PipeWire software equalizer {}.\n  {}",
@@ -476,9 +496,6 @@ fn remove_eq_chain() -> Result<(), Box<dyn Error>> {
         },
         change.config.path.display()
     );
-    if change.changed {
-        print_pipewire_restart_command();
-    }
     Ok(())
 }
 
@@ -489,12 +506,6 @@ fn print_eq_bands(bands: &[EqBand]) {
             band.frequency, band.q, band.gain_db
         );
     }
-}
-
-fn print_pipewire_restart_command() {
-    println!(
-        "Run this yourself to apply the change:\n  systemctl --user restart pipewire.service pipewire-pulse.service"
-    );
 }
 
 fn print_lighting_status() -> Result<(), Box<dyn Error>> {
@@ -1005,7 +1016,7 @@ fn print_help() {
          \x20 native-rates-disable  Remove the managed native-rate configuration\n\
          \x20 eq-chain-status       Show the managed software equalizer and its bands\n\
          \x20 eq-chain-enable FILE  Generate the software equalizer from a native profile\n\
-         \x20 eq-chain-activate     Make the loaded software equalizer the desktop default\n\
+         \x20 eq-chain-activate     Apply the saved EQ inside the existing AE-5 sink\n\
          \x20 eq-chain-disable      Remove the managed software equalizer configuration\n\
          \x20 lighting-status       Show all five onboard LED colors\n\
          \x20 lighting-set RED GREEN BLUE\n\

@@ -672,7 +672,7 @@ self_test() (
 	      "api.alsa.soft-mixer": "true",
 	      "audio.format": "S32LE"
 	    },
-	    "active_port": "sound-blaster-ae5-output-headphones;output-headphones"
+	    "active_port": "sound-blaster-ae5-output-headphones"
 	  }
 	]')
 	IFS=$'\t' read -r output _ <<< "$record"

@@ -264,10 +264,11 @@ route status 59cb50175ab2858fc7146fd33ddcd8b01627c7bd1344eb89cc9a1c5f6e5d838e
 
 All four AE-5 PCM substreams were closed, Headphone and Microphone routing
 remained healthy, Low headphone gain and the 20% PipeWire ceiling remained in
-force, and the post-cycle VFIO preflight passed. No audio was played. Before
-another Windows capture, repair the local test-account login interactively,
-shut down, preserve a fresh powered-off recovery point, and verify the exact
-fixture inside the guest. Do not retry or weaken the stale credential.
+force, and the post-cycle VFIO preflight passed. No audio was played. This was
+the boundary at that checkpoint; the credential was later recovered from its
+local setup record without exposing it, and the guarded comparison was
+completed as documented in
+[`windows-capture/VM-OUTFX-RESULTS.md`](windows-capture/VM-OUTFX-RESULTS.md).
 
 A later readiness retry after the `7.1.4-ae5-stable` Linux package
 qualification reached the same boundary. Guest Agent reported zero logged-in

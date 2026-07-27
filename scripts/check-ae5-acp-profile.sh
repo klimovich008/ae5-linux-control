@@ -83,6 +83,32 @@ pcm=$(awk '
 ' "$path")
 [[ $pcm == $'switch = mute\nvolume = zero' ]]
 
+grep -Fqx '[Jack Headphone]' "$path"
+grep -Fqx 'required = any' "$path"
+output_select=$(awk '
+	$0 == "[Element Output Select]" { found = 1; next }
+	found && /^\[/ { exit }
+	found && /^(required|enumeration) = / { print }
+' "$path")
+[[ $output_select == $'required = enumeration\nenumeration = select' ]]
+
+[[ $(grep -Ec '^\[Option Output Select:' "$path") -eq 1 ]]
+headphone_option=$(awk '
+	$0 == "[Option Output Select:Headphone]" { found = 1; next }
+	found && /^\[/ { exit }
+	found && /^(required|name|priority) = / { print }
+' "$path")
+[[ $headphone_option == \
+	$'required = enumeration\nname = output-headphones\npriority = 10' ]]
+if grep -Fq '[Option Output Select:Speakers]' "$path"; then
+	printf 'AE-5 headphone path exposes an invalid Speakers route\n' >&2
+	exit 1
+fi
+if grep -Fq '.include analog-output-headphones.conf' "$path"; then
+	printf 'AE-5 headphone path inherits ambiguous generic Output Select options\n' >&2
+	exit 1
+fi
+
 for input in microphone front-microphone line-in; do
 	input_path=$repo_root/packaging/alsa-card-profile/mixer/paths/sound-blaster-ae5-input-$input.conf
 	grep -Fq '[Element Capture]' "$input_path"
@@ -112,4 +138,4 @@ grep -Fq 'api.alsa.period-size = 6016' "$rule"
 grep -Fq 'api.alsa.period-num = 4' "$rule"
 grep -Fq 'session.suspend-timeout-seconds = 0' "$rule"
 
-printf 'AE-5 ACP profile: persistent raw S16 playback, stable managed route order, and shared Front DAC validated\n'
+printf 'AE-5 ACP profile: persistent raw S16 playback, one exact headphone route, and shared Front DAC validated\n'

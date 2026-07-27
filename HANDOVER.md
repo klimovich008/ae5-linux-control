@@ -5,7 +5,7 @@ supersedes older current-state claims elsewhere as of the snapshot date. The
 main README contains useful cumulative evidence, but some passages describe
 earlier milestones rather than the current development host.
 
-Snapshot date: **2026-07-27**
+Snapshot date: **2026-07-28**
 
 ## Start from the correct revision
 
@@ -81,8 +81,9 @@ Working on the target host:
 
 - exact AE-5 discovery and live ALSA control;
 - native Wayland GTK application and CLI;
-- card-specific route discovery and input routing; output/profile transitions
-  are currently blocked because they reopen playback;
+- card-specific route discovery and input routing;
+- exact output-route transitions on the clean `7.1.4-ae5-stable` kernel, with
+  dynamic PipeWire route lookup and fail-closed volume/mute preservation;
 - PipeWire software volume and explicit route health/repair;
 - native profiles, retained imported effect metadata, and a guarded PipeWire
   software-EQ path; unsafe hardware output effects are not applied;
@@ -113,13 +114,16 @@ Important incomplete areas:
   unrun; the single-client case passed both unlinked and linked virtual graph
   validation but has not run against the AE-5;
 - matched Windows/Linux analog response, noise, and headphone-model tuning;
+- a valid Windows post-graphic-EQ or analog capture; `What U Hear` proved the
+  imported Acoustic Engine/OutFX boundary but did not contain the displayed
+  graphic-EQ curve;
 - bounded bare-metal suspend/resume with the rebuilt stable-playback kernel;
 - connected physical speaker layouts, line-out, optical I/O, and analog inputs;
 - Direct Mode remains removed from the production series pending its own
   physical transition acceptance on top of the stable-playback fix;
 - external AE-5 LED strip support;
 - latency, CPU, long-duration stability, broader rate/preset coverage, and a
-  matched Windows comparison for the new software-EQ path.
+  valid matched Windows post-EQ comparison for the new software-EQ path.
 
 ## Non-negotiable audio safety
 
@@ -225,6 +229,14 @@ The application retains output-effect settings in profiles but skips them
 during hardware apply. Windows Command OutFX is a software APO master and is
 not equivalent to Linux's rejected CA0132 hardware control.
 
+A guarded Windows VM comparison has now confirmed that `What U Hear` is
+downstream of the imported Acoustic Engine/OutFX profile. Neutral captures
+repeated within 0.00 dB and processed captures within 0.03 dB from 250 Hz
+through 16 kHz. The displayed graphic-EQ curve was absent, however, with up to
+13.08 dB disagreement from the Linux model, so that endpoint is not accepted
+as an EQ-parity reference. See
+[`docs/windows-capture/VM-OUTFX-RESULTS.md`](docs/windows-capture/VM-OUTFX-RESULTS.md).
+
 If effects appear inactive, do not toggle hardware OutFX or reapply hardware
 effect controls. Preserve logs and mixer readback, keep the physical output
 muted, verify the persistent-playback rule, and inspect the PipeWire software
@@ -235,10 +247,9 @@ runtime-signature mismatch must block or roll back activation.
 
 ## Development-host snapshot
 
-At this handover snapshot, no AE-5 output is connected to the user's
-headphones. The headphones are connected directly to the motherboard line
-out, so no acoustic AE-5 test is possible without a separate physical
-reconnection:
+At this handover snapshot, no AE-5 analog output is physically connected. The
+headphones are connected to a non-AE-5 output, so no acoustic AE-5 test is
+possible without a separate physical reconnection:
 
 ```text
 Kernel:            7.1.4-ae5-stable
@@ -247,8 +258,9 @@ Saved/default:     7.1.4-200.nobara.fc44.x86_64
 ALSA card:         0, HDA Creative
 Output:            Headphone, 2.0
 Input:             Microphone
-Desktop sink:      AE-5 default, 5%, muted
-Listening output:  motherboard line out
+AE-5 sink:         not default, 5%, muted
+Listening output:  non-AE-5 output
+Hardware stages:   Master 99/on, Front 90/on, PCM 255 (audited 0 dB points)
 Headphone gain:    Low
 Direct Mode:       unavailable
 OutFX:             off
@@ -259,11 +271,11 @@ System VMs:        both powered off; Windows domain has no hostdev
 GUI test:          current debug build opened natively on Wayland
 ```
 
-At the end of the physical cold-boot playback and software-EQ cycles, Master
-and Front were off, OutFX was off, the AE-5 desktop sink was 5% and muted, Low
-gain was selected, the exact-card no-suspend property was live, and both
-playback PCMs were closed. The managed EQ state and runtime marker were absent.
-Re-read live state before relying on this snapshot.
+The latest silent route qualification ended on the exact Headphone route with
+the audited soft-mixer hardware stages above, OutFX off, the AE-5 sink at 5%
+and muted, Low gain selected, and both playback PCMs closed. The managed EQ
+state and runtime marker were absent. Re-read live state before relying on this
+snapshot.
 
 The installed GUI and CLI are from the reversible per-user installation. The
 WirePlumber configuration is linked to
@@ -345,7 +357,7 @@ connected-output and suspend/resume gates.
 
 The latest checkpoint passed:
 
-- Rust formatting, strict Clippy, release build, and 125 GUI-enabled tests;
+- Rust formatting, strict Clippy, release build, and 132 GUI-enabled tests;
 - ACP and 54-row feature-ledger validators;
 - audio-parity self-test;
 - fail-closed stable-playback instrument self-test and a 22/22 clean
@@ -354,6 +366,11 @@ The latest checkpoint passed:
   0.002720620–0.002724749% THD;
 - repeated bare-metal in-place EQ captures matching the requested 48 kHz
   ten-band response within 0.34 dB;
+- a guarded Windows `What U Hear` comparison proving the imported
+  Acoustic Engine/OutFX boundary while rejecting that endpoint for graphic-EQ
+  parity;
+- silent physical Headphones → Speakers → Headphones transitions that retained
+  exactly 5% muted, kept OutFX off, and left both playback PCMs closed;
 - transactional rootless install lifecycle;
 - hosted Rust, RPM lifecycle, and ALSA `for-next` compatibility jobs.
 
@@ -393,7 +410,7 @@ Read these next according to the task:
 - Windows comparison:
   [`docs/WINDOWS_MIGRATION_VALIDATION.md`](docs/WINDOWS_MIGRATION_VALIDATION.md)
   [`docs/VFIO_TEST_PLAN.md`](docs/VFIO_TEST_PLAN.md), and
-  [`docs/windows-capture/VM-OUTFX-A-B.md`](docs/windows-capture/VM-OUTFX-A-B.md);
+  [`docs/windows-capture/VM-OUTFX-RESULTS.md`](docs/windows-capture/VM-OUTFX-RESULTS.md);
 - kernel work:
   [`kernel/README.md`](kernel/README.md),
   [`docs/SOURCE_INVENTORY.md`](docs/SOURCE_INVENTORY.md), and
@@ -424,7 +441,7 @@ Priority order:
 2. Run the bounded bare-metal suspend/resume campaign with connected-headphone
    routing preflight and preserve the kernel journal and route evidence.
 3. Complete software-EQ latency, CPU, long-duration stability, broader
-   rate/preset coverage, and matched Windows comparison in
+   rate/preset coverage, and a valid Windows post-EQ comparison in
    [`docs/SOFTWARE_EFFECTS_PLAN.md`](docs/SOFTWARE_EFFECTS_PLAN.md).
 4. When an AE-5 output is physically available again, run matched, safely
    attenuated Windows/Linux analog measurements.

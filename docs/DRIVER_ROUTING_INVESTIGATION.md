@@ -92,19 +92,64 @@ That assumption is false for CA0132 desktop cards.
 
 The package now supplies:
 
-- `sound-blaster-ae5-output-headphones.conf`, which includes the generic path
-  but changes only Front to `switch=mute` and `volume=ignore`;
+- `sound-blaster-ae5-output-headphones.conf`, an audited path which requires
+  the AE-5 Headphone jack and `Output Select:Headphone`, keeps Master and the
+  shared Front DAC on at 0 dB, and offers no Speakers variant;
 - `sound-blaster-ae5.conf`, which replaces the generic headphone path in the
   analog stereo mappings;
 - a WirePlumber rule selecting that profile set only for PCI Creative
   `1102:0012` cards and enabling `api.alsa.soft-mixer`.
 
-The live profile was parsed by PipeWire's `spa-acp-tool`, exposed the fixed
-headphone route, and passed Speakers → Headphones switching with
-`Output Select=Headphone` and `Front=on`. It also survived a WirePlumber
+The earlier priority-only profile was parsed by PipeWire's `spa-acp-tool`,
+exposed the fixed headphone route, and passed Speakers → Headphones switching
+with `Output Select=Headphone` and `Front=on`. It also survived a WirePlumber
 restart and one instrumented cold boot with the intended output selection,
 codec pin, and WirePlumber port. The acoustic microphone check below also
-passed. Repeated cold-boot/suspend testing remains.
+passed. Those tests establish the shared-Front fix but do not validate the
+later exact-option revision below.
+
+### Persisted impossible route found after the cold campaign
+
+The first implementation inherited `analog-output-headphones.conf` and
+overrode the priorities of both `Output Select` options. That was sufficient
+for a fresh automatic choice, but ACP still generated two persistent ports
+from the same physical path:
+
+- `sound-blaster-ae5-output-headphones;output-headphones`;
+- `sound-blaster-ae5-output-headphones;output-speaker`.
+
+Before the next VFIO handoff, `ae5ctl route-status` found the second port
+active while raw ALSA also read `Output Select=Speakers`; the input side still
+matched Microphone. This proves priority alone is not a state-repair
+mechanism: WirePlumber may restore an explicitly saved lower-priority route
+across sessions.
+
+The corrected path no longer includes the generic headphone file. It defines
+the audited AE-5 controls directly and exposes one required enum option,
+`Output Select:Headphone`, so route identity and hardware value cannot
+diverge. The validator rejects a generic include, a Speakers option, a missing
+required enum, or more than one output option. Static ACP validation and the
+transactional rootless install/upgrade/remove test pass.
+
+After the Windows comparison released the card, live PipeWire `EnumRoute`
+listed one exact `sound-blaster-ae5-output-headphones` route at index 5 and no
+same-path Speakers sibling. It was unavailable only because the physical AE-5
+headphone jack was unplugged. Activating it set raw ALSA to Headphone with
+Master and Front on, and `ae5ctl route-status` accepted the exact route name.
+
+That live check also exposed a separate saved-route hazard: changing routes
+could restore an old 40% unmuted PipeWire value over the current 5% muted
+state. The shared Rust setter now resolves the route index dynamically from
+the exact `pw-dump` name, mutes before `set-route`, restores the prior software
+volume, and restores mute last. Any failed transition attempts to leave the
+sink muted. Route changes remain blocked on every kernel except the exact
+clean, qualified `7.1.4-ae5-stable` build.
+
+A guarded Speakers → Headphones cycle through the installed release then
+passed on the physical card. Both directions retained 5% and muted, kept
+OutFX off, left both playback PCMs closed, and produced matched ALSA/PipeWire
+route status. No sound was played and every AE-5 analog output remained
+unplugged.
 
 ### AE-5 Control route ownership
 
@@ -122,7 +167,7 @@ WirePlumber, then used the rebuilt CLI:
 | Requested choice | PipeWire port | ALSA result |
 |---|---|---|
 | Speakers | `analog-output-lineout;output-speaker` | `Speakers`, Front on |
-| Headphone | `sound-blaster-ae5-output-headphones;output-headphones` | `Headphone`, Front on |
+| Headphone | `sound-blaster-ae5-output-headphones` | `Headphone`, Front on |
 | Microphone | `sound-blaster-ae5-input-microphone` | `Microphone` |
 | Front Microphone | `sound-blaster-ae5-input-front-microphone` | `Front Microphone` |
 | Line In | `sound-blaster-ae5-input-line-in` | `Line In` |

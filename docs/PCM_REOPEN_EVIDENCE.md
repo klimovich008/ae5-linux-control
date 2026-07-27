@@ -238,10 +238,12 @@ the user's headphones were on the motherboard line-out.
 
 - `kernel/ca0132-ae5-disable-unsafe-outfx.patch` initializes output effects
   off, rejects hardware OutFX enable, and avoids redundant off replay.
-- The Rust backend rejects hardware OutFX, child output effects, hardware EQ,
-  Direct Mode, and output/profile transitions before any ALSA write.
+- The Rust backend always rejects hardware OutFX, child output effects,
+  hardware EQ, and Direct Mode before any ALSA write. Direct output-route
+  controls are admitted only on the exact clean `7.1.4-ae5-stable` kernel;
+  every other kernel remains fail-closed.
 - Profile JSON retains those values for migration and software processing but
-  filters them from hardware apply.
+  filters output routes and unsafe DSP controls from hardware apply.
 - The WirePlumber rule keeps stable S16 playback open.
 
 A real-card application audit attempted OutFX on/off, Crystalizer on, the

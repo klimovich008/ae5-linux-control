@@ -172,22 +172,21 @@ a second afterward. Export 48 kHz, 24-bit PCM WAV without normalization,
 resampling, trimming, fades, denoising, or effects. Record every setting in
 `captures\WINDOWS-NOTES.txt`.
 
-An isolated Windows comparison VM now also has Command `3.5.10.0` installed
-and the exact saved AE-5 setting tree imported and startup-checked. The VM has
-no emulated audio device; managed system-libvirt passthrough has already
-validated the physical AE-5 and Creative driver. The latest playback-free
-readiness retry stopped because the private test-account credential was stale,
-then restored the exact host mixer and route hashes with every PCM closed.
-Repair that login interactively and preserve a fresh powered-off recovery
-point before transferring or playing a fixture. The installed state, recovery
-hashes, and passthrough boundary are recorded in
-[`VFIO_TEST_PLAN.md`](VFIO_TEST_PLAN.md).
+The isolated Windows comparison VM has Command `3.5.10.0`, the imported AE-5
+setting tree, and no emulated audio device. Its local-account credential was
+recovered from the private setup record without exposing it, login succeeded,
+and temporary automatic-login values were removed immediately. Managed
+system-libvirt passthrough then completed the guarded `What U Hear` matrix.
+The installed state, recovery hashes, and passthrough boundary are recorded
+in [`VFIO_TEST_PLAN.md`](VFIO_TEST_PLAN.md).
 
-For the VM's digital OutFX and equalizer comparison, follow
-[`windows-capture/VM-OUTFX-A-B.md`](windows-capture/VM-OUTFX-A-B.md). It first
-requires a counterbalanced proof that the Windows `What U Hear` endpoint
-contains the Creative render APO output. Without that proof, the internal tap
-cannot support a Windows/Linux effects claim.
+For the VM's digital OutFX and equalizer method, follow
+[`windows-capture/VM-OUTFX-A-B.md`](windows-capture/VM-OUTFX-A-B.md); the
+completed evidence is in
+[`windows-capture/VM-OUTFX-RESULTS.md`](windows-capture/VM-OUTFX-RESULTS.md).
+The counterbalanced neutral/full captures prove that `What U Hear` contains
+the imported Acoustic Engine result. The same endpoint did not contain the
+displayed ten-band EQ curve, so it cannot support a graphic-EQ parity claim.
 
 ## Analyze and compare
 

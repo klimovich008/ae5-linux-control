@@ -405,7 +405,7 @@ summarize_history() {
 			} else {
 				if (pipewire != "active")
 					reject("PipeWire was not active")
-				if (active_port != "sound-blaster-ae5-output-headphones;output-headphones")
+				if (active_port != "sound-blaster-ae5-output-headphones")
 					reject("card-specific headphone port is not active")
 				if (active_profile != "output:analog-stereo+input:analog-stereo")
 					reject("unexpected PipeWire profile")
@@ -738,7 +738,7 @@ emit_test_record() {
 	printf 'kernel_audio_warning_sha256=%s\n' "$warning_hash"
 	printf 'Id=pipewire.service\nActiveState=%s\n' "$pipewire_state"
 	if [[ $pipewire_state == active ]]; then
-		printf 'sink_active_port=sound-blaster-ae5-output-headphones;output-headphones\n'
+		printf 'sink_active_port=sound-blaster-ae5-output-headphones\n'
 		printf 'sink_max_volume_ratio=0.20\n'
 		printf 'pipewire_active_profile=output:analog-stereo+input:analog-stereo\n'
 	fi

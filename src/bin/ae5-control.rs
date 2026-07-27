@@ -4340,7 +4340,7 @@ mod tests {
             persistent_playback: Some(true),
             active_profile: Some("output:analog-stereo+input:analog-stereo".to_owned()),
             input_route: Some("sound-blaster-ae5-input-microphone".to_owned()),
-            output_route: Some("sound-blaster-ae5-output-headphones;output-headphones".to_owned()),
+            output_route: Some("sound-blaster-ae5-output-headphones".to_owned()),
         };
 
         let (summary, healthy) = route_health_summary(&controls, Ok(state.clone()));
@@ -4361,8 +4361,7 @@ mod tests {
         assert!(summary.contains("Needs attention"));
         assert!(summary.contains("reapply the output choice"));
 
-        state.output_route =
-            Some("sound-blaster-ae5-output-headphones;output-headphones".to_owned());
+        state.output_route = Some("sound-blaster-ae5-output-headphones".to_owned());
         state.input_route = Some("sound-blaster-ae5-input-line-in".to_owned());
         let (summary, healthy) = route_health_summary(&controls, Ok(state));
         assert!(!healthy);
@@ -4378,9 +4377,7 @@ mod tests {
                 persistent_playback: Some(true),
                 active_profile: Some("output:analog-stereo+input:analog-stereo".to_owned()),
                 input_route: Some("sound-blaster-ae5-input-microphone".to_owned()),
-                output_route: Some(
-                    "sound-blaster-ae5-output-headphones;output-headphones".to_owned(),
-                ),
+                output_route: Some("sound-blaster-ae5-output-headphones".to_owned()),
             }),
         );
         assert!(!healthy);
@@ -4397,9 +4394,7 @@ mod tests {
                 persistent_playback: Some(true),
                 active_profile: Some("output:analog-stereo+input:analog-stereo".to_owned()),
                 input_route: Some("sound-blaster-ae5-input-microphone".to_owned()),
-                output_route: Some(
-                    "sound-blaster-ae5-output-headphones;output-headphones".to_owned(),
-                ),
+                output_route: Some("sound-blaster-ae5-output-headphones".to_owned()),
             }),
         );
         assert!(!healthy);
@@ -4504,7 +4499,11 @@ mod tests {
             "FX: Crystalizer",
             "EQ Band0",
         ]));
-        assert!(full.contains("1 unsafe hardware setting"), "{full}");
+        if unsafe_playback_control_block_reason("Output Select").is_some() {
+            assert!(full.contains("1 unsafe hardware setting"), "{full}");
+        } else {
+            assert!(full.contains("output routing"), "{full}");
+        }
         assert!(full.contains("2 effects"), "{full}");
         assert!(full.contains("1 equalizer band"), "{full}");
 
@@ -4642,7 +4641,11 @@ mod tests {
         controls[1].playback_switch = Some(true);
         assert!(profile_matches_controls(&profile, &controls));
         controls[0].selected = Some("Speakers".to_owned());
-        assert!(profile_matches_controls(&profile, &controls));
+        assert_eq!(
+            profile_matches_controls(&profile, &controls),
+            unsafe_playback_control_block_reason("Output Select").is_some()
+        );
+        controls[0].selected = Some("Headphone".to_owned());
         controls[2].selected = Some("Medium (32-149 Ohms)".to_owned());
         assert!(!profile_matches_controls(&profile, &controls));
         controls[2].selected = Some("Low (16-31 Ohms)".to_owned());
@@ -4669,9 +4672,16 @@ mod tests {
                 ..ProfileControl::default()
             },
         );
+        let retained = if unsafe_playback_control_block_reason("Output Select").is_some() {
+            7
+        } else {
+            6
+        };
         assert_eq!(
             active_profile_detail(&eq_only),
-            "Safe hardware controls match · 7 unsafe hardware settings retained without applying"
+            format!(
+                "Safe hardware controls match · {retained} unsafe hardware settings retained without applying"
+            )
         );
 
         let software_only = profile_with(&["FX: X-Bass"]);

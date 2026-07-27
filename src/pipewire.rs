@@ -106,7 +106,7 @@ impl PipeWireRouteState {
         }
         let expected = match output_choice {
             "Speakers" => "analog-output-lineout;output-speaker",
-            "Headphone" => "sound-blaster-ae5-output-headphones;output-headphones",
+            "Headphone" => "sound-blaster-ae5-output-headphones",
             other => return Some(format!("unsupported ALSA output choice '{other}'")),
         };
         (self.output_route.as_deref() != Some(expected)).then(|| {
@@ -329,7 +329,7 @@ pub(crate) fn set_ae5_control_route(
     control: &str,
     choice: &str,
 ) -> io::Result<bool> {
-    let Some((nodes, route)) = ae5_control_route(control, choice) else {
+    let Some((nodes, direction, route_name)) = ae5_control_route(control, choice) else {
         return Ok(false);
     };
     let node = ae5_node(card_index, nodes)?.ok_or_else(|| {
@@ -339,8 +339,53 @@ pub(crate) fn set_ae5_control_route(
         )
     })?;
     require_ae5_profile(node.id)?;
-    run_wpctl(&["set-route", &node.id.to_string(), &route.to_string()])?;
+    let route = parse_route_index(&run_pw_dump()?, card_index, direction, route_name)?;
+    if nodes == "sinks" {
+        set_output_route_with(&node, route, run_wpctl)?;
+    } else {
+        run_wpctl(&["set-route", &node.id.to_string(), &route.to_string()])?;
+    }
     Ok(true)
+}
+
+fn set_output_route_with<F>(node: &PipeWireNode, route: u32, mut run: F) -> io::Result<()>
+where
+    F: FnMut(&[&str]) -> io::Result<String>,
+{
+    let volume = node.volume_percent.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "the AE-5 output volume is unavailable; refusing an unsafe route change",
+        )
+    })?;
+    let muted = node.muted.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "the AE-5 output mute state is unavailable; refusing an unsafe route change",
+        )
+    })?;
+    let node_id = node.id.to_string();
+    let route = route.to_string();
+    let volume = format!("{volume}%");
+    let muted = if muted { "1" } else { "0" };
+
+    run(&["set-mute", &node_id, "1"])?;
+    let transition = (|| -> io::Result<()> {
+        run(&["set-route", &node_id, &route])?;
+        run(&["set-volume", &node_id, &volume])?;
+        run(&["set-mute", &node_id, muted])?;
+        Ok(())
+    })();
+    if let Err(error) = transition {
+        let detail = match run(&["set-mute", &node_id, "1"]) {
+            Ok(_) => format!("{error}; the AE-5 output was left muted"),
+            Err(mute_error) => {
+                format!("{error}; failed to force the AE-5 output muted: {mute_error}")
+            }
+        };
+        return Err(io::Error::new(error.kind(), detail));
+    }
+    Ok(())
 }
 
 pub fn native_rates_config() -> io::Result<NativeRatesConfig> {
@@ -696,14 +741,28 @@ fn require_ae5_profile(node_id: u32) -> io::Result<()> {
     Ok(())
 }
 
-fn ae5_control_route(control: &str, choice: &str) -> Option<(&'static str, u32)> {
-    // These indices follow the exact path order enforced by check-ae5-acp-profile.sh.
+fn ae5_control_route(
+    control: &str,
+    choice: &str,
+) -> Option<(&'static str, &'static str, &'static str)> {
     match (control, choice) {
-        ("Input Source", "Microphone") => Some(("sources", 0)),
-        ("Input Source", "Front Microphone") => Some(("sources", 1)),
-        ("Input Source", "Line In") => Some(("sources", 2)),
-        ("Output Select", "Speakers") => Some(("sinks", 3)),
-        ("Output Select", "Headphone") => Some(("sinks", 6)),
+        ("Input Source", "Microphone") => {
+            Some(("sources", "Input", "sound-blaster-ae5-input-microphone"))
+        }
+        ("Input Source", "Front Microphone") => Some((
+            "sources",
+            "Input",
+            "sound-blaster-ae5-input-front-microphone",
+        )),
+        ("Input Source", "Line In") => {
+            Some(("sources", "Input", "sound-blaster-ae5-input-line-in"))
+        }
+        ("Output Select", "Speakers") => {
+            Some(("sinks", "Output", "analog-output-lineout;output-speaker"))
+        }
+        ("Output Select", "Headphone") => {
+            Some(("sinks", "Output", "sound-blaster-ae5-output-headphones"))
+        }
         _ => None,
     }
 }
@@ -711,6 +770,71 @@ fn ae5_control_route(control: &str, choice: &str) -> Option<(&'static str, u32)>
 fn parse_route_state(output: &str, card_index: i32) -> io::Result<PipeWireRouteState> {
     let objects = serde_json::from_str::<serde_json::Value>(output)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    let device = ae5_device(&objects, card_index)?;
+
+    let profile_set = device["info"]["props"]["device.profile-set"]
+        .as_str()
+        .map(str::to_owned);
+    let soft_mixer = json_bool(&device["info"]["props"]["api.alsa.soft-mixer"]);
+    let ignore_db = json_bool(&device["info"]["props"]["api.alsa.ignore-dB"]);
+    let active_profile = single_param_name(device, "Profile", None)?;
+    let input_route = single_param_name(device, "Route", Some("Input"))?;
+    let output_route = single_param_name(device, "Route", Some("Output"))?;
+    Ok(PipeWireRouteState {
+        profile_set,
+        soft_mixer,
+        ignore_db,
+        persistent_playback: None,
+        active_profile,
+        input_route,
+        output_route,
+    })
+}
+
+fn parse_route_index(
+    output: &str,
+    card_index: i32,
+    direction: &str,
+    name: &str,
+) -> io::Result<u32> {
+    let objects = serde_json::from_str::<serde_json::Value>(output)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    let device = ae5_device(&objects, card_index)?;
+    let routes = device["info"]["params"]["EnumRoute"]
+        .as_array()
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("pw-dump has no available routes for ALSA card {card_index}"),
+            )
+        })?;
+    let mut matches = routes.iter().filter(|route| {
+        route["direction"].as_str() == Some(direction) && route["name"].as_str() == Some(name)
+    });
+    let route = matches.next().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("PipeWire has no {direction} route named '{name}'"),
+        )
+    })?;
+    if matches.next().is_some() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("PipeWire returned multiple {direction} routes named '{name}'"),
+        ));
+    }
+    route["index"]
+        .as_u64()
+        .and_then(|index| u32::try_from(index).ok())
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("PipeWire route '{name}' has no valid index"),
+            )
+        })
+}
+
+fn ae5_device(objects: &serde_json::Value, card_index: i32) -> io::Result<&serde_json::Value> {
     let devices = objects.as_array().ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::InvalidData,
@@ -734,24 +858,7 @@ fn parse_route_state(output: &str, card_index: i32) -> io::Result<PipeWireRouteS
             format!("pw-dump returned multiple ALSA card {card_index} devices"),
         ));
     }
-
-    let profile_set = device["info"]["props"]["device.profile-set"]
-        .as_str()
-        .map(str::to_owned);
-    let soft_mixer = json_bool(&device["info"]["props"]["api.alsa.soft-mixer"]);
-    let ignore_db = json_bool(&device["info"]["props"]["api.alsa.ignore-dB"]);
-    let active_profile = single_param_name(device, "Profile", None)?;
-    let input_route = single_param_name(device, "Route", Some("Input"))?;
-    let output_route = single_param_name(device, "Route", Some("Output"))?;
-    Ok(PipeWireRouteState {
-        profile_set,
-        soft_mixer,
-        ignore_db,
-        persistent_playback: None,
-        active_profile,
-        input_route,
-        output_route,
-    })
+    Ok(device)
 }
 
 fn single_param_name(
@@ -1359,17 +1466,169 @@ update: id:52 key:'ae5.control.eq.signature' value:'other' type:'Spa:String'
             ]
             .map(|(control, choice)| ae5_control_route(control, choice)),
             [
-                Some(("sources", 0)),
-                Some(("sources", 1)),
-                Some(("sources", 2)),
-                Some(("sinks", 3)),
-                Some(("sinks", 6)),
+                Some(("sources", "Input", "sound-blaster-ae5-input-microphone")),
+                Some((
+                    "sources",
+                    "Input",
+                    "sound-blaster-ae5-input-front-microphone"
+                )),
+                Some(("sources", "Input", "sound-blaster-ae5-input-line-in")),
+                Some(("sinks", "Output", "analog-output-lineout;output-speaker")),
+                Some(("sinks", "Output", "sound-blaster-ae5-output-headphones")),
             ]
         );
         assert_eq!(ae5_control_route("Output Select", "Unknown"), None);
         assert_eq!(
             ae5_control_route("AE-5: Sound Filter", "Fast Roll Off"),
             None
+        );
+    }
+
+    #[test]
+    fn resolves_route_index_by_exact_name_instead_of_path_order() {
+        let output = r#"[
+          {
+            "info": {
+              "props": {"api.alsa.card": 0},
+              "params": {
+                "EnumRoute": [
+                  {"index": 6, "direction": "Output", "name": "iec958-stereo-output"},
+                  {"index": 5, "direction": "Output", "name": "sound-blaster-ae5-output-headphones"},
+                  {"index": 0, "direction": "Input", "name": "sound-blaster-ae5-input-microphone"}
+                ]
+              }
+            }
+          }
+        ]"#;
+
+        assert_eq!(
+            parse_route_index(output, 0, "Output", "sound-blaster-ae5-output-headphones").unwrap(),
+            5
+        );
+    }
+
+    #[test]
+    fn rejects_duplicate_exact_route_names() {
+        let output = r#"[
+          {
+            "info": {
+              "props": {"api.alsa.card": 0},
+              "params": {
+                "EnumRoute": [
+                  {"index": 5, "direction": "Output", "name": "sound-blaster-ae5-output-headphones"},
+                  {"index": 9, "direction": "Output", "name": "sound-blaster-ae5-output-headphones"}
+                ]
+              }
+            }
+          }
+        ]"#;
+
+        assert_eq!(
+            parse_route_index(output, 0, "Output", "sound-blaster-ae5-output-headphones")
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::InvalidData
+        );
+    }
+
+    #[test]
+    fn output_route_transition_mutes_before_route_and_restores_desktop_state() {
+        let node = PipeWireNode {
+            id: 62,
+            node_name: "alsa_output.pci-ae5.analog-stereo".to_owned(),
+            description: "AE-5".to_owned(),
+            is_default: false,
+            volume_percent: Some(5),
+            muted: Some(false),
+        };
+        let mut commands = Vec::new();
+
+        set_output_route_with(&node, 5, |arguments| {
+            commands.push(
+                arguments
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>(),
+            );
+            Ok(String::new())
+        })
+        .unwrap();
+
+        assert_eq!(
+            commands,
+            [
+                ["set-mute", "62", "1"],
+                ["set-route", "62", "5"],
+                ["set-volume", "62", "5%"],
+                ["set-mute", "62", "0"],
+            ]
+            .map(|command| command.map(str::to_owned).to_vec())
+        );
+    }
+
+    #[test]
+    fn output_route_transition_refuses_unknown_desktop_state() {
+        let node = PipeWireNode {
+            id: 62,
+            node_name: "alsa_output.pci-ae5.analog-stereo".to_owned(),
+            description: "AE-5".to_owned(),
+            is_default: false,
+            volume_percent: None,
+            muted: Some(true),
+        };
+        let mut command_ran = false;
+
+        let error = set_output_route_with(&node, 5, |_| {
+            command_ran = true;
+            Ok(String::new())
+        })
+        .unwrap_err();
+
+        assert_eq!(
+            (error.kind(), command_ran),
+            (io::ErrorKind::InvalidData, false)
+        );
+    }
+
+    #[test]
+    fn output_route_transition_leaves_sink_muted_when_restore_fails() {
+        let node = PipeWireNode {
+            id: 62,
+            node_name: "alsa_output.pci-ae5.analog-stereo".to_owned(),
+            description: "AE-5".to_owned(),
+            is_default: false,
+            volume_percent: Some(5),
+            muted: Some(false),
+        };
+        let mut commands = Vec::new();
+
+        let error = set_output_route_with(&node, 5, |arguments| {
+            commands.push(arguments.join(" "));
+            if arguments.first() == Some(&"set-volume") {
+                Err(io::Error::new(
+                    io::ErrorKind::BrokenPipe,
+                    "volume restore failed",
+                ))
+            } else {
+                Ok(String::new())
+            }
+        })
+        .unwrap_err();
+
+        assert_eq!(
+            (error.kind(), commands),
+            (
+                io::ErrorKind::BrokenPipe,
+                vec![
+                    "set-mute 62 1",
+                    "set-route 62 5",
+                    "set-volume 62 5%",
+                    "set-mute 62 1",
+                ]
+                .into_iter()
+                .map(str::to_owned)
+                .collect()
+            )
         );
     }
 
@@ -1500,7 +1759,7 @@ update: id:52 key:'ae5.control.eq.signature' value:'other' type:'Spa:String'
                   },
                   {
                     "direction": "Output",
-                    "name": "sound-blaster-ae5-output-headphones;output-headphones"
+                    "name": "sound-blaster-ae5-output-headphones"
                   }
                 ]
               }
@@ -1517,9 +1776,7 @@ update: id:52 key:'ae5.control.eq.signature' value:'other' type:'Spa:String'
                 persistent_playback: None,
                 active_profile: Some("output:analog-stereo+input:analog-stereo".to_owned()),
                 input_route: Some("sound-blaster-ae5-input-microphone".to_owned()),
-                output_route: Some(
-                    "sound-blaster-ae5-output-headphones;output-headphones".to_owned()
-                ),
+                output_route: Some("sound-blaster-ae5-output-headphones".to_owned()),
             }
         );
         assert_eq!(state.output_issue("Headphone", "2.0"), None);
@@ -1527,7 +1784,7 @@ update: id:52 key:'ae5.control.eq.signature' value:'other' type:'Spa:String'
         assert_eq!(
             state.output_issue("Speakers", "2.0").as_deref(),
             Some(
-                "ALSA selects Speakers, but PipeWire uses sound-blaster-ae5-output-headphones;output-headphones; reapply the output choice"
+                "ALSA selects Speakers, but PipeWire uses sound-blaster-ae5-output-headphones; reapply the output choice"
             )
         );
         assert_eq!(

@@ -187,6 +187,12 @@ Bare-metal response acceptance after a true power-removal boot:
   5% muted, Master/Front off, Low gain, OutFX off, both playback PCMs closed,
   and no managed EQ state or runtime marker.
 
+The first Windows VM matrix proved that Creative `What U Hear` contains the
+imported Acoustic Engine result, but its forced graphic-EQ captures did not
+contain Command's displayed ten-band curve and differed from the Linux model
+by up to 13.08 dB. That endpoint is therefore rejected for EQ parity; see
+[`windows-capture/VM-OUTFX-RESULTS.md`](windows-capture/VM-OUTFX-RESULTS.md).
+
 Still required before Phase A can be called generally accepted:
 
 - measure latency and CPU cost;
@@ -194,5 +200,6 @@ Still required before Phase A can be called generally accepted:
   disabled;
 - repeat at 44.1 and 96 kHz and sample more embedded curves;
 - complete the bounded connected-headphone suspend/resume gate;
-- compare the normalized response with Windows Command's same ten bands while
-  Windows OutFX remains off.
+- compare the normalized response through an independently verified post-EQ
+  Windows endpoint or safely attenuated analog capture while OutFX remains
+  off.

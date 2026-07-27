@@ -5,6 +5,7 @@ use crate::pipewire::{
 use alsa::mixer::{Mixer, Selem, SelemChannelId};
 use std::error::Error;
 use std::fmt;
+use std::fs;
 use std::io;
 use std::time::Duration;
 
@@ -20,6 +21,7 @@ const CHANNELS: &[SelemChannelId] = &[
     SelemChannelId::RearCenter,
 ];
 const ROUTE_PLAYBACK_CONTROLS: &[&str] = &["Master", "Front", "Surround", "Center", "LFE", "PCM"];
+const QUALIFIED_STABLE_PLAYBACK_KERNEL: &str = "7.1.4-ae5-stable";
 
 pub(crate) const EQUALIZER_PRESET_CONTROL: &str = "FX: Equalizer Preset";
 pub const DIRECT_MODE_CONTROL: &str = "AE-5: Direct Mode";
@@ -29,9 +31,9 @@ const UNSAFE_HARDWARE_OUTFX: &str = "Hardware OutFX is disabled because AE-5 tes
     requires a driver rebind or cold boot.";
 const UNSAFE_DIRECT_MODE: &str = "Direct Mode is disabled because repeated AE-5 transitions \
     corrupted normal playback. Reboot into the maintained kernel without Direct Mode.";
-const UNSAFE_OUTPUT_ROUTE_TRANSITION: &str = "Output route changes are disabled because they \
-    suspend and reopen AE-5 playback, which reproduced severe stream distortion. Keep the current \
-    route until the kernel PCM-reopen defect is fixed.";
+const UNSAFE_OUTPUT_ROUTE_TRANSITION: &str = "Output route changes require the qualified \
+    stable-playback kernel because suspend/reopen reproduced severe stream distortion on \
+    unpatched kernels.";
 const EQUALIZER_BAND_EDIT_BLOCK: &str = "Factory EQ presets use DSP values that the individual \
     1 dB controls cannot represent reliably. Select Flat before editing custom bands.";
 const DIRECT_MODE_DSP_BLOCK: &str = "Direct Mode bypasses the CA0132 DSP, so this control has no \
@@ -129,15 +131,29 @@ pub fn playback_switch_block_reason(
 }
 
 pub fn unsafe_playback_control_block_reason(name: &str) -> Option<&'static str> {
+    playback_control_block_reason_for_kernel(name, qualified_stable_playback_kernel_active())
+}
+
+fn playback_control_block_reason_for_kernel(
+    name: &str,
+    stable_playback_kernel: bool,
+) -> Option<&'static str> {
     if name == DIRECT_MODE_CONTROL {
         Some(UNSAFE_DIRECT_MODE)
-    } else if is_unsafe_output_route_control(name) {
+    } else if is_unsafe_output_route_control(name) && !stable_playback_kernel {
         Some(UNSAFE_OUTPUT_ROUTE_TRANSITION)
     } else if is_unsafe_hardware_playback_control(name) {
         Some(UNSAFE_HARDWARE_OUTFX)
     } else {
         None
     }
+}
+
+fn qualified_stable_playback_kernel_active() -> bool {
+    fs::read_to_string("/proc/sys/kernel/osrelease").is_ok_and(|release| {
+        release.trim() == QUALIFIED_STABLE_PLAYBACK_KERNEL
+            && fs::read_to_string("/proc/sys/kernel/tainted").is_ok_and(|taint| taint.trim() == "0")
+    })
 }
 
 fn bass_switch_block_reason(name: &str, controls: &[ControlSnapshot]) -> Option<&'static str> {
@@ -1457,7 +1473,7 @@ mod tests {
     }
 
     #[test]
-    fn blocks_unsafe_ae5_route_transitions_in_both_directions() {
+    fn blocks_unsafe_dsp_transitions_on_every_kernel() {
         for enabled in [false, true] {
             assert_eq!(
                 playback_switch_block_reason("Enable OutFX", enabled, &[]),
@@ -1468,16 +1484,28 @@ mod tests {
                 Some(UNSAFE_DIRECT_MODE)
             );
         }
+    }
+
+    #[test]
+    fn permits_output_routes_only_on_the_qualified_clean_kernel() {
         assert_eq!(
-            unsafe_playback_control_block_reason("Output Select"),
+            playback_control_block_reason_for_kernel("Output Select", false),
             Some(UNSAFE_OUTPUT_ROUTE_TRANSITION)
         );
         assert_eq!(
-            unsafe_playback_control_block_reason("Surround Channel Config"),
+            playback_control_block_reason_for_kernel("Surround Channel Config", false),
             Some(UNSAFE_OUTPUT_ROUTE_TRANSITION)
         );
         assert_eq!(
-            unsafe_playback_control_block_reason("AE-5: Headphone Gain"),
+            playback_control_block_reason_for_kernel("Output Select", true),
+            None
+        );
+        assert_eq!(
+            playback_control_block_reason_for_kernel("Surround Channel Config", true),
+            None
+        );
+        assert_eq!(
+            playback_control_block_reason_for_kernel("AE-5: Headphone Gain", false),
             None
         );
     }
@@ -1590,7 +1618,7 @@ mod tests {
             persistent_playback: Some(true),
             active_profile: Some("output:analog-stereo+input:analog-stereo".to_owned()),
             input_route: Some("sound-blaster-ae5-input-microphone".to_owned()),
-            output_route: Some("sound-blaster-ae5-output-headphones;output-headphones".to_owned()),
+            output_route: Some("sound-blaster-ae5-output-headphones".to_owned()),
         };
         assert_eq!(
             route_repair_plan(&controls, &state).unwrap(),
@@ -1609,8 +1637,7 @@ mod tests {
             }
         );
 
-        state.output_route =
-            Some("sound-blaster-ae5-output-headphones;output-headphones".to_owned());
+        state.output_route = Some("sound-blaster-ae5-output-headphones".to_owned());
         state.input_route = Some("sound-blaster-ae5-input-microphone".to_owned());
         controls[4].playback_switch = Some(false);
         assert_eq!(

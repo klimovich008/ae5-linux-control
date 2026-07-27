@@ -123,9 +123,10 @@ cargo run -- set-default-input
 `Input Source` choice disagrees with PipeWire's active hardware routes, or
 when normal-mode Headphone output has a muted or unreadable `Front` playback
 switch. `route-repair` remains explicit and may repair the input or unmute the
-current headphone DAC, but output/profile transitions remain blocked pending
-their connected-output and suspend/resume acceptance on the new kernel. The
-GTK Device page uses the same guard.
+current headphone DAC. Direct output and speaker-layout changes are enabled
+only on the exact clean `7.1.4-ae5-stable` kernel; other kernels remain
+fail-closed. Profile application still retains output-route metadata without
+applying it to hardware. The GTK Device page uses the same guards.
 Nothing repairs or unmutes a route automatically at login.
 The default-device actions invoke `wpctl` directly without a shell and verify
 the new default. They do not change the card's ALSA mixer controls. CLI status
@@ -180,8 +181,11 @@ state. On the true power-removal stable-kernel boot, two neutral and two
 equalized 48 kHz What U Hear captures repeated within 0.00 dB at every band.
 The measured equalized-minus-neutral response matched the requested graph
 within 0.34 dB, including automatic preamp, across 31 Hz–16 kHz. Latency, CPU,
-long-duration stability, and matched Windows comparison remain pending; see
-[docs/SOFTWARE_EFFECTS_PLAN.md](docs/SOFTWARE_EFFECTS_PLAN.md).
+long-duration stability, and a verified post-EQ Windows measurement remain
+pending. Windows `What U Hear` was proven post-Acoustic-Engine but did not
+contain Command's displayed graphic-EQ curve; see
+[docs/SOFTWARE_EFFECTS_PLAN.md](docs/SOFTWARE_EFFECTS_PLAN.md) and the
+[Windows result](docs/windows-capture/VM-OUTFX-RESULTS.md).
 The response command emits the exact ten-band prediction used by
 `scripts/audio-parity.sh compare-eq` for the physical acceptance capture.
 
@@ -217,10 +221,17 @@ profile metadata and rejected:
 
 ```sh
 cargo run -- get "Output Select"
-cargo run -- set-choice "Output Select" Headphone # rejected: would reopen playback
+cargo run -- set-choice "Output Select" Headphone
 cargo run -- set-playback-switch "FX: Surround" off # rejected: software path only
 cargo run -- set-playback-channel-level Front "Front Right" 82
 ```
+
+Output-route changes are enabled only on the exact clean, physically
+qualified `7.1.4-ae5-stable` kernel; unpatched kernels still reject them. The
+setter resolves the current PipeWire route by exact name rather than a
+position-dependent index, mutes before changing it, and restores the previous
+software volume and mute state afterward. A live Speakers → Headphones cycle
+retained 5% muted, OutFX off, and both playback PCMs closed.
 
 High headphone gain is rejected unless `--allow-high-gain` is supplied. The
 hardware smoke test changes the disabled, route-safe Bass Redirection
@@ -648,15 +659,18 @@ appeared 16.50 dB below Windows, but the levels were not matched: ALSA's
 virtual Master attenuation was stacked with low Front and PCM values. Kernel
 source review and a repeatable Master 19/20 A/B explain the result, so it is
 not evidence of a 16.50 dB driver-performance gap. Full matched electrical
-response/noise parity is still pending. A later playback-free readiness cycle
-confirmed that Windows still loaded the exact Creative controller, codec, and
-render endpoints through VFIO, but stopped when the private test account
-rejected its stale unattended credential. No fixture entered the guest and no
-audio stream opened. Clean shutdown returned the raw mixer, simple mixer, and
-desktop route to their exact pre-cycle hashes with every PCM closed; the
-powered-off VM again has no host device attached. The next Windows cycle
-therefore starts with an interactive account repair and a fresh powered-off
-recovery point, not another automated credential guess.
+response/noise parity is still pending. A later guarded cycle recovered the
+current private test credential from its local setup record without exposing
+it, logged in, and removed the temporary automatic-login values immediately.
+At 5% endpoint and application volume, counterbalanced 48 kHz `What U Hear`
+captures were perfectly repeatable in neutral and changed strongly with the
+imported Acoustic Engine profile. This proves that the endpoint is post-OutFX
+for that profile. Two forced graphic-EQ captures did not contain Command's
+displayed curve and missed the Linux model by up to 13.08 dB, so the endpoint
+is explicitly rejected for EQ parity. The guest then shut down cleanly, the
+AE-5 returned to `snd_hda_intel`, and Linux recovered at 5% muted with both
+playback PCMs closed. See the
+[complete Windows result](docs/windows-capture/VM-OUTFX-RESULTS.md).
 No source NTFS volume, Windows image, Creative binary, private setting, or
 credential is stored in the repository.
 

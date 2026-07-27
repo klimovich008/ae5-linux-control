@@ -8,6 +8,12 @@ gate passes may the same captures be compared with Linux's internal tap.
 This is a digital-processing comparison. It does not measure the DAC,
 headphone amplifier, analog noise, or final analog frequency response.
 
+The first completed run is recorded in
+[`VM-OUTFX-RESULTS.md`](VM-OUTFX-RESULTS.md). Its counterbalanced captures
+proved that `What U Hear` is post-Acoustic-Engine/OutFX for the imported
+profile. The same endpoint did **not** expose the displayed graphic-EQ curve,
+so it remains invalid for a Windows/Linux equalizer-parity claim.
+
 ## Required state before starting
 
 - The Linux stable-kernel bare-metal runtime and playback gates have passed.

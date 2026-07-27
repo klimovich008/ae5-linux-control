@@ -99,8 +99,9 @@ Important incomplete areas:
 - S32 desktop playback is disabled after a loud real track-switch fault;
 - normal analog playback close/reopen can corrupt the waveform even under
   S16, so the production WirePlumber rule keeps the PCM open;
-- the kernel OutFX guard has passed exact-module VFIO tests but is not yet
-  installed on the physical host;
+- the kernel OutFX guard has passed exact-module VFIO tests and its guarded
+  host kernel is installed side by side, but the scheduled one-shot physical
+  boot has not yet run;
 - the complete exact-target S32 transition and HDA-position campaign remains
   unrun; the single-client case passed both unlinked and linked virtual graph
   validation but has not run against the AE-5;
@@ -206,6 +207,8 @@ reconnection:
 ```text
 Kernel:            7.1.4-200.nobara.fc44.x86_64
 Kernel taint:      0
+Next boot once:    7.1.4-ae5-guarded
+Saved/default:     7.1.4-200.nobara.fc44.x86_64
 ALSA card:         0, HDA Creative
 Output:            Headphone, 2.0
 Input:             Microphone
@@ -377,8 +380,9 @@ Priority order:
 3. When an AE-5 output is physically available again, complete the guarded
    software-EQ response, latency, CPU, disable/restore, and stability gates in
    [`docs/SOFTWARE_EFFECTS_PLAN.md`](docs/SOFTWARE_EFFECTS_PLAN.md).
-4. Install the guarded host kernel and complete a true power-removal cold-boot
-   test without forcing suspend/resume while the reopen defect remains.
+4. Boot the already-installed guarded kernel once, run the fail-closed runtime
+   gate, then complete a later true power-removal cold-start test without
+   forcing suspend/resume while the reopen defect remains.
 5. Run matched, safely attenuated Windows/Linux analog measurements.
 6. Finish physical speaker, line-out, optical, and analog-input acceptance.
 

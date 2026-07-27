@@ -1,17 +1,20 @@
 # Maintainable AE-5 kernel workflow
 
-> **Current queue correction (2026-07-27):** hashes and RPM names below record
-> an earlier seven-patch queue that included Direct Mode. Do not install that
-> artifact. The authoritative queue is `kernel/series`; it excludes Direct
-> Mode and includes the fail-closed AE-5 OutFX guard. Recompute all series,
-> source, module, and RPM hashes for a new build.
+> **Current guarded candidate (2026-07-27):** the authoritative
+> `kernel/series` excludes Direct Mode and includes the fail-closed AE-5 OutFX
+> guard. Release `7.1.4-ae5-guarded` was built, non-installingly verified,
+> booted in a cardless full-system guest, and installed side by side on the
+> physical host. The stock Nobara kernel remains the saved/default entry and
+> the guarded candidate is scheduled for one boot through `next_entry`.
 
 The AE-5 changes are maintained as an ordered patch queue, not as one frozen
 kernel binary. The same queue can be checked against every new kernel source
 before anything is built or installed.
 
-No command in this workflow installs a module, writes `/boot`, changes the
-boot loader, or loads code into the running kernel.
+Compatibility checks, queue application, builds, and package verification do
+not install a module, write `/boot`, change the boot loader, or load code into
+the running kernel. Only the separately named installation helper performs an
+installation, and it never reboots.
 
 ## Current exact baseline
 
@@ -23,77 +26,66 @@ patches changes CA0132. The matching `kernel-devel`, `.config`, and
 `Module.symvers` are installed. `CONFIG_SND_HDA_CODEC_CA0132=m`, and Secure
 Boot is disabled.
 
-The 2026-07-26 non-installing validation used:
+The current guarded build used:
 
 - source RPM SHA-256
   `3c832ad0c6ceacf76c94648d5d2964a338fa9e734c6ca8c09e17ed05dd015fd7`;
 - series-file SHA-256
-  `0860e0c593d0482b68dcf4fb9a46fe55104688c59f2dd3abc763b0b1389ece3b`
+  `298333722ceb859dcab345296ea6421f7ff9881ba1cfb88bb29c39e46b8d0b5f`
   and aggregate seven-patch SHA-256
-  `e63443c9f561e99ff768c5d686fd7d086cd23ea46ee50a562ef2ed426c3fffcf`;
+  `cb89ce2f96ae010bc0e9daf6e48963f1892200a9b7f400311667606136d3cf18`;
+- OutFX-guard patch SHA-256
+  `cd2a242facf1ee0aab7e9ff0632e282e644ba4fbf390ee19af17e85743b67fa1`;
+- pristine and patched CA0132 source SHA-256
+  `7b61bcb02c4079b9ca6c82cde3147e95706cdbe958324ae383e7875d9a33a4f0`
+  and
+  `c5d4134d7e3a053b3046f215abce0257193e35c990e26081a3251c414df7074d`;
 - base-config SHA-256
   `2da93a68ccd892892f96334b0a48a807963437d7ffa5e3edb7f1710eee360eb6`
   and migrated build-config SHA-256
-  `bdc869b4ff8c28c1421ccd0e6ae901c5180637cd3d2f23f06bf48ed9bcabc2bf`.
+  `e84f6e5c2e144564b69ce4cf76174d62765851295800f76ef74e00e6aafaf161`.
 
-The external-module gate passed with warnings as errors, exact
-`7.1.4-200.nobara.fc44.x86_64` `vermagic`, and patched CA0132 source SHA-256
-`76bdd35018012a3ccfad5f25b84bc3c8eeab589df6cd1196761c37e938725beb`.
-The complete build produced release `7.1.4-ae5-current`; its main RPM has
-SHA-256
-`8c9f50229ffc764a3574ca0e789991406f1f932aba40035fd116c2a4e542d434`.
-Non-installing extraction verified 6,469 signed zstd modules, all required
-device/configuration and AE-5 markers, exact CA0132 `vermagic`, dependency
-indexing, package scripts, and no conflicts or obsoletes. The boot-image
-SHA-256 is
-`462b8a0d85558c9a4c4c7146a548d6ff16204a1a966b1af46793c6b864585599`;
-a Q35/TCG guest with no audio or network reached the expected no-root
-filesystem panic while reporting `7.1.4-ae5-current`.
+The external-module warning-as-error gate passed with exact stock
+`vermagic`; its test module SHA-256 was
+`605f2f37c846ce3af7dbd52295e933858ec28c4a092fc6cf73ebf4b5440b2184`.
+The complete build produced release `7.1.4-ae5-guarded` and RPM:
 
-The same RPM then passed a full-root test in a recoverable Fedora 44 guest
-with no Creative PCI device or emulated audio. An install-only RPM test passed
-before installation. Fedora's kernel-install script selected the new kernel as
-the saved default, so the test explicitly restored
-`6.19.10-300.fc44.x86_64` as `saved_entry` and selected the custom BLS entry
-only through `next_entry`. The one-shot boot:
+```text
+/home/maks/.cache/ae5-control/nobara-kernel-guarded-20260727-v1/ae5-host-build/rpmbuild/RPMS/x86_64/kernel-7.1.4_ae5_guarded-1.x86_64.rpm
+```
 
-- reported release `7.1.4-ae5-current`;
-- loaded `snd-hda-codec-ca0132` from the matching module tree with exact
-  `vermagic` and the build-time module signature;
-- had kernel taint `0`, zero failed systemd units, and no CA0132, HDA, Creative,
-  or audio messages in the kernel journal;
-- consumed `next_entry` while preserving the stock Fedora `saved_entry`.
+Its SHA-256 is
+`2bed800fcae874856ad934fd53dfa85270fba9475d8fd9b4e65ead6f461a0e76`.
+Non-installing extraction verified 6,469 signed zstd modules, required
+configuration and AE-5 markers, exact CA0132 `vermagic`, dependency indexes,
+package scripts, the OutFX guard marker, and the absence of Direct Mode. The
+boot-image SHA-256 is
+`66ea31488fee9977c05328f87fc49d6aed3d94c4246dbf0cec8185402cab2bb6`;
+the installed compressed CA0132 module SHA-256 is
+`d383eac5f44f5d8ef0131b020500fb8e055502c4c40d9b8ef81f141d33193f31`.
 
-A second boot without an override returned automatically to Fedora
-`6.19.10-300.fc44.x86_64`, again with taint `0`, zero failed units, and an
-empty `next_entry`. The guest shut down cleanly and `qemu-img check` found no
-disk errors.
+A Q35/TCG no-root smoke guest reached Linux
+`7.1.4-ae5-guarded` and the expected missing-root panic. The exact RPM then
+passed a full-root Fedora 44 cardless guest test with no Creative PCI device
+or emulated audio: the guest rebooted into the guarded release, reached
+`systemd` running with zero failed units, and loaded the matching signed
+`snd-hda-codec-ca0132` module. The guest shut down cleanly and `qemu-img
+check` reported no errors.
 
-The exact main RPM is now installed side by side on the target host. The stock
-`7.1.4-200.nobara.fc44.x86_64` BLS entry remains both the saved and default
-kernel, while the `7.1.4-ae5-current` entry is scheduled only through
-`next_entry`. The candidate boot image, initramfs, module tree, CA0132
-`vermagic`, and build-time signature were read back successfully; no custom
-code has yet been loaded on the host.
+The exact RPM is installed side by side on the physical host. Installation
+did not reboot or load custom code. The boot-loader state read back as:
 
-RPM post-processing attempted `akmods@7.1.4-ae5-current.service`, which cannot
-build without a matching kernel-devel tree. This host has no installed
-`akmod-*` package, so there is no third-party module to build and the service
-failure is harmless for this candidate. Do not generalize that exception to a
-host with real akmod packages: such a host needs a matching devel package and
-successful external-module builds before booting. The AE-5 candidate itself
-contains its signed in-tree modules.
+```text
+saved_entry=fca8dc3f5d9347008f0dfcd322dbdcd8-7.1.4-200.nobara.fc44.x86_64
+next_entry=fca8dc3f5d9347008f0dfcd322dbdcd8-7.1.4-ae5-guarded
+default_kernel=/boot/vmlinuz-7.1.4-200.nobara.fc44.x86_64
+running_kernel=7.1.4-200.nobara.fc44.x86_64
+```
 
-The fail-closed installation helper later repeated that complete cardless
-cycle from a clean package state. Its simulation first proved that a package
-script may change the saved entry, that the original stock entry is restored
-exactly, that only the candidate becomes `next_entry`, and that an existing
-one-shot override blocks installation. In the recoverable guest, the helper
-then installed the exact RPM, preserved Fedora
-`6.19.10-300.fc44.x86_64` as `saved_entry`, selected the candidate once,
-booted the signed CA0132 module with taint `0`, zero failed units, and clean
-relevant logs, and returned automatically to stock on the next boot. The
-guest shut down cleanly and its disk again passed `qemu-img check`.
+The next ordinary reboot therefore selects the guarded kernel once. The
+saved/default entry remains stock for the boot after that. The first physical
+boot is still an acceptance gate, not proof that the waveform corruption is
+root-cause fixed.
 
 The exact source RPM can be obtained without root:
 
@@ -264,12 +256,21 @@ For every future kernel:
    ```
 
    It requires the exact untainted release, AE-5 PCI identity and
-   `snd_hda_intel` binding, matching signed CA0132 module, Direct Mode off,
-   all five onboard LED interfaces, closed PCMs, Low gain, and the existing
-   routing/20% safety preflight.
+   `snd_hda_intel` binding, matching signed CA0132 module, Direct Mode absent,
+   all five onboard LED interfaces, OutFX off, closed PCMs, Low gain when
+   available, and the existing routing/20% safety preflight.
 10. Keep playback at or below 20% for the first physical matrix; validate
-   headphone/speaker routing, Direct Mode, DSP controls, suspend/resume,
-   Smart Volume restoration, logs, shutdown, and exact state recovery.
+   boot stability, signed-module state, LEDs, logs, rejected OutFX enable,
+   harmless redundant OutFX-off requests, and a managed persistent S16 stream.
+   Do not test Direct Mode, hardware OutFX enable as a listening mode,
+   hardware EQ/effects, output transitions, or suspend/resume while the
+   PCM-reopen defect remains unresolved.
+
+A normal reboot validates the guarded physical boot. A true cold-start test
+requires a later complete shutdown and physical power removal. Keep AE-5
+outputs unplugged, or headphones off the user's head, until the runtime gate
+passes. Once managed playback opens the PCM, do not force it closed merely to
+manufacture a reopen test.
 
 Patch failure, compile failure, module signature mismatch, unexpected
 `vermagic`, a kernel warning, or incomplete audio-state recovery blocks

@@ -36,10 +36,12 @@ not be installed: they contain Direct Mode and predate the OutFX guard. See
 evidence.
 
 The current seven-patch queue applies cleanly to ALSA `for-next`, excludes
-Direct Mode, and includes the OutFX guard. A new host RPM has not yet been
-built or installed; the machine is running the stock Nobara kernel. The
-maintainable rebuild and one-shot installation workflow, with a warning
-against the old hashes, is in
+Direct Mode, and includes the OutFX guard. Release `7.1.4-ae5-guarded` has
+been built, non-installingly verified, full-system guest-booted, and installed
+side by side. The machine is still running the stock Nobara kernel; the
+guarded entry is scheduled for the next boot only, while stock remains the
+saved/default kernel. The reproducible hashes, validation evidence, and
+physical acceptance sequence are in
 [docs/KERNEL_MAINTENANCE.md](docs/KERNEL_MAINTENANCE.md).
 
 ## Current milestone: guarded persistent playback, profiles, and onboard lighting
@@ -513,11 +515,13 @@ audio warning; it never suspends or plays audio itself. Run its paired
 `--before-suspend campaign-01` and `--after-resume campaign-01` captures, then
 check progress with `--suspend-summary 20`. A standalone read-only snapshot is
 available through `--preflight ID`; it validates the same safety conditions
-without appending campaign state. After the one-shot custom-kernel boot, run
-`bash scripts/check-ae5-kernel-runtime.sh 7.1.4-ae5-current` before changing
+without appending campaign state. After the scheduled one-shot guarded-kernel
+boot, run
+`bash scripts/check-ae5-kernel-runtime.sh 7.1.4-ae5-guarded` before changing
 any control. It additionally requires the exact untainted kernel, signed
-matching CA0132 module, AE-5 PCI identity and driver, Direct Mode off, and all
-five onboard LED interfaces. The Rust CLI and GTK diagnostics also read
+matching CA0132 module, AE-5 PCI identity and driver, Direct Mode absent,
+OutFX off, and all five onboard LED interfaces. The Rust CLI and GTK
+diagnostics also read
 PipeWire's live Route parameters: deliberately recreated
 Headphone-versus-Line-Out and Microphone-versus-Line-In splits failed
 `route-status`, while the normal setters repaired both and restored the exact

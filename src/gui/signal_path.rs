@@ -183,6 +183,13 @@ fn stage_widget(stage: &Stage) -> gtk::Box {
     let reading = gtk::Label::new(Some(&stage.reading));
     reading.set_xalign(1.0);
     reading.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    // Cap the natural width, not just the minimum. The sidebar column is
+    // allocated its natural size, so an uncapped reading let the longest
+    // hardware string set the sidebar's width — and every state change that
+    // lengthened or shortened a reading moved the sidebar border. The full
+    // text stays available as a tooltip when it does not fit.
+    reading.set_max_width_chars(15);
+    reading.set_tooltip_text(Some(&stage.reading));
     // Monospace is reserved for readings. If it is in this face, it is
     // something the hardware reported.
     reading.add_css_class("path-stage-reading");

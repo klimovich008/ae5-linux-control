@@ -259,6 +259,18 @@ analogue of an APO — and leave the unstable hardware path alone. It trades
 hardware offload for stability, needs its own DSP design and measurement
 work, and is the architecture the vendor themselves chose.
 
+### Software-EQ performance checkpoint — 2026-07-28
+
+The in-place ten-biquad graph passed its first exact-sink performance gate.
+It retained the same PipeWire node and 2048-frame/48 kHz quantum, added no
+PipeWire buffer frame, and added 0.400 percentage points of process CPU.
+Filter work increased by 184.291 µs, 0.4319% of the 42.667 ms quantum. A
+600-second nonzero smoke soak recorded 597 zero-error samples and no relevant
+journal warning, then restored the byte-identical mixer, 5% muted sink,
+unloaded graph, and closed PCMs. `scripts/check-software-eq-performance.sh`
+requires 7200 seconds for the long-duration qualification; that run remains
+open.
+
 ### Kernel A/B — answered 2026-07-27, patches exonerated
 
 Measured on the **stock** Nobara kernel `7.1.4-200.nobara.fc44.x86_64`

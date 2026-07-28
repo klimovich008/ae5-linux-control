@@ -122,8 +122,9 @@ Important incomplete areas:
 - Direct Mode remains removed from the production series pending its own
   physical transition acceptance on top of the stable-playback fix;
 - external AE-5 LED strip support;
-- latency, CPU, long-duration stability, broader rate/preset coverage, and a
-  valid matched Windows post-EQ comparison for the new software-EQ path.
+- the two-hour software-EQ stability soak, broader rate/preset coverage, and
+  a valid matched Windows post-EQ comparison; the initial latency/topology,
+  CPU, and 600-second smoke gates passed.
 
 ## Non-negotiable audio safety
 
@@ -338,6 +339,7 @@ bash scripts/check-ae5-acp-profile.sh
 bash scripts/check-feature-parity.sh
 bash scripts/audio-parity.sh --self-test
 bash scripts/check-ae5-playback-stability.sh --self-test
+bash scripts/check-software-eq-performance.sh --self-test
 bash scripts/check-user-install.sh
 ```
 
@@ -366,6 +368,9 @@ The latest checkpoint passed:
   0.002720620–0.002724749% THD;
 - repeated bare-metal in-place EQ captures matching the requested 48 kHz
   ten-band response within 0.34 dB;
+- an exact-sink software-EQ benchmark with zero added PipeWire buffer frames,
+  +0.400 percentage points of CPU, +184.291 µs work per quantum, and a
+  zero-error 600-second nonzero smoke soak with exact recovery;
 - a guarded Windows `What U Hear` comparison proving the imported
   Acoustic Engine/OutFX boundary while rejecting that endpoint for graphic-EQ
   parity;
@@ -390,6 +395,7 @@ The latest checkpoint passed:
 | `kernel/series` | Ordered functional kernel patch queue |
 | `scripts/` | Build, validation, diagnostics, audio and VFIO gates |
 | `scripts/track-transition-stress.sh` | Exact-target client-transition and fail-closed evidence harness |
+| `scripts/check-software-eq-performance.sh` | Exact-sink EQ latency/topology, CPU, and unattended soak gate |
 | `scripts/build-transition-helper.sh` | Builds the development-only native PipeWire renegotiation client |
 | `tools/pipewire-format-renegotiate.c` | Silent client-owned in-place format/rate probe |
 | `scripts/hda-position-trace.sh` | Root-only consumer for upstream HDA lifecycle/position tracepoints |
@@ -440,8 +446,8 @@ Priority order:
 1. Keep S16 and `session.suspend-timeout-seconds = 0` as the managed defaults.
 2. Run the bounded bare-metal suspend/resume campaign with connected-headphone
    routing preflight and preserve the kernel journal and route evidence.
-3. Complete software-EQ latency, CPU, long-duration stability, broader
-   rate/preset coverage, and a valid Windows post-EQ comparison in
+3. Complete the two-hour software-EQ stability soak, broader rate/preset
+   coverage, and a valid Windows post-EQ comparison in
    [`docs/SOFTWARE_EFFECTS_PLAN.md`](docs/SOFTWARE_EFFECTS_PLAN.md).
 4. When an AE-5 output is physically available again, run matched, safely
    attenuated Windows/Linux analog measurements.

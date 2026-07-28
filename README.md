@@ -100,6 +100,7 @@ card:
 
 ```sh
 bash scripts/check-ae5-playback-stability.sh --self-test
+bash scripts/check-software-eq-performance.sh --self-test
 ```
 
 The output names the Linux mechanism, current evidence, and remaining gate for
@@ -180,14 +181,20 @@ remained closed; unload restored the prior PipeWire device/routing and ALSA
 state. On the true power-removal stable-kernel boot, two neutral and two
 equalized 48 kHz What U Hear captures repeated within 0.00 dB at every band.
 The measured equalized-minus-neutral response matched the requested graph
-within 0.34 dB, including automatic preamp, across 31 Hz–16 kHz. Latency, CPU,
-long-duration stability, and a verified post-EQ Windows measurement remain
-pending. Windows `What U Hear` was proven post-Acoustic-Engine but did not
-contain Command's displayed graphic-EQ curve; see
+within 0.34 dB, including automatic preamp, across 31 Hz–16 kHz. A guarded
+physical-card benchmark kept the same sink and 2048-frame quantum, adding no
+PipeWire buffer and 0.400 percentage points of process CPU; filter work added
+184.291 µs, or 0.4319% of each 42.7 ms quantum. A 600-second nonzero smoke
+soak recorded 597 zero-error samples and exact state recovery. The two-hour
+soak, broader-rate/preset coverage, and a verified post-EQ Windows measurement
+remain pending. Windows `What U Hear` was proven post-Acoustic-Engine but did
+not contain Command's displayed graphic-EQ curve; see
 [docs/SOFTWARE_EFFECTS_PLAN.md](docs/SOFTWARE_EFFECTS_PLAN.md) and the
 [Windows result](docs/windows-capture/VM-OUTFX-RESULTS.md).
 The response command emits the exact ten-band prediction used by
 `scripts/audio-parity.sh compare-eq` for the physical acceptance capture.
+`scripts/check-software-eq-performance.sh` provides the corresponding
+fail-closed benchmark and soak gate.
 
 With the onboard-LED kernel candidate and the packaged device rule installed,
 the same unprivileged desktop user can inspect, set, and persist the five

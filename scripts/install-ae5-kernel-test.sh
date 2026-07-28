@@ -154,11 +154,11 @@ install_candidate() {
 	((boot_free_kib >= 524288)) ||
 		fail "/boot has ${boot_free_kib} KiB free; at least 524288 KiB is required"
 
-	rpm -i --test "$rpm_path"
+	rpm -i --oldpackage --test "$rpm_path"
 
 	installation_started=yes
 	trap restore_boot_selection ERR
-	rpm -i "$rpm_path"
+	rpm -i --oldpackage "$rpm_path"
 	grub2-set-default "$stock_saved"
 
 	shopt -s nullglob
@@ -284,9 +284,12 @@ self_test() {
 			return 1
 			;;
 		-i)
-			if [[ ${2:-} == --test ]]; then
+			[[ ${2:-} == --oldpackage ]] || return 1
+			if [[ ${3:-} == --test ]]; then
+				[[ ${4:-} == /tmp/candidate.rpm && $# -eq 4 ]]
 				return
 			fi
+			[[ ${3:-} == /tmp/candidate.rpm && $# -eq 3 ]]
 			printf 'version %s\n' "$test_release" \
 				> "$bls_dir/machine-$test_release.conf"
 			: > "$boot_dir/vmlinuz-$test_release"

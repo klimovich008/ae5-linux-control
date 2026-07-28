@@ -121,8 +121,9 @@ Important incomplete areas:
   one-shot boot; stock remains the saved/default kernel;
 - the ninth warm-shutdown DSP-reset patch is source-compatible, its exact
   affected objects pass the warnings-as-errors build, and its separate
-  `7.1.4-ae5-shutdown` RPM passes non-installing verification, but it is not
-  installed or bare-metal accepted yet;
+  `7.1.4-ae5-shutdown` RPM passes non-installing verification and is installed
+  side by side for the next boot only, but it is not booted or bare-metal
+  accepted yet; stock remains the saved/default kernel;
 - the installed `7.1.4-ae5-guarded` host kernel predates the final fix and must
   not be selected;
 - the complete exact-target S32 transition and HDA-position campaign remains

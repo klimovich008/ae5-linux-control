@@ -125,9 +125,10 @@ the matched route, 5% muted sink, OutFX-off state, and closed playback PCMs.
 
 ### M2 — Warm-handoff kernel acceptance
 
-Status: **pending**
+Status: **in progress**
 
-- Install the already package-verified `7.1.4-ae5-shutdown` kernel side by side.
+- Completed: install the package-verified `7.1.4-ae5-shutdown` kernel side by
+  side for one boot while retaining the stock saved/default entry.
 - Run its guarded Linux boot and shutdown evidence gate.
 - Warm-boot into Windows and compare against a full power-removal baseline.
 - Before the handoff, require the candidate-only EFI pstore preparation gate.

@@ -119,8 +119,9 @@ The candidate has a separate, non-installing-verified
 `776c00b7ce97d13fcf9751fa3c205ff2d799e4b5e106fe1b145c01219f0cc57a`.
 Its verifier accepted 6,469 signed modules, exact
 `7.1.4-ae5-shutdown` CA0132 vermagic, and the shutdown diagnostic marker. It is
-not installed and is not the physically accepted stable package described
-below. See
+installed side by side and scheduled for one guarded boot, but it is not
+booted or physically accepted and is not the stable package described below.
+The stock Nobara kernel remains the saved/default entry. See
 [`WARM_REBOOT_DSP_RESET.md`](WARM_REBOOT_DSP_RESET.md) for its evidence and
 remaining gate.
 

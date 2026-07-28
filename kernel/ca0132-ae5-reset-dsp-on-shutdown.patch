@@ -1,0 +1,82 @@
+diff --git a/include/sound/hda_codec.h b/include/sound/hda_codec.h
+--- a/include/sound/hda_codec.h
++++ b/include/sound/hda_codec.h
+@@ -116,6 +116,7 @@ struct hda_codec_ops {
+ 	int (*suspend)(struct hda_codec *codec);
+ 	int (*resume)(struct hda_codec *codec);
+ 	int (*check_power_status)(struct hda_codec *codec, hda_nid_t nid);
++	void (*shutdown)(struct hda_codec *codec);
+ 	void (*stream_pm)(struct hda_codec *codec, hda_nid_t nid, bool on);
+ };
+ 
+diff --git a/sound/hda/common/codec.c b/sound/hda/common/codec.c
+--- a/sound/hda/common/codec.c
++++ b/sound/hda/common/codec.c
+@@ -3029,6 +3029,7 @@ const struct dev_pm_ops hda_codec_driver_pm = {
+ /* suspend the codec at shutdown; called from driver's shutdown callback */
+ void snd_hda_codec_shutdown(struct hda_codec *codec)
+ {
++	struct hda_codec_driver *driver;
+ 	struct hda_pcm *cpcm;
+ 
+ 	/* Skip the shutdown if codec is not registered */
+@@ -3039,6 +3040,10 @@ void snd_hda_codec_shutdown(struct hda_codec *codec)
+ 	cancel_delayed_work_sync(&codec->jackpoll_work);
+ 	list_for_each_entry(cpcm, &codec->pcm_list_head, list)
+ 		snd_pcm_suspend_all(cpcm->pcm);
++
++	driver = hda_codec_to_driver(codec);
++	if (driver->ops && driver->ops->shutdown)
++		driver->ops->shutdown(codec);
+ 
+ 	pm_runtime_force_suspend(hda_codec_dev(codec));
+ 	pm_runtime_disable(hda_codec_dev(codec));
+diff --git a/sound/hda/codecs/ca0132.c b/sound/hda/codecs/ca0132.c
+--- a/sound/hda/codecs/ca0132.c
++++ b/sound/hda/codecs/ca0132.c
+@@ -10325,6 +10325,37 @@ static int ca0132_codec_suspend(struct hda_codec *codec)
+ 	return 0;
+ }
+ 
++static void ca0132_codec_shutdown(struct hda_codec *codec)
++{
++	struct ca0132_spec *spec = codec->spec;
++	int err;
++
++	if (ca0132_quirk(spec) != QUIRK_AE5)
++		return;
++
++	/*
++	 * A warm reboot does not remove PCIe slot power.  Stop the AE-5 DSP
++	 * before handing the card to the next operating system so corrupted
++	 * processing state cannot survive the reboot.
++	 */
++	CLASS(snd_hda_power_pm, pm)(codec);
++	if (pm.err < 0) {
++		codec_warn(codec, "failed to power up AE-5 at shutdown: %d\n",
++			   pm.err);
++		return;
++	}
++
++	if (!dspload_is_loaded(codec))
++		return;
++
++	err = dsp_reset(codec);
++	if (err < 0)
++		codec_warn(codec, "failed to reset AE-5 DSP at shutdown: %d\n",
++			   err);
++	else
++		codec_info(codec, "AE-5 DSP reset at shutdown\n");
++}
++
+ static const struct hda_codec_ops ca0132_codec_ops = {
+ 	.probe = ca0132_codec_probe,
+ 	.remove = ca0132_codec_remove,
+@@ -10333,6 +10364,7 @@ static const struct hda_codec_ops ca0132_codec_ops = {
+ 	.init = ca0132_codec_init,
+ 	.unsol_event = snd_hda_jack_unsol_event,
+ 	.suspend = ca0132_codec_suspend,
++	.shutdown = ca0132_codec_shutdown,
+ };
+ 
+ /*

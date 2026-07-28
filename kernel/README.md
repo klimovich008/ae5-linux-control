@@ -6,13 +6,20 @@ The production queue is the ordered list in [`series`](series). It no longer
 contains the Direct Mode candidate. It now includes
 [`ca0132-ae5-disable-unsafe-outfx.patch`](ca0132-ae5-disable-unsafe-outfx.patch),
 which initializes AE-5 output effects off, rejects hardware OutFX enable with
-`-EOPNOTSUPP`, and makes redundant off replay a no-op. The final patch,
+`-EOPNOTSUPP`, and makes redundant off replay a no-op. The accepted
+stable-playback patch,
 [`ca0132-ae5-stable-playback-stream.patch`](ca0132-ae5-stable-playback-stream.patch),
 fixes the independent PCM-reopen corruption by retaining the AE-5 playback
 converter assignment across PCM close and holding an AE-5-specific runtime-PM
 reference so idle autosuspend cannot clear it. Controller DMA still stops and
 is released normally; system suspend retains the HDA core's normal
-all-stream cleanup.
+all-stream cleanup. A ninth source-, object-build-, and package-validated
+candidate,
+[`ca0132-ae5-reset-dsp-on-shutdown.patch`](ca0132-ae5-reset-dsp-on-shutdown.patch),
+adds an HDA codec shutdown callback and stops the AE-5 DSP before a warm
+operating-system handoff. It is not present in the installed accepted kernel;
+see
+[`WARM_REBOOT_DSP_RESET.md`](../docs/WARM_REBOOT_DSP_RESET.md).
 
 The exact functional candidate completed 50/50 clean playback reopens after a
 fresh host-driver-to-VFIO boot, with 0.000829% THD in every internal What U
@@ -22,18 +29,19 @@ eight subsequent captures remained clean. The exact-card WirePlumber
 no-suspend policy remains defense in depth rather than the primary fix.
 
 These are internal digital captures with the AE-5 analog outputs unplugged.
-A physical power-removal cold boot, matched analog output capture, and runtime
-Windows same-settings comparison remain pending. The Direct Mode section
-below is historical candidate documentation only.
+The eight-patch kernel later passed a physical power-removal boot. Matched
+analog output capture, the ninth patch's warm-reboot gate, and a valid runtime
+Windows same-settings comparison remain pending. The Direct Mode section below
+is historical candidate documentation only.
 
 The current queue applies cleanly to ALSA `for-next`
-`61471f29f3157f33a61194bf82b4a289cc03e1f1`. Its series SHA-256 is
-`c0093c53597db2128dfbc24c8375fab34cc3a41608c70e1e6291ec1c2e84151f`,
-the eight-patch aggregate is
-`17decd4c9bc79d20565ca2c94fe00f2a4bcce7853219236c93d3e2be27bfe1a4`,
-and the stable-playback patch is
-`26a4599bdab8a75cce5bddb06e4cb3ca2de081706148040b240201df44ad8dc7`.
-Strict `checkpatch.pl` reports zero findings across its 44 lines.
+`46a6393e96b1a9a08fc53ee2ce9485238a06da13`. Its series SHA-256 is
+`3ab88f9c0fccb3cafb5c170f87bcb027dcdc9464ce921e0d334b8d81376b3c7b`,
+the nine-patch aggregate is
+`0228b88a7a75742a886fc6acfa4e3560e911f8b835e4458b0d184a44c2e2c631`,
+and the shutdown patch is
+`a9b7cc7aecd84be92976a437a4eb65f258d3d492d6417e00fc2b4802fddbb40d`.
+Strict `checkpatch.pl` reports zero findings across its 68 lines.
 
 These patches are independent, reviewable Linux changes and diagnostic
 experiments. The original four functional patches were loaded together on the
@@ -88,7 +96,7 @@ also built `ca0132.o` with the same warning gate, and strict `checkpatch.pl`
 reported zero findings for its 217 changed lines. No patch content needed
 rebasing or correction.
 
-The current eight-patch queue was applied to a second clean worktree at the
+The then-current eight-patch queue was applied to a second clean worktree at the
 same `for-next` commit. `git diff --check` passed and
 `sound/hda/codecs/ca0132.o` rebuilt with `W=1 KCFLAGS=-Werror`. The same
 functional change also rebuilt as an exact Nobara 7.1.4 external module with

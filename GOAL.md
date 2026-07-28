@@ -261,15 +261,14 @@ work, and is the architecture the vendor themselves chose.
 
 ### Software-EQ performance checkpoint — 2026-07-28
 
-The in-place ten-biquad graph passed its first exact-sink performance gate.
+The in-place ten-biquad graph passed its exact-sink two-hour qualification.
 It retained the same PipeWire node and 2048-frame/48 kHz quantum, added no
-PipeWire buffer frame, and added 0.400 percentage points of process CPU.
-Filter work increased by 184.291 µs, 0.4319% of the 42.667 ms quantum. A
-600-second nonzero smoke soak recorded 597 zero-error samples and no relevant
-journal warning, then restored the byte-identical mixer, 5% muted sink,
-unloaded graph, and closed PCMs. `scripts/check-software-eq-performance.sh`
-requires 7200 seconds for the long-duration qualification; that run remains
-open.
+PipeWire buffer frame, and added 0.3990 percentage points of process CPU.
+Filter work increased by 178.564 µs, 0.4185% of the 42.667 ms quantum. The
+7200-second nonzero soak recorded 7197 zero-error samples, 200.430 µs mean and
+267.900 µs maximum sink work, 1.1060% PipeWire CPU, and no relevant journal
+warning. Cleanup restored the byte-identical mixer, 5% muted sink and matched
+routes, removed the graph/state file, kept OutFX off, and closed both PCMs.
 
 ### Kernel A/B — answered 2026-07-27, patches exonerated
 
@@ -432,6 +431,10 @@ violet gradient, and the tabs grew to 36px.
 These cannot progress without hardware participation. Each is a short,
 scripted session at an ordinary listening level with Low gain:
 
+- Install and boot the package-validated AE-5 warm-shutdown DSP-reset
+  candidate, then prove the reset in the previous-boot journal and repeat a
+  Linux-to-Windows warm handoff. See
+  [`docs/WARM_REBOOT_DSP_RESET.md`](docs/WARM_REBOOT_DSP_RESET.md).
 - Ten cold boots and twenty bare-metal suspend/resume cycles — this also
   validates the CA0132 resume patch now that the custom kernel runs on the
   host.

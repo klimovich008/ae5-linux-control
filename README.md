@@ -45,7 +45,12 @@ Before that cold boot, the user heard the same fault after warm-booting into
 Windows; only complete power removal cleared it. This is user-reported rather
 than instrumented evidence, but it places that incident below a
 Linux/PipeWire-only boundary and is consistent with persistent AE-5 DSP or PCI
-power state.
+power state. Source tracing then found that driver removal resets the CA0132
+DSP but the generic HDA warm-shutdown path does not. A ninth, not-yet-installed
+queue candidate adds an AE-5-only codec shutdown reset so Linux does not hand
+the next operating system a running DSP. Its evidence and remaining
+warm-handoff gate are in
+[docs/WARM_REBOOT_DSP_RESET.md](docs/WARM_REBOOT_DSP_RESET.md).
 
 This is an internally captured digital result. The AE-5 analog outputs were
 unplugged and the user's headphones were connected to the motherboard
@@ -59,10 +64,14 @@ not be installed: they contain Direct Mode and predate the OutFX guard. See
 [docs/HOST_KERNEL_BUILD.md](docs/HOST_KERNEL_BUILD.md) only for build-history
 evidence.
 
-The current eight-patch queue applies cleanly to ALSA `for-next`, excludes
-Direct Mode, and includes both the OutFX guard and stable-playback fix. Its
-verified `7.1.4-ae5-stable` RPM is installed side by side and is running for
-the accepted one-shot boot; the stock Nobara kernel remains the saved default.
+The current nine-patch queue applies cleanly to ALSA `for-next`, excludes
+Direct Mode, and includes the OutFX guard, stable-playback fix, and the
+source-, object-, and package-validated warm-shutdown reset candidate. Its
+separate `7.1.4-ae5-shutdown` RPM passed non-installing package verification
+but is not installed. The verified `7.1.4-ae5-stable` RPM contains the first
+eight patches and is installed side by side and running for the accepted
+one-shot boot; the stock Nobara kernel remains the saved default. Use the
+ninth-patch package only for its documented guarded runtime gate.
 The previously installed `7.1.4-ae5-guarded` artifact predates the
 stable-playback patch and is historical. Reproducible hashes, validation
 evidence, and the physical acceptance sequence are in
@@ -183,12 +192,13 @@ equalized 48 kHz What U Hear captures repeated within 0.00 dB at every band.
 The measured equalized-minus-neutral response matched the requested graph
 within 0.34 dB, including automatic preamp, across 31 Hz–16 kHz. A guarded
 physical-card benchmark kept the same sink and 2048-frame quantum, adding no
-PipeWire buffer and 0.400 percentage points of process CPU; filter work added
-184.291 µs, or 0.4319% of each 42.7 ms quantum. A 600-second nonzero smoke
-soak recorded 597 zero-error samples and exact state recovery. The two-hour
-soak, broader-rate/preset coverage, and a verified post-EQ Windows measurement
-remain pending. Windows `What U Hear` was proven post-Acoustic-Engine but did
-not contain Command's displayed graphic-EQ curve; see
+PipeWire buffer and 0.3990 percentage points of process CPU; filter work added
+178.564 µs, or 0.4185% of each 42.7 ms quantum. The 7200-second nonzero
+qualification recorded 7197 zero-error samples, 200.430 µs mean and 267.900 µs
+maximum sink work, and exact state recovery. Broader-rate/preset coverage and
+a verified post-EQ Windows measurement remain pending. Windows `What U Hear`
+was proven post-Acoustic-Engine but did not contain Command's displayed
+graphic-EQ curve; see
 [docs/SOFTWARE_EFFECTS_PLAN.md](docs/SOFTWARE_EFFECTS_PLAN.md) and the
 [Windows result](docs/windows-capture/VM-OUTFX-RESULTS.md).
 The response command emits the exact ten-band prediction used by

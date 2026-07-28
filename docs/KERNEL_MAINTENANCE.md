@@ -1,10 +1,12 @@
 # Maintainable AE-5 kernel workflow
 
-> **Current queue (2026-07-27):** the authoritative `kernel/series` excludes
+> **Current queue (2026-07-28):** the authoritative `kernel/series` excludes
 > Direct Mode and includes both the fail-closed AE-5 OutFX guard and the
-> qualified stable-playback fix. Its verified `7.1.4-ae5-stable` RPM is
-> installed side by side and running for the accepted one-shot physical boot.
-> The installed
+> qualified stable-playback fix. It now also contains a source-, object-, and
+> package-validated, not-yet-installed warm-shutdown DSP-reset candidate. The
+> verified `7.1.4-ae5-stable` RPM contains the preceding accepted eight-patch
+> queue and is installed side by side and running for the accepted one-shot
+> physical boot. The installed
 > `7.1.4-ae5-guarded` release predates the final fix and is historical; do not
 > select it for physical testing. The stock Nobara kernel remains the
 > saved/default entry.
@@ -94,15 +96,33 @@ gate. The saved/default entry and `grubby --default-kernel` still resolve to
 stock `7.1.4-200.nobara.fc44.x86_64`; the current one-shot entry names only
 `7.1.4-ae5-stable`.
 
-## Current stable-playback queue
+## Accepted stable-playback package and current source queue
 
-The authoritative queue now has eight patches. Against ALSA `for-next`
+The installed and physically accepted stable-playback package contains eight
+patches. Against ALSA `for-next`
 `61471f29f3157f33a61194bf82b4a289cc03e1f1`, its series SHA-256 is
 `c0093c53597db2128dfbc24c8375fab34cc3a41608c70e1e6291ec1c2e84151f`
 and aggregate patchset SHA-256 is
 `17decd4c9bc79d20565ca2c94fe00f2a4bcce7853219236c93d3e2be27bfe1a4`.
 The stable-playback patch SHA-256 is
 `26a4599bdab8a75cce5bddb06e4cb3ca2de081706148040b240201df44ad8dc7`.
+
+The authoritative source queue now adds the ninth
+[`ca0132-ae5-reset-dsp-on-shutdown.patch`](../kernel/ca0132-ae5-reset-dsp-on-shutdown.patch).
+Against current ALSA `for-next`
+`46a6393e96b1a9a08fc53ee2ce9485238a06da13`, the nine-patch series SHA-256 is
+`3ab88f9c0fccb3cafb5c170f87bcb027dcdc9464ce921e0d334b8d81376b3c7b`
+and aggregate patchset SHA-256 is
+`0228b88a7a75742a886fc6acfa4e3560e911f8b835e4458b0d184a44c2e2c631`.
+The candidate has a separate, non-installing-verified
+`kernel-7.1.4_ae5_shutdown-1.x86_64` RPM with SHA-256
+`776c00b7ce97d13fcf9751fa3c205ff2d799e4b5e106fe1b145c01219f0cc57a`.
+Its verifier accepted 6,469 signed modules, exact
+`7.1.4-ae5-shutdown` CA0132 vermagic, and the shutdown diagnostic marker. It is
+not installed and is not the physically accepted stable package described
+below. See
+[`WARM_REBOOT_DSP_RESET.md`](WARM_REBOOT_DSP_RESET.md) for its evidence and
+remaining gate.
 
 The queue passed isolated apply/reverse compatibility, `git diff --check`,
 strict checkpatch with no findings for the new patch, and an upstream
@@ -191,12 +211,11 @@ three-way merge or patch fuzz.
 
 GitHub's `Kernel patch compatibility` workflow runs the same strict check when
 the queue or checker changes, on manual request, and every Monday against the
-current ALSA `for-next` head. It downloads only the four existing source files
-needed by the queue at the exact remote commit, rather than cloning the full
-kernel repository. A scheduled failure is an upstream-drift signal: rebase and
-retest the queue before using that newer source. This gate checks patch
-compatibility only; the exact-kernel module and full-build gates below remain
-mandatory.
+current ALSA `for-next` head. It downloads only the source files touched by the
+queue at the exact remote commit, rather than cloning the full kernel
+repository. A scheduled failure is an upstream-drift signal: rebase and retest
+the queue before using that newer source. This gate checks patch compatibility
+only; the exact-kernel module and full-build gates below remain mandatory.
 
 Apply only after the check passes:
 

@@ -58,10 +58,17 @@ fi
 
 for marker in 'ca0132_dsp_image_validate' \
 	'AE-5 hardware OutFX enable rejected' \
-	'AE5_INTERNAL_LED_COUNT' 'ca0132_alt_svm_restore' 'ae5_pm_held'; do
+	'AE5_INTERNAL_LED_COUNT' 'ca0132_alt_svm_restore' 'ae5_pm_held' \
+	'AE-5 DSP reset at shutdown'; do
 	grep -Fq -- "$marker" "$source_tree/sound/hda/codecs/ca0132.c" ||
 		fail "patched source marker is missing: $marker"
 done
+grep -Fq -- 'void (*shutdown)(struct hda_codec *codec);' \
+	"$source_tree/include/sound/hda_codec.h" ||
+	fail "patched HDA shutdown operation is missing"
+grep -Fq -- 'driver->ops->shutdown(codec);' \
+	"$source_tree/sound/hda/common/codec.c" ||
+	fail "patched HDA shutdown invocation is missing"
 
 mkdir -p -- "$build_tree"
 install -m0644 -- "$base_config" "$build_tree/.config"
@@ -82,7 +89,7 @@ jobs=${AE5_KERNEL_BUILD_JOBS:-$(nproc)}
 
 make -C "$source_tree" O="$build_tree" olddefconfig
 make -C "$source_tree" O="$build_tree" W=1 KCFLAGS=-Werror \
-	sound/hda/codecs/ca0132.o
+	sound/hda/common/codec.o sound/hda/codecs/ca0132.o
 make -C "$source_tree" O="$build_tree" -j"$jobs" \
 	RPMOPTS=--nodeps binrpm-pkg
 

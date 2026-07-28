@@ -39,6 +39,8 @@ jobs:
 
           for path in \
             Makefile \
+            include/sound/hda_codec.h \
+            sound/hda/common/codec.c \
             sound/hda/codecs/Kconfig \
             sound/hda/codecs/Makefile \
             sound/hda/codecs/ca0132.c

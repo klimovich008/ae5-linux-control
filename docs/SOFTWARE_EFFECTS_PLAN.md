@@ -204,37 +204,35 @@ software-volume ceiling throughout. A bounded −30 dBFS 997 Hz stream exercises
 the graph at 5%; cleanup unloads the graph and verifies the complete mixer,
 sink identity, route, volume/mute state, and PCM closure.
 
-The accepted 600-second physical-card smoke run measured:
+The accepted 7200-second physical-card qualification measured this initial
+neutral/equalized comparison:
 
 | Measurement | Neutral | Ten-band EQ | Delta |
 |---|---:|---:|---:|
-| PipeWire process CPU | 0.6000% | 1.0000% | +0.4000 percentage points |
-| Mean sink busy time | 14.773 µs | 199.064 µs | +184.291 µs |
-| Maximum sink busy time | 33.600 µs | 236.400 µs | — |
+| PipeWire process CPU | 0.6000% | 0.9990% | +0.3990 percentage points |
+| Mean sink busy time | 13.800 µs | 192.364 µs | +178.564 µs |
+| Maximum sink busy time | 16.800 µs | 213.700 µs | — |
 | PipeWire quantum | 2048 frames at 48 kHz | 2048 frames at 48 kHz | 0 frames |
 | PipeWire errors | 0 | 0 | 0 |
 
-The extra filter work consumed 0.4319% of the 42.667 ms quantum. The sink ID,
+The extra filter work consumed 0.4185% of the 42.667 ms quantum. The sink ID,
 serial, format, rate, and quantum remained identical, so the in-place graph
 added no PipeWire node or scheduling buffer. That is a measured
 buffering/topology result, not a claim that an equalizer has zero
 frequency-dependent phase delay.
 
-During the following nonzero soak, 597 timing samples averaged 195.492 µs busy
-with a 234.500 µs maximum, 1.0218% PipeWire process CPU, and zero errors.
-There were no relevant kernel, PipeWire, or WirePlumber warnings. Cleanup
-restored the byte-identical mixer, 5% muted sink, exact Headphone/Microphone
-routes, OutFX off, no managed graph, and closed playback PCMs. The private
-evidence is under the host's `~/.cache/ae5-control/eq-performance-*` tree.
-
-This run qualifies the harness and the short smoke boundary only. A run of
-7200 seconds or longer is the declared long-duration gate; shorter successful
-runs are labelled `qualification=smoke` in `result.txt`.
+During the following two-hour nonzero soak, 7197 timing samples averaged
+200.430 µs busy with a 267.900 µs maximum, 1.1060% PipeWire process CPU, and
+zero errors. There were no relevant kernel, PipeWire, or WirePlumber warnings.
+Cleanup removed the runtime graph and state file, restored the byte-identical
+mixer, 5% muted sink, exact Headphone/Microphone routes, and OutFX off, and
+closed both playback PCMs. `result.txt` records `recovery=pass`,
+`soak_seconds=7200`, and `qualification=long-duration`. The private evidence
+is in
+`~/.cache/ae5-control/eq-performance-20260728-021222.yNFWFZ`.
 
 Still required before Phase A can be called generally accepted:
 
-- pass the two-hour nonzero stability gate with every CA0132 effect module
-  disabled;
 - repeat at 44.1 and 96 kHz and sample more embedded curves;
 - complete the bounded connected-headphone suspend/resume gate;
 - compare the normalized response through an independently verified post-EQ

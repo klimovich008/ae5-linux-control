@@ -119,6 +119,7 @@ zstd -d -q -f "$ca0132_module" -o "$temporary_root/ca0132.ko"
 module_strings=$(strings -- "$temporary_root/ca0132.ko")
 for marker in \
 	'AE-5 hardware OutFX enable rejected' \
+	'AE-5 DSP reset at shutdown' \
 	'%s:rgb:ae5-%u' \
 	'FX: Equalizer Preset Switch' \
 	'out_svm_set_values' \

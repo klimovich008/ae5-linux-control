@@ -63,6 +63,15 @@ defense in depth. The rebuilt kernel is installed side by side and passed its
 bare-metal first-open, warm-reopen, idle, and rejected-OutFX matrix. Connected
 analog-output and suspend/resume acceptance remain separate gates.
 
+The user also observed the same fault after a Linux-to-Windows warm boot and
+cleared it only by removing motherboard power. Source tracing found that
+CA0132 driver removal resets the DSP while the generic HDA shutdown path leaves
+it running. The current nine-patch source queue now ends with an AE-5-only
+shutdown reset candidate, but the installed `7.1.4-ae5-stable` kernel still
+contains the previously accepted eight-patch queue. Do not describe the
+warm-handoff issue as fixed until the gates in
+[`docs/WARM_REBOOT_DSP_RESET.md`](docs/WARM_REBOOT_DSP_RESET.md) pass.
+
 The source ledger currently tracks 54 Command features:
 
 | Classification | Count | Meaning |
@@ -108,6 +117,10 @@ Important incomplete areas:
   first-open, warm/idle, and rejected-OutFX matrices;
 - `7.1.4-ae5-stable` is installed side by side and running for the accepted
   one-shot boot; stock remains the saved/default kernel;
+- the ninth warm-shutdown DSP-reset patch is source-compatible, its exact
+  affected objects pass the warnings-as-errors build, and its separate
+  `7.1.4-ae5-shutdown` RPM passes non-installing verification, but it is not
+  installed or bare-metal accepted yet;
 - the installed `7.1.4-ae5-guarded` host kernel predates the final fix and must
   not be selected;
 - the complete exact-target S32 transition and HDA-position campaign remains
@@ -122,9 +135,8 @@ Important incomplete areas:
 - Direct Mode remains removed from the production series pending its own
   physical transition acceptance on top of the stable-playback fix;
 - external AE-5 LED strip support;
-- the two-hour software-EQ stability soak, broader rate/preset coverage, and
-  a valid matched Windows post-EQ comparison; the initial latency/topology,
-  CPU, and 600-second smoke gates passed.
+- broader software-EQ rate/preset coverage and a valid matched Windows post-EQ
+  comparison; the latency/topology, CPU, and two-hour stability gates passed.
 
 ## Non-negotiable audio safety
 
@@ -268,7 +280,8 @@ OutFX:             off
 Software EQ:       runtime unloaded; managed state absent after full-graph probe
 Playback PCMs:     closed
 Audio services:    PipeWire, PipeWire Pulse, and WirePlumber active
-System VMs:        both powered off; Windows domain has no hostdev
+Session Windows VM: running, logged in; no physical AE-5 hostdev
+System VMs:        both powered off
 GUI test:          current debug build opened natively on Wayland
 ```
 
@@ -282,12 +295,14 @@ The installed GUI and CLI are from the reversible per-user installation. The
 WirePlumber configuration is linked to
 [`packaging/wireplumber/90-ae5-control.conf`](packaging/wireplumber/90-ae5-control.conf).
 
-Four prepared guests exist and were powered off at the snapshot:
+Four prepared guests exist. At this snapshot, only the session Windows
+comparison guest is running:
 
-- session: `ae5-kernel-test-f44`;
-- system: `ae5-kernel-test-f44-system`;
-- session: `ae5-windows-compare`;
-- system: `ae5-windows-compare-system`.
+- session: `ae5-kernel-test-f44` — shut off;
+- system: `ae5-kernel-test-f44-system` — shut off;
+- session: `ae5-windows-compare` — running, logged in, no physical AE-5
+  hostdev;
+- system: `ae5-windows-compare-system` — shut off.
 
 These names and the host PCI address are machine-local facts, not portable
 configuration.
@@ -369,8 +384,9 @@ The latest checkpoint passed:
 - repeated bare-metal in-place EQ captures matching the requested 48 kHz
   ten-band response within 0.34 dB;
 - an exact-sink software-EQ benchmark with zero added PipeWire buffer frames,
-  +0.400 percentage points of CPU, +184.291 µs work per quantum, and a
-  zero-error 600-second nonzero smoke soak with exact recovery;
+  +0.3990 percentage points of CPU, +178.564 µs work per quantum, and a
+  zero-error 7200-second nonzero qualification with 7197 samples and exact
+  recovery;
 - a guarded Windows `What U Hear` comparison proving the imported
   Acoustic Engine/OutFX boundary while rejecting that endpoint for graphic-EQ
   parity;
@@ -419,6 +435,7 @@ Read these next according to the task:
   [`docs/windows-capture/VM-OUTFX-RESULTS.md`](docs/windows-capture/VM-OUTFX-RESULTS.md);
 - kernel work:
   [`kernel/README.md`](kernel/README.md),
+  [`docs/WARM_REBOOT_DSP_RESET.md`](docs/WARM_REBOOT_DSP_RESET.md),
   [`docs/SOURCE_INVENTORY.md`](docs/SOURCE_INVENTORY.md), and
   [`docs/KERNEL_MAINTENANCE.md`](docs/KERNEL_MAINTENANCE.md);
 - packaging:
@@ -444,14 +461,16 @@ interoperability data. Keep that legal and privacy boundary intact.
 Priority order:
 
 1. Keep S16 and `session.suspend-timeout-seconds = 0` as the managed defaults.
-2. Run the bounded bare-metal suspend/resume campaign with connected-headphone
+2. Install the verified shutdown-reset candidate side by side for its guarded
+   Linux warm-reboot acceptance.
+3. Run the bounded bare-metal suspend/resume campaign with connected-headphone
    routing preflight and preserve the kernel journal and route evidence.
-3. Complete the two-hour software-EQ stability soak, broader rate/preset
-   coverage, and a valid Windows post-EQ comparison in
+4. Broaden software-EQ rate/preset coverage and obtain a valid Windows post-EQ
+   comparison in
    [`docs/SOFTWARE_EFFECTS_PLAN.md`](docs/SOFTWARE_EFFECTS_PLAN.md).
-4. When an AE-5 output is physically available again, run matched, safely
+5. When an AE-5 output is physically available again, run matched, safely
    attenuated Windows/Linux analog measurements.
-5. Finish physical speaker, line-out, optical, and analog-input acceptance.
+6. Finish physical speaker, line-out, optical, and analog-input acceptance.
 
 Do not spend the next session redesigning the GUI or adding another abstraction
 before the loud-buzz path is understood. Safety and reproducibility are the

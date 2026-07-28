@@ -33,6 +33,73 @@ collect_pipewire() {
 	fi
 }
 
+collect_lighting() {
+	local led name channels brightness intensity mode
+	local -a leds=()
+
+	section 'AE-5 onboard lighting'
+	shopt -s nullglob
+	leds=("${AE5_LED_ROOT:-/sys/class/leds}"/hdaudioC*D*:rgb:ae5-[1-5])
+	if (( ${#leds[@]} == 0 )); then
+		printf '[no AE-5 onboard LED-class devices found]\n'
+		return
+	fi
+	for led in "${leds[@]}"; do
+		name=${led##*/}
+		channels=$(<"$led/multi_index") || channels=unreadable
+		brightness=$(<"$led/brightness") || brightness=unreadable
+		intensity=$(<"$led/multi_intensity") || intensity=unreadable
+		mode=$(stat -c '%a' "$led/brightness" "$led/multi_intensity" 2>/dev/null |
+			paste -sd, -) || mode=unreadable
+		printf '%s channels=%s intensity=%s brightness=%s modes=%s\n' \
+			"$name" "$channels" "$intensity" "$brightness" "$mode"
+	done
+}
+
+collect_installation() {
+	local binary name package resolved scope
+	local data_root=${XDG_DATA_HOME:-"$HOME/.local/share"}
+
+	section 'AE-5 Control installation'
+	if binary=$(command -v ae5ctl 2>/dev/null) &&
+		resolved=$(readlink -f -- "$binary" 2>/dev/null); then
+		case $resolved in
+		"$data_root"/ae5-control/user-install/bin/*)
+			scope=user
+			;;
+		*)
+			if command -v rpm >/dev/null 2>&1 &&
+				rpm -qf "$resolved" >/dev/null 2>&1; then
+				scope=system
+			else
+				scope=unmanaged
+			fi
+			;;
+		esac
+	else
+		scope=unavailable
+	fi
+	printf 'installation_scope=%s\n' "$scope"
+
+	for name in ae5ctl ae5-control; do
+		if ! binary=$(command -v "$name" 2>/dev/null) || [[ ! -f $binary ]]; then
+			printf '%s=unavailable\n' "$name"
+			continue
+		fi
+		printf '%s_sha256=' "$name"
+		sha256sum -- "$binary" | awk '{print $1}'
+		printf '%s_bytes=%s\n' "$name" "$(stat -Lc '%s' -- "$binary")"
+	done
+
+	if command -v rpm >/dev/null 2>&1 &&
+		package=$(rpm -q --qf '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}' \
+			ae5-control 2>/dev/null); then
+		printf 'system_package=%s\n' "$package"
+	else
+		printf 'system_package=not-installed\n'
+	fi
+}
+
 collect() {
 	local card card_index vendor codec found=0
 
@@ -43,21 +110,41 @@ collect() {
 	section 'Operating system'
 	if [[ -r /etc/os-release ]]; then
 		(
+			# shellcheck disable=SC1091
 			. /etc/os-release
 			printf 'distribution=%s\nversion=%s\n' \
 				"${NAME:-unknown}" "${VERSION_ID:-unknown}"
 		)
 	fi
 	printf 'kernel=%s\n' "$(uname -srmv)"
+	if [[ -r /proc/sys/kernel/tainted ]]; then
+		printf 'kernel_tainted=%s\n' "$(< /proc/sys/kernel/tainted)"
+	else
+		printf 'kernel_tainted=unavailable\n'
+	fi
 
+	collect_installation
 	run 'Creative PCI devices' lspci -nnk -d 1102:
 	run 'ALSA cards' sh -c 'cat /proc/asound/cards'
 	run 'Playback devices' aplay -l
 	run 'Capture devices' arecord -l
 	collect_pipewire
+	run 'AE-5 Control route health' ae5ctl route-status
+	collect_lighting
 	run 'CA0132 module information' modinfo snd_hda_codec_ca0132
 	run 'Loaded sound modules' sh -c \
 		'lsmod | grep -E "^(snd|soundcore)" || true'
+	run 'Failed system units' systemctl --failed --no-legend --plain
+	run 'Failed user units' systemctl --user --failed --no-legend --plain
+	run 'AE-5 Control application trace (current boot, last 500 lines)' sh -c \
+		'journalctl --user -b --no-pager -o cat _COMM=ae5-control 2>/dev/null |
+		 grep -F "[ae5 +" |
+		 tail -n 500 ||
+		 true'
+	run 'Relevant warning-level kernel log' sh -c \
+		'journalctl -k -b -p warning..alert -o cat --no-pager 2>/dev/null |
+		 grep -Ei "ca0132|sound blaster|snd_hda|hdaudio|firmware" ||
+		 true'
 	run 'Relevant kernel log' sh -c \
 		'journalctl -k -b -o cat --no-pager 2>/dev/null |
 		 grep -Ei "ca0132|sound blaster|snd_hda|hdaudio|firmware" ||
@@ -99,8 +186,18 @@ self_test() {
 	collect > "$report"
 	grep -q '^# AE-5 Linux hardware report$' "$report"
 	grep -q '^## Operating system$' "$report"
+	grep -q '^## AE-5 Control installation$' "$report"
+	grep -Eq '^installation_scope=(user|system|unmanaged|unavailable)$' "$report"
+	grep -q '^system_package=' "$report"
 	grep -q '^## Creative PCI devices$' "$report"
 	grep -q '^## Creative PipeWire objects$' "$report"
+	grep -q '^## AE-5 Control route health$' "$report"
+	grep -q '^## AE-5 Control application trace' "$report"
+	grep -q '^## AE-5 onboard lighting$' "$report"
+	grep -q '^kernel_tainted=' "$report"
+	grep -q '^## Failed system units$' "$report"
+	grep -q '^## Failed user units$' "$report"
+	grep -q '^## Relevant warning-level kernel log$' "$report"
 	! grep -Fq "$HOME" "$report"
 	if [[ -r /proc/sys/kernel/hostname ]]; then
 		read -r hostname_value < /proc/sys/kernel/hostname

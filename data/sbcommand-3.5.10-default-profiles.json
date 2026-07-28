@@ -1,0 +1,4886 @@
+[
+  {
+    "source_id": "AdventureAndAction",
+    "name": "Adventure And Action",
+    "speaker": {
+      "format_version": 1,
+      "name": "Adventure And Action",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 24
+        },
+        "EQ Band1": {
+          "playback_level": 24
+        },
+        "EQ Band2": {
+          "playback_level": 24
+        },
+        "EQ Band3": {
+          "playback_level": 24
+        },
+        "EQ Band4": {
+          "playback_level": 24
+        },
+        "EQ Band5": {
+          "playback_level": 24
+        },
+        "EQ Band6": {
+          "playback_level": 24
+        },
+        "EQ Band7": {
+          "playback_level": 24
+        },
+        "EQ Band8": {
+          "playback_level": 24
+        },
+        "EQ Band9": {
+          "playback_level": 24
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": false,
+          "playback_level": 20
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 30
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": false,
+          "playback_level": 30
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    },
+    "headphone": {
+      "format_version": 1,
+      "name": "Adventure And Action",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 28
+        },
+        "EQ Band1": {
+          "playback_level": 28
+        },
+        "EQ Band2": {
+          "playback_level": 23
+        },
+        "EQ Band3": {
+          "playback_level": 22
+        },
+        "EQ Band4": {
+          "playback_level": 24
+        },
+        "EQ Band5": {
+          "playback_level": 24
+        },
+        "EQ Band6": {
+          "playback_level": 27
+        },
+        "EQ Band7": {
+          "playback_level": 24
+        },
+        "EQ Band8": {
+          "playback_level": 24
+        },
+        "EQ Band9": {
+          "playback_level": 24
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": false,
+          "playback_level": 20
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 30
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": false,
+          "playback_level": 30
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    }
+  },
+  {
+    "source_id": "ApexLegend",
+    "name": "Apex Legends",
+    "speaker": {
+      "format_version": 1,
+      "name": "Apex Legends",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 24
+        },
+        "EQ Band1": {
+          "playback_level": 24
+        },
+        "EQ Band2": {
+          "playback_level": 24
+        },
+        "EQ Band3": {
+          "playback_level": 24
+        },
+        "EQ Band4": {
+          "playback_level": 24
+        },
+        "EQ Band5": {
+          "playback_level": 24
+        },
+        "EQ Band6": {
+          "playback_level": 24
+        },
+        "EQ Band7": {
+          "playback_level": 24
+        },
+        "EQ Band8": {
+          "playback_level": 24
+        },
+        "EQ Band9": {
+          "playback_level": 24
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": false,
+          "playback_level": 30
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 74
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": false,
+          "playback_level": 20
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    },
+    "headphone": {
+      "format_version": 1,
+      "name": "Apex Legends",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 26
+        },
+        "EQ Band1": {
+          "playback_level": 27
+        },
+        "EQ Band2": {
+          "playback_level": 23
+        },
+        "EQ Band3": {
+          "playback_level": 24
+        },
+        "EQ Band4": {
+          "playback_level": 22
+        },
+        "EQ Band5": {
+          "playback_level": 24
+        },
+        "EQ Band6": {
+          "playback_level": 26
+        },
+        "EQ Band7": {
+          "playback_level": 21
+        },
+        "EQ Band8": {
+          "playback_level": 26
+        },
+        "EQ Band9": {
+          "playback_level": 24
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": false,
+          "playback_level": 29
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 74
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": false,
+          "playback_level": 20
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    }
+  },
+  {
+    "source_id": "ArenaOfValor",
+    "name": "Arena Of Valor",
+    "speaker": {
+      "format_version": 1,
+      "name": "Arena Of Valor",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 26
+        },
+        "EQ Band1": {
+          "playback_level": 26
+        },
+        "EQ Band2": {
+          "playback_level": 26
+        },
+        "EQ Band3": {
+          "playback_level": 22
+        },
+        "EQ Band4": {
+          "playback_level": 22
+        },
+        "EQ Band5": {
+          "playback_level": 26
+        },
+        "EQ Band6": {
+          "playback_level": 26
+        },
+        "EQ Band7": {
+          "playback_level": 21
+        },
+        "EQ Band8": {
+          "playback_level": 26
+        },
+        "EQ Band9": {
+          "playback_level": 24
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": false,
+          "playback_level": 30
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 30
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 40
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    },
+    "headphone": {
+      "format_version": 1,
+      "name": "Arena Of Valor",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 24
+        },
+        "EQ Band1": {
+          "playback_level": 26
+        },
+        "EQ Band2": {
+          "playback_level": 26
+        },
+        "EQ Band3": {
+          "playback_level": 22
+        },
+        "EQ Band4": {
+          "playback_level": 26
+        },
+        "EQ Band5": {
+          "playback_level": 25
+        },
+        "EQ Band6": {
+          "playback_level": 26
+        },
+        "EQ Band7": {
+          "playback_level": 22
+        },
+        "EQ Band8": {
+          "playback_level": 25
+        },
+        "EQ Band9": {
+          "playback_level": 26
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": false,
+          "playback_level": 30
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 20
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": false,
+          "playback_level": 25
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 40
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    }
+  },
+  {
+    "source_id": "BattleRoyale",
+    "name": "Battle Royale",
+    "speaker": {
+      "format_version": 1,
+      "name": "Battle Royale",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 24
+        },
+        "EQ Band1": {
+          "playback_level": 27
+        },
+        "EQ Band2": {
+          "playback_level": 24
+        },
+        "EQ Band3": {
+          "playback_level": 24
+        },
+        "EQ Band4": {
+          "playback_level": 27
+        },
+        "EQ Band5": {
+          "playback_level": 24
+        },
+        "EQ Band6": {
+          "playback_level": 24
+        },
+        "EQ Band7": {
+          "playback_level": 24
+        },
+        "EQ Band8": {
+          "playback_level": 27
+        },
+        "EQ Band9": {
+          "playback_level": 24
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": false,
+          "playback_level": 40
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 20
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": false,
+          "playback_level": 67
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 30
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    },
+    "headphone": {
+      "format_version": 1,
+      "name": "Battle Royale",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 26
+        },
+        "EQ Band1": {
+          "playback_level": 26
+        },
+        "EQ Band2": {
+          "playback_level": 24
+        },
+        "EQ Band3": {
+          "playback_level": 24
+        },
+        "EQ Band4": {
+          "playback_level": 26
+        },
+        "EQ Band5": {
+          "playback_level": 26
+        },
+        "EQ Band6": {
+          "playback_level": 26
+        },
+        "EQ Band7": {
+          "playback_level": 21
+        },
+        "EQ Band8": {
+          "playback_level": 24
+        },
+        "EQ Band9": {
+          "playback_level": 24
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": false,
+          "playback_level": 35
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 15
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 30
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": false,
+          "playback_level": 25
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    }
+  },
+  {
+    "source_id": "Battlefield1",
+    "name": "Battlefield 1",
+    "speaker": {
+      "format_version": 1,
+      "name": "Battlefield 1",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 24
+        },
+        "EQ Band1": {
+          "playback_level": 22
+        },
+        "EQ Band2": {
+          "playback_level": 24
+        },
+        "EQ Band3": {
+          "playback_level": 22
+        },
+        "EQ Band4": {
+          "playback_level": 22
+        },
+        "EQ Band5": {
+          "playback_level": 26
+        },
+        "EQ Band6": {
+          "playback_level": 26
+        },
+        "EQ Band7": {
+          "playback_level": 21
+        },
+        "EQ Band8": {
+          "playback_level": 24
+        },
+        "EQ Band9": {
+          "playback_level": 27
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": false,
+          "playback_level": 20
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 74
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": false,
+          "playback_level": 67
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    },
+    "headphone": {
+      "format_version": 1,
+      "name": "Battlefield 1",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 26
+        },
+        "EQ Band1": {
+          "playback_level": 27
+        },
+        "EQ Band2": {
+          "playback_level": 23
+        },
+        "EQ Band3": {
+          "playback_level": 24
+        },
+        "EQ Band4": {
+          "playback_level": 24
+        },
+        "EQ Band5": {
+          "playback_level": 27
+        },
+        "EQ Band6": {
+          "playback_level": 26
+        },
+        "EQ Band7": {
+          "playback_level": 24
+        },
+        "EQ Band8": {
+          "playback_level": 26
+        },
+        "EQ Band9": {
+          "playback_level": 26
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": false,
+          "playback_level": 25
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 74
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": false,
+          "playback_level": 20
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 40
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    }
+  },
+  {
+    "source_id": "CallofDutyInfiniteWarfare",
+    "name": "Call of Duty: Infinite Warfare",
+    "speaker": {
+      "format_version": 1,
+      "name": "Call of Duty: Infinite Warfare",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 24
+        },
+        "EQ Band1": {
+          "playback_level": 29
+        },
+        "EQ Band2": {
+          "playback_level": 23
+        },
+        "EQ Band3": {
+          "playback_level": 21
+        },
+        "EQ Band4": {
+          "playback_level": 23
+        },
+        "EQ Band5": {
+          "playback_level": 24
+        },
+        "EQ Band6": {
+          "playback_level": 27
+        },
+        "EQ Band7": {
+          "playback_level": 20
+        },
+        "EQ Band8": {
+          "playback_level": 22
+        },
+        "EQ Band9": {
+          "playback_level": 22
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": false,
+          "playback_level": 20
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 74
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": false,
+          "playback_level": 67
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    },
+    "headphone": {
+      "format_version": 1,
+      "name": "Call of Duty: Infinite Warfare",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 24
+        },
+        "EQ Band1": {
+          "playback_level": 27
+        },
+        "EQ Band2": {
+          "playback_level": 22
+        },
+        "EQ Band3": {
+          "playback_level": 22
+        },
+        "EQ Band4": {
+          "playback_level": 23
+        },
+        "EQ Band5": {
+          "playback_level": 23
+        },
+        "EQ Band6": {
+          "playback_level": 27
+        },
+        "EQ Band7": {
+          "playback_level": 23
+        },
+        "EQ Band8": {
+          "playback_level": 25
+        },
+        "EQ Band9": {
+          "playback_level": 26
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 30
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": false,
+          "playback_level": 12
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    }
+  },
+  {
+    "source_id": "Cinema",
+    "name": "Cinema",
+    "speaker": {
+      "format_version": 1,
+      "name": "Cinema",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 24
+        },
+        "EQ Band1": {
+          "playback_level": 24
+        },
+        "EQ Band2": {
+          "playback_level": 24
+        },
+        "EQ Band3": {
+          "playback_level": 24
+        },
+        "EQ Band4": {
+          "playback_level": 26
+        },
+        "EQ Band5": {
+          "playback_level": 27
+        },
+        "EQ Band6": {
+          "playback_level": 24
+        },
+        "EQ Band7": {
+          "playback_level": 24
+        },
+        "EQ Band8": {
+          "playback_level": 25
+        },
+        "EQ Band9": {
+          "playback_level": 25
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": false,
+          "playback_level": 55
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 74
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": false,
+          "playback_level": 67
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 20
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    },
+    "headphone": {
+      "format_version": 1,
+      "name": "Cinema",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 24
+        },
+        "EQ Band1": {
+          "playback_level": 24
+        },
+        "EQ Band2": {
+          "playback_level": 24
+        },
+        "EQ Band3": {
+          "playback_level": 24
+        },
+        "EQ Band4": {
+          "playback_level": 26
+        },
+        "EQ Band5": {
+          "playback_level": 27
+        },
+        "EQ Band6": {
+          "playback_level": 24
+        },
+        "EQ Band7": {
+          "playback_level": 24
+        },
+        "EQ Band8": {
+          "playback_level": 25
+        },
+        "EQ Band9": {
+          "playback_level": 25
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": false,
+          "playback_level": 55
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 74
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": false,
+          "playback_level": 67
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 20
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    }
+  },
+  {
+    "source_id": "Concert",
+    "name": "Concert",
+    "speaker": {
+      "format_version": 1,
+      "name": "Concert",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 24
+        },
+        "EQ Band1": {
+          "playback_level": 24
+        },
+        "EQ Band2": {
+          "playback_level": 24
+        },
+        "EQ Band3": {
+          "playback_level": 24
+        },
+        "EQ Band4": {
+          "playback_level": 24
+        },
+        "EQ Band5": {
+          "playback_level": 24
+        },
+        "EQ Band6": {
+          "playback_level": 24
+        },
+        "EQ Band7": {
+          "playback_level": 23
+        },
+        "EQ Band8": {
+          "playback_level": 27
+        },
+        "EQ Band9": {
+          "playback_level": 19
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 60
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": false,
+          "playback_level": 67
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 40
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    },
+    "headphone": {
+      "format_version": 1,
+      "name": "Concert",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 24
+        },
+        "EQ Band1": {
+          "playback_level": 24
+        },
+        "EQ Band2": {
+          "playback_level": 24
+        },
+        "EQ Band3": {
+          "playback_level": 24
+        },
+        "EQ Band4": {
+          "playback_level": 24
+        },
+        "EQ Band5": {
+          "playback_level": 24
+        },
+        "EQ Band6": {
+          "playback_level": 24
+        },
+        "EQ Band7": {
+          "playback_level": 23
+        },
+        "EQ Band8": {
+          "playback_level": 27
+        },
+        "EQ Band9": {
+          "playback_level": 19
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 60
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": false,
+          "playback_level": 67
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 40
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    }
+  },
+  {
+    "source_id": "CounterStrikeGlobalOffensive",
+    "name": "CounterStrike: Global Offensive",
+    "speaker": {
+      "format_version": 1,
+      "name": "CounterStrike: Global Offensive",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 26
+        },
+        "EQ Band1": {
+          "playback_level": 27
+        },
+        "EQ Band2": {
+          "playback_level": 26
+        },
+        "EQ Band3": {
+          "playback_level": 23
+        },
+        "EQ Band4": {
+          "playback_level": 25
+        },
+        "EQ Band5": {
+          "playback_level": 26
+        },
+        "EQ Band6": {
+          "playback_level": 26
+        },
+        "EQ Band7": {
+          "playback_level": 21
+        },
+        "EQ Band8": {
+          "playback_level": 23
+        },
+        "EQ Band9": {
+          "playback_level": 26
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": false,
+          "playback_level": 20
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 74
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": false,
+          "playback_level": 67
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    },
+    "headphone": {
+      "format_version": 1,
+      "name": "CounterStrike: Global Offensive",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 20
+        },
+        "EQ Band1": {
+          "playback_level": 27
+        },
+        "EQ Band2": {
+          "playback_level": 21
+        },
+        "EQ Band3": {
+          "playback_level": 21
+        },
+        "EQ Band4": {
+          "playback_level": 22
+        },
+        "EQ Band5": {
+          "playback_level": 22
+        },
+        "EQ Band6": {
+          "playback_level": 26
+        },
+        "EQ Band7": {
+          "playback_level": 23
+        },
+        "EQ Band8": {
+          "playback_level": 24
+        },
+        "EQ Band9": {
+          "playback_level": 27
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": false,
+          "playback_level": 30
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 74
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": false,
+          "playback_level": 67
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    }
+  },
+  {
+    "source_id": "Cyberpunk2077",
+    "name": "Cyberpunk 2077",
+    "speaker": {
+      "format_version": 1,
+      "name": "Cyberpunk 2077",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 27
+        },
+        "EQ Band1": {
+          "playback_level": 28
+        },
+        "EQ Band2": {
+          "playback_level": 24
+        },
+        "EQ Band3": {
+          "playback_level": 24
+        },
+        "EQ Band4": {
+          "playback_level": 24
+        },
+        "EQ Band5": {
+          "playback_level": 27
+        },
+        "EQ Band6": {
+          "playback_level": 27
+        },
+        "EQ Band7": {
+          "playback_level": 24
+        },
+        "EQ Band8": {
+          "playback_level": 27
+        },
+        "EQ Band9": {
+          "playback_level": 24
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": false,
+          "playback_level": 20
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 40
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": false,
+          "playback_level": 70
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    },
+    "headphone": {
+      "format_version": 1,
+      "name": "Cyberpunk 2077",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 27
+        },
+        "EQ Band1": {
+          "playback_level": 27
+        },
+        "EQ Band2": {
+          "playback_level": 24
+        },
+        "EQ Band3": {
+          "playback_level": 22
+        },
+        "EQ Band4": {
+          "playback_level": 24
+        },
+        "EQ Band5": {
+          "playback_level": 26
+        },
+        "EQ Band6": {
+          "playback_level": 26
+        },
+        "EQ Band7": {
+          "playback_level": 21
+        },
+        "EQ Band8": {
+          "playback_level": 26
+        },
+        "EQ Band9": {
+          "playback_level": 24
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": false,
+          "playback_level": 20
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 20
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": false,
+          "playback_level": 67
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    }
+  },
+  {
+    "source_id": "DeathStranding",
+    "name": "Death Stranding",
+    "speaker": {
+      "format_version": 1,
+      "name": "Death Stranding",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 27
+        },
+        "EQ Band1": {
+          "playback_level": 27
+        },
+        "EQ Band2": {
+          "playback_level": 26
+        },
+        "EQ Band3": {
+          "playback_level": 24
+        },
+        "EQ Band4": {
+          "playback_level": 24
+        },
+        "EQ Band5": {
+          "playback_level": 24
+        },
+        "EQ Band6": {
+          "playback_level": 24
+        },
+        "EQ Band7": {
+          "playback_level": 24
+        },
+        "EQ Band8": {
+          "playback_level": 27
+        },
+        "EQ Band9": {
+          "playback_level": 24
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": false,
+          "playback_level": 20
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 20
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 20
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": false,
+          "playback_level": 67
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    },
+    "headphone": {
+      "format_version": 1,
+      "name": "Death Stranding",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 26
+        },
+        "EQ Band1": {
+          "playback_level": 26
+        },
+        "EQ Band2": {
+          "playback_level": 26
+        },
+        "EQ Band3": {
+          "playback_level": 24
+        },
+        "EQ Band4": {
+          "playback_level": 24
+        },
+        "EQ Band5": {
+          "playback_level": 26
+        },
+        "EQ Band6": {
+          "playback_level": 26
+        },
+        "EQ Band7": {
+          "playback_level": 24
+        },
+        "EQ Band8": {
+          "playback_level": 26
+        },
+        "EQ Band9": {
+          "playback_level": 24
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": false,
+          "playback_level": 20
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 20
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 74
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    }
+  },
+  {
+    "source_id": "DoomEternal",
+    "name": "Doom Eternal",
+    "speaker": {
+      "format_version": 1,
+      "name": "Doom Eternal",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 27
+        },
+        "EQ Band1": {
+          "playback_level": 27
+        },
+        "EQ Band2": {
+          "playback_level": 24
+        },
+        "EQ Band3": {
+          "playback_level": 24
+        },
+        "EQ Band4": {
+          "playback_level": 24
+        },
+        "EQ Band5": {
+          "playback_level": 24
+        },
+        "EQ Band6": {
+          "playback_level": 22
+        },
+        "EQ Band7": {
+          "playback_level": 24
+        },
+        "EQ Band8": {
+          "playback_level": 22
+        },
+        "EQ Band9": {
+          "playback_level": 24
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 45
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": false,
+          "playback_level": 60
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    },
+    "headphone": {
+      "format_version": 1,
+      "name": "Doom Eternal",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 26
+        },
+        "EQ Band1": {
+          "playback_level": 26
+        },
+        "EQ Band2": {
+          "playback_level": 22
+        },
+        "EQ Band3": {
+          "playback_level": 24
+        },
+        "EQ Band4": {
+          "playback_level": 24
+        },
+        "EQ Band5": {
+          "playback_level": 26
+        },
+        "EQ Band6": {
+          "playback_level": 26
+        },
+        "EQ Band7": {
+          "playback_level": 24
+        },
+        "EQ Band8": {
+          "playback_level": 26
+        },
+        "EQ Band9": {
+          "playback_level": 24
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 30
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": false,
+          "playback_level": 40
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    }
+  },
+  {
+    "source_id": "Dota2",
+    "name": "DOTA 2",
+    "speaker": {
+      "format_version": 1,
+      "name": "DOTA 2",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 26
+        },
+        "EQ Band1": {
+          "playback_level": 27
+        },
+        "EQ Band2": {
+          "playback_level": 26
+        },
+        "EQ Band3": {
+          "playback_level": 22
+        },
+        "EQ Band4": {
+          "playback_level": 22
+        },
+        "EQ Band5": {
+          "playback_level": 26
+        },
+        "EQ Band6": {
+          "playback_level": 21
+        },
+        "EQ Band7": {
+          "playback_level": 24
+        },
+        "EQ Band8": {
+          "playback_level": 24
+        },
+        "EQ Band9": {
+          "playback_level": 24
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": false,
+          "playback_level": 20
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 30
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": false,
+          "playback_level": 40
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    },
+    "headphone": {
+      "format_version": 1,
+      "name": "DOTA 2",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 35
+        },
+        "EQ Band1": {
+          "playback_level": 31
+        },
+        "EQ Band2": {
+          "playback_level": 33
+        },
+        "EQ Band3": {
+          "playback_level": 24
+        },
+        "EQ Band4": {
+          "playback_level": 23
+        },
+        "EQ Band5": {
+          "playback_level": 26
+        },
+        "EQ Band6": {
+          "playback_level": 24
+        },
+        "EQ Band7": {
+          "playback_level": 26
+        },
+        "EQ Band8": {
+          "playback_level": 26
+        },
+        "EQ Band9": {
+          "playback_level": 26
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": false,
+          "playback_level": 38
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 13
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 20
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": false,
+          "playback_level": 67
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 36
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    }
+  },
+  {
+    "source_id": "EFT",
+    "name": "Escape from Tarkov",
+    "speaker": {
+      "format_version": 1,
+      "name": "Escape from Tarkov",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 27
+        },
+        "EQ Band1": {
+          "playback_level": 27
+        },
+        "EQ Band2": {
+          "playback_level": 24
+        },
+        "EQ Band3": {
+          "playback_level": 24
+        },
+        "EQ Band4": {
+          "playback_level": 24
+        },
+        "EQ Band5": {
+          "playback_level": 24
+        },
+        "EQ Band6": {
+          "playback_level": 24
+        },
+        "EQ Band7": {
+          "playback_level": 24
+        },
+        "EQ Band8": {
+          "playback_level": 24
+        },
+        "EQ Band9": {
+          "playback_level": 24
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": true,
+          "playback_level": 20
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 74
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": true,
+          "playback_level": 50
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    },
+    "headphone": {
+      "format_version": 1,
+      "name": "Escape from Tarkov",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 26
+        },
+        "EQ Band1": {
+          "playback_level": 26
+        },
+        "EQ Band2": {
+          "playback_level": 23
+        },
+        "EQ Band3": {
+          "playback_level": 24
+        },
+        "EQ Band4": {
+          "playback_level": 24
+        },
+        "EQ Band5": {
+          "playback_level": 26
+        },
+        "EQ Band6": {
+          "playback_level": 26
+        },
+        "EQ Band7": {
+          "playback_level": 22
+        },
+        "EQ Band8": {
+          "playback_level": 26
+        },
+        "EQ Band9": {
+          "playback_level": 26
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": true,
+          "playback_level": 20
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 74
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": true,
+          "playback_level": 20
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    }
+  },
+  {
+    "source_id": "Fortnite",
+    "name": "Fortnite",
+    "speaker": {
+      "format_version": 1,
+      "name": "Fortnite",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 24
+        },
+        "EQ Band1": {
+          "playback_level": 26
+        },
+        "EQ Band2": {
+          "playback_level": 22
+        },
+        "EQ Band3": {
+          "playback_level": 22
+        },
+        "EQ Band4": {
+          "playback_level": 24
+        },
+        "EQ Band5": {
+          "playback_level": 24
+        },
+        "EQ Band6": {
+          "playback_level": 27
+        },
+        "EQ Band7": {
+          "playback_level": 22
+        },
+        "EQ Band8": {
+          "playback_level": 26
+        },
+        "EQ Band9": {
+          "playback_level": 24
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": false,
+          "playback_level": 40
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 74
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": false,
+          "playback_level": 55
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    },
+    "headphone": {
+      "format_version": 1,
+      "name": "Fortnite",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 26
+        },
+        "EQ Band1": {
+          "playback_level": 26
+        },
+        "EQ Band2": {
+          "playback_level": 22
+        },
+        "EQ Band3": {
+          "playback_level": 22
+        },
+        "EQ Band4": {
+          "playback_level": 24
+        },
+        "EQ Band5": {
+          "playback_level": 24
+        },
+        "EQ Band6": {
+          "playback_level": 26
+        },
+        "EQ Band7": {
+          "playback_level": 22
+        },
+        "EQ Band8": {
+          "playback_level": 24
+        },
+        "EQ Band9": {
+          "playback_level": 24
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 74
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": false,
+          "playback_level": 25
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 63
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    }
+  },
+  {
+    "source_id": "FPS",
+    "name": "FPS",
+    "speaker": {
+      "format_version": 1,
+      "name": "FPS",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 24
+        },
+        "EQ Band1": {
+          "playback_level": 24
+        },
+        "EQ Band2": {
+          "playback_level": 24
+        },
+        "EQ Band3": {
+          "playback_level": 24
+        },
+        "EQ Band4": {
+          "playback_level": 24
+        },
+        "EQ Band5": {
+          "playback_level": 24
+        },
+        "EQ Band6": {
+          "playback_level": 24
+        },
+        "EQ Band7": {
+          "playback_level": 24
+        },
+        "EQ Band8": {
+          "playback_level": 24
+        },
+        "EQ Band9": {
+          "playback_level": 24
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": false,
+          "playback_level": 65
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 20
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": false,
+          "playback_level": 12
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 20
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    },
+    "headphone": {
+      "format_version": 1,
+      "name": "FPS",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 24
+        },
+        "EQ Band1": {
+          "playback_level": 24
+        },
+        "EQ Band2": {
+          "playback_level": 24
+        },
+        "EQ Band3": {
+          "playback_level": 24
+        },
+        "EQ Band4": {
+          "playback_level": 24
+        },
+        "EQ Band5": {
+          "playback_level": 24
+        },
+        "EQ Band6": {
+          "playback_level": 24
+        },
+        "EQ Band7": {
+          "playback_level": 24
+        },
+        "EQ Band8": {
+          "playback_level": 24
+        },
+        "EQ Band9": {
+          "playback_level": 24
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": false,
+          "playback_level": 65
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 20
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": false,
+          "playback_level": 12
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 20
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    }
+  },
+  {
+    "source_id": "Gaming",
+    "name": "Gaming",
+    "speaker": {
+      "format_version": 1,
+      "name": "Gaming",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 24
+        },
+        "EQ Band1": {
+          "playback_level": 24
+        },
+        "EQ Band2": {
+          "playback_level": 27
+        },
+        "EQ Band3": {
+          "playback_level": 22
+        },
+        "EQ Band4": {
+          "playback_level": 24
+        },
+        "EQ Band5": {
+          "playback_level": 27
+        },
+        "EQ Band6": {
+          "playback_level": 24
+        },
+        "EQ Band7": {
+          "playback_level": 24
+        },
+        "EQ Band8": {
+          "playback_level": 27
+        },
+        "EQ Band9": {
+          "playback_level": 26
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": false,
+          "playback_level": 30
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 74
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": false,
+          "playback_level": 67
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 10
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    },
+    "headphone": {
+      "format_version": 1,
+      "name": "Gaming",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 24
+        },
+        "EQ Band1": {
+          "playback_level": 24
+        },
+        "EQ Band2": {
+          "playback_level": 27
+        },
+        "EQ Band3": {
+          "playback_level": 22
+        },
+        "EQ Band4": {
+          "playback_level": 24
+        },
+        "EQ Band5": {
+          "playback_level": 27
+        },
+        "EQ Band6": {
+          "playback_level": 24
+        },
+        "EQ Band7": {
+          "playback_level": 24
+        },
+        "EQ Band8": {
+          "playback_level": 27
+        },
+        "EQ Band9": {
+          "playback_level": 26
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": false,
+          "playback_level": 30
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 11
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": false,
+          "playback_level": 67
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 10
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    }
+  },
+  {
+    "source_id": "GenshinImpact",
+    "name": "Genshin Impact",
+    "speaker": {
+      "format_version": 1,
+      "name": "Genshin Impact",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 24
+        },
+        "EQ Band1": {
+          "playback_level": 26
+        },
+        "EQ Band2": {
+          "playback_level": 26
+        },
+        "EQ Band3": {
+          "playback_level": 24
+        },
+        "EQ Band4": {
+          "playback_level": 24
+        },
+        "EQ Band5": {
+          "playback_level": 26
+        },
+        "EQ Band6": {
+          "playback_level": 26
+        },
+        "EQ Band7": {
+          "playback_level": 24
+        },
+        "EQ Band8": {
+          "playback_level": 26
+        },
+        "EQ Band9": {
+          "playback_level": 26
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": true,
+          "playback_level": 30
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 74
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": true,
+          "playback_level": 60
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    },
+    "headphone": {
+      "format_version": 1,
+      "name": "Genshin Impact",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 26
+        },
+        "EQ Band1": {
+          "playback_level": 26
+        },
+        "EQ Band2": {
+          "playback_level": 24
+        },
+        "EQ Band3": {
+          "playback_level": 24
+        },
+        "EQ Band4": {
+          "playback_level": 24
+        },
+        "EQ Band5": {
+          "playback_level": 26
+        },
+        "EQ Band6": {
+          "playback_level": 29
+        },
+        "EQ Band7": {
+          "playback_level": 24
+        },
+        "EQ Band8": {
+          "playback_level": 24
+        },
+        "EQ Band9": {
+          "playback_level": 24
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": true,
+          "playback_level": 30
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 74
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": true,
+          "playback_level": 40
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    }
+  },
+  {
+    "source_id": "LeagueOfLegends",
+    "name": "League Of Legends",
+    "speaker": {
+      "format_version": 1,
+      "name": "League Of Legends",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 24
+        },
+        "EQ Band1": {
+          "playback_level": 24
+        },
+        "EQ Band2": {
+          "playback_level": 24
+        },
+        "EQ Band3": {
+          "playback_level": 24
+        },
+        "EQ Band4": {
+          "playback_level": 24
+        },
+        "EQ Band5": {
+          "playback_level": 24
+        },
+        "EQ Band6": {
+          "playback_level": 24
+        },
+        "EQ Band7": {
+          "playback_level": 24
+        },
+        "EQ Band8": {
+          "playback_level": 24
+        },
+        "EQ Band9": {
+          "playback_level": 24
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 30
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 74
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": false,
+          "playback_level": 67
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    },
+    "headphone": {
+      "format_version": 1,
+      "name": "League Of Legends",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 21
+        },
+        "EQ Band1": {
+          "playback_level": 24
+        },
+        "EQ Band2": {
+          "playback_level": 21
+        },
+        "EQ Band3": {
+          "playback_level": 20
+        },
+        "EQ Band4": {
+          "playback_level": 19
+        },
+        "EQ Band5": {
+          "playback_level": 23
+        },
+        "EQ Band6": {
+          "playback_level": 21
+        },
+        "EQ Band7": {
+          "playback_level": 22
+        },
+        "EQ Band8": {
+          "playback_level": 26
+        },
+        "EQ Band9": {
+          "playback_level": 24
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 30
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 74
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": false,
+          "playback_level": 67
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    }
+  },
+  {
+    "source_id": "MetalGearSolidVThePhantomPain",
+    "name": "Metal Gear Solid V: The Phantom Pain",
+    "speaker": {
+      "format_version": 1,
+      "name": "Metal Gear Solid V: The Phantom Pain",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 24
+        },
+        "EQ Band1": {
+          "playback_level": 24
+        },
+        "EQ Band2": {
+          "playback_level": 24
+        },
+        "EQ Band3": {
+          "playback_level": 24
+        },
+        "EQ Band4": {
+          "playback_level": 24
+        },
+        "EQ Band5": {
+          "playback_level": 24
+        },
+        "EQ Band6": {
+          "playback_level": 24
+        },
+        "EQ Band7": {
+          "playback_level": 24
+        },
+        "EQ Band8": {
+          "playback_level": 24
+        },
+        "EQ Band9": {
+          "playback_level": 24
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": false,
+          "playback_level": 30
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 74
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    },
+    "headphone": {
+      "format_version": 1,
+      "name": "Metal Gear Solid V: The Phantom Pain",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 26
+        },
+        "EQ Band1": {
+          "playback_level": 26
+        },
+        "EQ Band2": {
+          "playback_level": 22
+        },
+        "EQ Band3": {
+          "playback_level": 25
+        },
+        "EQ Band4": {
+          "playback_level": 25
+        },
+        "EQ Band5": {
+          "playback_level": 25
+        },
+        "EQ Band6": {
+          "playback_level": 26
+        },
+        "EQ Band7": {
+          "playback_level": 23
+        },
+        "EQ Band8": {
+          "playback_level": 23
+        },
+        "EQ Band9": {
+          "playback_level": 24
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": false,
+          "playback_level": 30
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 74
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    }
+  },
+  {
+    "source_id": "MOBA",
+    "name": "MOBA",
+    "speaker": {
+      "format_version": 1,
+      "name": "MOBA",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 24
+        },
+        "EQ Band1": {
+          "playback_level": 24
+        },
+        "EQ Band2": {
+          "playback_level": 24
+        },
+        "EQ Band3": {
+          "playback_level": 27
+        },
+        "EQ Band4": {
+          "playback_level": 24
+        },
+        "EQ Band5": {
+          "playback_level": 24
+        },
+        "EQ Band6": {
+          "playback_level": 27
+        },
+        "EQ Band7": {
+          "playback_level": 24
+        },
+        "EQ Band8": {
+          "playback_level": 24
+        },
+        "EQ Band9": {
+          "playback_level": 24
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": true,
+          "playback_level": 50
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": true,
+          "playback_level": 30
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": true,
+          "playback_level": 30
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": true,
+          "playback_level": 67
+        },
+        "FX: X-Bass": {
+          "playback_switch": true,
+          "playback_level": 30
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    },
+    "headphone": {
+      "format_version": 1,
+      "name": "MOBA",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 24
+        },
+        "EQ Band1": {
+          "playback_level": 27
+        },
+        "EQ Band2": {
+          "playback_level": 24
+        },
+        "EQ Band3": {
+          "playback_level": 24
+        },
+        "EQ Band4": {
+          "playback_level": 26
+        },
+        "EQ Band5": {
+          "playback_level": 24
+        },
+        "EQ Band6": {
+          "playback_level": 26
+        },
+        "EQ Band7": {
+          "playback_level": 21
+        },
+        "EQ Band8": {
+          "playback_level": 24
+        },
+        "EQ Band9": {
+          "playback_level": 24
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": true,
+          "playback_level": 40
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": true,
+          "playback_level": 30
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 74
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": true,
+          "playback_level": 50
+        },
+        "FX: X-Bass": {
+          "playback_switch": true,
+          "playback_level": 25
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    }
+  },
+  {
+    "source_id": "Night",
+    "name": "Night",
+    "speaker": {
+      "format_version": 1,
+      "name": "Night",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 24
+        },
+        "EQ Band1": {
+          "playback_level": 24
+        },
+        "EQ Band2": {
+          "playback_level": 24
+        },
+        "EQ Band3": {
+          "playback_level": 24
+        },
+        "EQ Band4": {
+          "playback_level": 24
+        },
+        "EQ Band5": {
+          "playback_level": 24
+        },
+        "EQ Band6": {
+          "playback_level": 24
+        },
+        "EQ Band7": {
+          "playback_level": 23
+        },
+        "EQ Band8": {
+          "playback_level": 27
+        },
+        "EQ Band9": {
+          "playback_level": 19
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": false,
+          "playback_level": 55
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 30
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 74
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Night"
+        },
+        "FX: Surround": {
+          "playback_switch": false,
+          "playback_level": 67
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 20
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    },
+    "headphone": {
+      "format_version": 1,
+      "name": "Night",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 24
+        },
+        "EQ Band1": {
+          "playback_level": 24
+        },
+        "EQ Band2": {
+          "playback_level": 24
+        },
+        "EQ Band3": {
+          "playback_level": 24
+        },
+        "EQ Band4": {
+          "playback_level": 24
+        },
+        "EQ Band5": {
+          "playback_level": 24
+        },
+        "EQ Band6": {
+          "playback_level": 24
+        },
+        "EQ Band7": {
+          "playback_level": 23
+        },
+        "EQ Band8": {
+          "playback_level": 27
+        },
+        "EQ Band9": {
+          "playback_level": 19
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": false,
+          "playback_level": 55
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 30
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 0
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Night"
+        },
+        "FX: Surround": {
+          "playback_switch": false,
+          "playback_level": 67
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 20
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    }
+  },
+  {
+    "source_id": "Overwatch",
+    "name": "Overwatch",
+    "speaker": {
+      "format_version": 1,
+      "name": "Overwatch",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 26
+        },
+        "EQ Band1": {
+          "playback_level": 27
+        },
+        "EQ Band2": {
+          "playback_level": 26
+        },
+        "EQ Band3": {
+          "playback_level": 23
+        },
+        "EQ Band4": {
+          "playback_level": 26
+        },
+        "EQ Band5": {
+          "playback_level": 26
+        },
+        "EQ Band6": {
+          "playback_level": 26
+        },
+        "EQ Band7": {
+          "playback_level": 21
+        },
+        "EQ Band8": {
+          "playback_level": 26
+        },
+        "EQ Band9": {
+          "playback_level": 26
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": true,
+          "playback_level": 20
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 74
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": true,
+          "playback_level": 67
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    },
+    "headphone": {
+      "format_version": 1,
+      "name": "Overwatch",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 26
+        },
+        "EQ Band1": {
+          "playback_level": 28
+        },
+        "EQ Band2": {
+          "playback_level": 25
+        },
+        "EQ Band3": {
+          "playback_level": 23
+        },
+        "EQ Band4": {
+          "playback_level": 23
+        },
+        "EQ Band5": {
+          "playback_level": 26
+        },
+        "EQ Band6": {
+          "playback_level": 27
+        },
+        "EQ Band7": {
+          "playback_level": 26
+        },
+        "EQ Band8": {
+          "playback_level": 26
+        },
+        "EQ Band9": {
+          "playback_level": 26
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": true,
+          "playback_level": 30
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 74
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": false,
+          "playback_level": 67
+        },
+        "FX: X-Bass": {
+          "playback_switch": true,
+          "playback_level": 50
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    }
+  },
+  {
+    "source_id": "PlayerUnknown",
+    "name": "PlayerUnknown's Battlegrounds",
+    "speaker": {
+      "format_version": 1,
+      "name": "PlayerUnknown's Battlegrounds",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 24
+        },
+        "EQ Band1": {
+          "playback_level": 27
+        },
+        "EQ Band2": {
+          "playback_level": 20
+        },
+        "EQ Band3": {
+          "playback_level": 20
+        },
+        "EQ Band4": {
+          "playback_level": 24
+        },
+        "EQ Band5": {
+          "playback_level": 26
+        },
+        "EQ Band6": {
+          "playback_level": 26
+        },
+        "EQ Band7": {
+          "playback_level": 24
+        },
+        "EQ Band8": {
+          "playback_level": 26
+        },
+        "EQ Band9": {
+          "playback_level": 24
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": true,
+          "playback_level": 30
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 74
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": true,
+          "playback_level": 45
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    },
+    "headphone": {
+      "format_version": 1,
+      "name": "PlayerUnknown's Battlegrounds",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 27
+        },
+        "EQ Band1": {
+          "playback_level": 27
+        },
+        "EQ Band2": {
+          "playback_level": 22
+        },
+        "EQ Band3": {
+          "playback_level": 22
+        },
+        "EQ Band4": {
+          "playback_level": 24
+        },
+        "EQ Band5": {
+          "playback_level": 24
+        },
+        "EQ Band6": {
+          "playback_level": 27
+        },
+        "EQ Band7": {
+          "playback_level": 21
+        },
+        "EQ Band8": {
+          "playback_level": 24
+        },
+        "EQ Band9": {
+          "playback_level": 27
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": true,
+          "playback_level": 45
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 74
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": true,
+          "playback_level": 15
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    }
+  },
+  {
+    "source_id": "ProjectCars",
+    "name": "Project CARS",
+    "speaker": {
+      "format_version": 1,
+      "name": "Project CARS",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 24
+        },
+        "EQ Band1": {
+          "playback_level": 24
+        },
+        "EQ Band2": {
+          "playback_level": 24
+        },
+        "EQ Band3": {
+          "playback_level": 24
+        },
+        "EQ Band4": {
+          "playback_level": 24
+        },
+        "EQ Band5": {
+          "playback_level": 24
+        },
+        "EQ Band6": {
+          "playback_level": 24
+        },
+        "EQ Band7": {
+          "playback_level": 24
+        },
+        "EQ Band8": {
+          "playback_level": 24
+        },
+        "EQ Band9": {
+          "playback_level": 24
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": true,
+          "playback_level": 50
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 74
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": true,
+          "playback_level": 40
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    },
+    "headphone": {
+      "format_version": 1,
+      "name": "Project CARS",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 24
+        },
+        "EQ Band1": {
+          "playback_level": 27
+        },
+        "EQ Band2": {
+          "playback_level": 24
+        },
+        "EQ Band3": {
+          "playback_level": 26
+        },
+        "EQ Band4": {
+          "playback_level": 26
+        },
+        "EQ Band5": {
+          "playback_level": 24
+        },
+        "EQ Band6": {
+          "playback_level": 26
+        },
+        "EQ Band7": {
+          "playback_level": 24
+        },
+        "EQ Band8": {
+          "playback_level": 23
+        },
+        "EQ Band9": {
+          "playback_level": 23
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": true,
+          "playback_level": 50
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 74
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": true,
+          "playback_level": 40
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    }
+  },
+  {
+    "source_id": "Racing",
+    "name": "Racing",
+    "speaker": {
+      "format_version": 1,
+      "name": "Racing",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 24
+        },
+        "EQ Band1": {
+          "playback_level": 24
+        },
+        "EQ Band2": {
+          "playback_level": 24
+        },
+        "EQ Band3": {
+          "playback_level": 24
+        },
+        "EQ Band4": {
+          "playback_level": 24
+        },
+        "EQ Band5": {
+          "playback_level": 24
+        },
+        "EQ Band6": {
+          "playback_level": 24
+        },
+        "EQ Band7": {
+          "playback_level": 24
+        },
+        "EQ Band8": {
+          "playback_level": 24
+        },
+        "EQ Band9": {
+          "playback_level": 24
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": true,
+          "playback_level": 30
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": true,
+          "playback_level": 40
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": true,
+          "playback_level": 30
+        },
+        "FX: X-Bass": {
+          "playback_switch": true,
+          "playback_level": 20
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    },
+    "headphone": {
+      "format_version": 1,
+      "name": "Racing",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 24
+        },
+        "EQ Band1": {
+          "playback_level": 24
+        },
+        "EQ Band2": {
+          "playback_level": 24
+        },
+        "EQ Band3": {
+          "playback_level": 24
+        },
+        "EQ Band4": {
+          "playback_level": 24
+        },
+        "EQ Band5": {
+          "playback_level": 24
+        },
+        "EQ Band6": {
+          "playback_level": 24
+        },
+        "EQ Band7": {
+          "playback_level": 24
+        },
+        "EQ Band8": {
+          "playback_level": 24
+        },
+        "EQ Band9": {
+          "playback_level": 24
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": true,
+          "playback_level": 30
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": true,
+          "playback_level": 40
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": true,
+          "playback_level": 30
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    }
+  },
+  {
+    "source_id": "RealTimeStrategy",
+    "name": "Real Time Strategy",
+    "speaker": {
+      "format_version": 1,
+      "name": "Real Time Strategy",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 24
+        },
+        "EQ Band1": {
+          "playback_level": 24
+        },
+        "EQ Band2": {
+          "playback_level": 24
+        },
+        "EQ Band3": {
+          "playback_level": 24
+        },
+        "EQ Band4": {
+          "playback_level": 24
+        },
+        "EQ Band5": {
+          "playback_level": 24
+        },
+        "EQ Band6": {
+          "playback_level": 24
+        },
+        "EQ Band7": {
+          "playback_level": 24
+        },
+        "EQ Band8": {
+          "playback_level": 24
+        },
+        "EQ Band9": {
+          "playback_level": 24
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": true,
+          "playback_level": 30
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": true,
+          "playback_level": 50
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": false,
+          "playback_level": 67
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    },
+    "headphone": {
+      "format_version": 1,
+      "name": "Real Time Strategy",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 24
+        },
+        "EQ Band1": {
+          "playback_level": 22
+        },
+        "EQ Band2": {
+          "playback_level": 21
+        },
+        "EQ Band3": {
+          "playback_level": 24
+        },
+        "EQ Band4": {
+          "playback_level": 22
+        },
+        "EQ Band5": {
+          "playback_level": 26
+        },
+        "EQ Band6": {
+          "playback_level": 24
+        },
+        "EQ Band7": {
+          "playback_level": 21
+        },
+        "EQ Band8": {
+          "playback_level": 23
+        },
+        "EQ Band9": {
+          "playback_level": 24
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": true,
+          "playback_level": 30
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": true,
+          "playback_level": 50
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": false,
+          "playback_level": 67
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    }
+  },
+  {
+    "source_id": "RDR2",
+    "name": "Red Dead Redemption 2",
+    "speaker": {
+      "format_version": 1,
+      "name": "Red Dead Redemption 2",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 24
+        },
+        "EQ Band1": {
+          "playback_level": 27
+        },
+        "EQ Band2": {
+          "playback_level": 24
+        },
+        "EQ Band3": {
+          "playback_level": 24
+        },
+        "EQ Band4": {
+          "playback_level": 24
+        },
+        "EQ Band5": {
+          "playback_level": 27
+        },
+        "EQ Band6": {
+          "playback_level": 27
+        },
+        "EQ Band7": {
+          "playback_level": 24
+        },
+        "EQ Band8": {
+          "playback_level": 24
+        },
+        "EQ Band9": {
+          "playback_level": 24
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": true,
+          "playback_level": 30
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": true,
+          "playback_level": 40
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 74
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": true,
+          "playback_level": 67
+        },
+        "FX: X-Bass": {
+          "playback_switch": true,
+          "playback_level": 20
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    },
+    "headphone": {
+      "format_version": 1,
+      "name": "Red Dead Redemption 2",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 24
+        },
+        "EQ Band1": {
+          "playback_level": 26
+        },
+        "EQ Band2": {
+          "playback_level": 26
+        },
+        "EQ Band3": {
+          "playback_level": 24
+        },
+        "EQ Band4": {
+          "playback_level": 22
+        },
+        "EQ Band5": {
+          "playback_level": 27
+        },
+        "EQ Band6": {
+          "playback_level": 26
+        },
+        "EQ Band7": {
+          "playback_level": 22
+        },
+        "EQ Band8": {
+          "playback_level": 24
+        },
+        "EQ Band9": {
+          "playback_level": 24
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": true,
+          "playback_level": 20
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": true,
+          "playback_level": 20
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 74
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": true,
+          "playback_level": 50
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    }
+  },
+  {
+    "source_id": "RocketLeague",
+    "name": "Rocket League",
+    "speaker": {
+      "format_version": 1,
+      "name": "Rocket League",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 24
+        },
+        "EQ Band1": {
+          "playback_level": 24
+        },
+        "EQ Band2": {
+          "playback_level": 24
+        },
+        "EQ Band3": {
+          "playback_level": 24
+        },
+        "EQ Band4": {
+          "playback_level": 24
+        },
+        "EQ Band5": {
+          "playback_level": 24
+        },
+        "EQ Band6": {
+          "playback_level": 24
+        },
+        "EQ Band7": {
+          "playback_level": 24
+        },
+        "EQ Band8": {
+          "playback_level": 24
+        },
+        "EQ Band9": {
+          "playback_level": 24
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 74
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": true,
+          "playback_level": 50
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    },
+    "headphone": {
+      "format_version": 1,
+      "name": "Rocket League",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 27
+        },
+        "EQ Band1": {
+          "playback_level": 27
+        },
+        "EQ Band2": {
+          "playback_level": 22
+        },
+        "EQ Band3": {
+          "playback_level": 26
+        },
+        "EQ Band4": {
+          "playback_level": 26
+        },
+        "EQ Band5": {
+          "playback_level": 24
+        },
+        "EQ Band6": {
+          "playback_level": 26
+        },
+        "EQ Band7": {
+          "playback_level": 24
+        },
+        "EQ Band8": {
+          "playback_level": 22
+        },
+        "EQ Band9": {
+          "playback_level": 24
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": false,
+          "playback_level": 74
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": true,
+          "playback_level": 50
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    }
+  },
+  {
+    "source_id": "RPG",
+    "name": "RPG",
+    "speaker": {
+      "format_version": 1,
+      "name": "RPG",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 24
+        },
+        "EQ Band1": {
+          "playback_level": 24
+        },
+        "EQ Band2": {
+          "playback_level": 24
+        },
+        "EQ Band3": {
+          "playback_level": 24
+        },
+        "EQ Band4": {
+          "playback_level": 24
+        },
+        "EQ Band5": {
+          "playback_level": 24
+        },
+        "EQ Band6": {
+          "playback_level": 24
+        },
+        "EQ Band7": {
+          "playback_level": 24
+        },
+        "EQ Band8": {
+          "playback_level": 24
+        },
+        "EQ Band9": {
+          "playback_level": 24
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": true,
+          "playback_level": 15
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": true,
+          "playback_level": 30
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": true,
+          "playback_level": 35
+        },
+        "FX: X-Bass": {
+          "playback_switch": true,
+          "playback_level": 20
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    },
+    "headphone": {
+      "format_version": 1,
+      "name": "RPG",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 24
+        },
+        "EQ Band1": {
+          "playback_level": 24
+        },
+        "EQ Band2": {
+          "playback_level": 24
+        },
+        "EQ Band3": {
+          "playback_level": 24
+        },
+        "EQ Band4": {
+          "playback_level": 24
+        },
+        "EQ Band5": {
+          "playback_level": 24
+        },
+        "EQ Band6": {
+          "playback_level": 24
+        },
+        "EQ Band7": {
+          "playback_level": 24
+        },
+        "EQ Band8": {
+          "playback_level": 24
+        },
+        "EQ Band9": {
+          "playback_level": 24
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": true,
+          "playback_level": 15
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": true,
+          "playback_level": 30
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": true,
+          "playback_level": 35
+        },
+        "FX: X-Bass": {
+          "playback_switch": true,
+          "playback_level": 20
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    }
+  },
+  {
+    "source_id": "Stadium",
+    "name": "Stadium",
+    "speaker": {
+      "format_version": 1,
+      "name": "Stadium",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 24
+        },
+        "EQ Band1": {
+          "playback_level": 24
+        },
+        "EQ Band2": {
+          "playback_level": 24
+        },
+        "EQ Band3": {
+          "playback_level": 24
+        },
+        "EQ Band4": {
+          "playback_level": 24
+        },
+        "EQ Band5": {
+          "playback_level": 24
+        },
+        "EQ Band6": {
+          "playback_level": 24
+        },
+        "EQ Band7": {
+          "playback_level": 24
+        },
+        "EQ Band8": {
+          "playback_level": 24
+        },
+        "EQ Band9": {
+          "playback_level": 24
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": true,
+          "playback_level": 30
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": true,
+          "playback_level": 74
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": true,
+          "playback_level": 40
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    },
+    "headphone": {
+      "format_version": 1,
+      "name": "Stadium",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 24
+        },
+        "EQ Band1": {
+          "playback_level": 24
+        },
+        "EQ Band2": {
+          "playback_level": 21
+        },
+        "EQ Band3": {
+          "playback_level": 26
+        },
+        "EQ Band4": {
+          "playback_level": 27
+        },
+        "EQ Band5": {
+          "playback_level": 27
+        },
+        "EQ Band6": {
+          "playback_level": 26
+        },
+        "EQ Band7": {
+          "playback_level": 22
+        },
+        "EQ Band8": {
+          "playback_level": 27
+        },
+        "EQ Band9": {
+          "playback_level": 24
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": true,
+          "playback_level": 30
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": true,
+          "playback_level": 74
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": true,
+          "playback_level": 40
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    }
+  },
+  {
+    "source_id": "TheWitcher3WildHunt",
+    "name": "The Witcher 3: Wild Hunt",
+    "speaker": {
+      "format_version": 1,
+      "name": "The Witcher 3: Wild Hunt",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 24
+        },
+        "EQ Band1": {
+          "playback_level": 24
+        },
+        "EQ Band2": {
+          "playback_level": 24
+        },
+        "EQ Band3": {
+          "playback_level": 24
+        },
+        "EQ Band4": {
+          "playback_level": 24
+        },
+        "EQ Band5": {
+          "playback_level": 24
+        },
+        "EQ Band6": {
+          "playback_level": 24
+        },
+        "EQ Band7": {
+          "playback_level": 24
+        },
+        "EQ Band8": {
+          "playback_level": 24
+        },
+        "EQ Band9": {
+          "playback_level": 24
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": true,
+          "playback_level": 30
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": true,
+          "playback_level": 65
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    },
+    "headphone": {
+      "format_version": 1,
+      "name": "The Witcher 3: Wild Hunt",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 27
+        },
+        "EQ Band1": {
+          "playback_level": 28
+        },
+        "EQ Band2": {
+          "playback_level": 22
+        },
+        "EQ Band3": {
+          "playback_level": 24
+        },
+        "EQ Band4": {
+          "playback_level": 24
+        },
+        "EQ Band5": {
+          "playback_level": 26
+        },
+        "EQ Band6": {
+          "playback_level": 26
+        },
+        "EQ Band7": {
+          "playback_level": 24
+        },
+        "EQ Band8": {
+          "playback_level": 22
+        },
+        "EQ Band9": {
+          "playback_level": 24
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": true,
+          "playback_level": 30
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": true,
+          "playback_level": 65
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    }
+  },
+  {
+    "source_id": "Rainbow6Siege",
+    "name": "Tom Clancy's Rainbow Six Siege",
+    "speaker": {
+      "format_version": 1,
+      "name": "Tom Clancy's Rainbow Six Siege",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 27
+        },
+        "EQ Band1": {
+          "playback_level": 27
+        },
+        "EQ Band2": {
+          "playback_level": 26
+        },
+        "EQ Band3": {
+          "playback_level": 24
+        },
+        "EQ Band4": {
+          "playback_level": 24
+        },
+        "EQ Band5": {
+          "playback_level": 27
+        },
+        "EQ Band6": {
+          "playback_level": 27
+        },
+        "EQ Band7": {
+          "playback_level": 24
+        },
+        "EQ Band8": {
+          "playback_level": 24
+        },
+        "EQ Band9": {
+          "playback_level": 24
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": true,
+          "playback_level": 30
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": true,
+          "playback_level": 30
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": true,
+          "playback_level": 60
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    },
+    "headphone": {
+      "format_version": 1,
+      "name": "Tom Clancy's Rainbow Six Siege",
+      "target": "1102:0012/1102:0051",
+      "controls": {
+        "EQ Band0": {
+          "playback_level": 27
+        },
+        "EQ Band1": {
+          "playback_level": 27
+        },
+        "EQ Band2": {
+          "playback_level": 24
+        },
+        "EQ Band3": {
+          "playback_level": 24
+        },
+        "EQ Band4": {
+          "playback_level": 22
+        },
+        "EQ Band5": {
+          "playback_level": 26
+        },
+        "EQ Band6": {
+          "playback_level": 27
+        },
+        "EQ Band7": {
+          "playback_level": 21
+        },
+        "EQ Band8": {
+          "playback_level": 24
+        },
+        "EQ Band9": {
+          "playback_level": 24
+        },
+        "Enable OutFX": {
+          "playback_switch": true
+        },
+        "FX: Crystalizer": {
+          "playback_switch": true,
+          "playback_level": 30
+        },
+        "FX: Dialog Plus": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: Equalizer": {
+          "playback_switch": true
+        },
+        "FX: Equalizer Preset": {
+          "choice": "Flat"
+        },
+        "FX: Smart Volume": {
+          "playback_switch": true,
+          "playback_level": 20
+        },
+        "FX: Smart Volume Setting": {
+          "choice": "Normal"
+        },
+        "FX: Surround": {
+          "playback_switch": true,
+          "playback_level": 35
+        },
+        "FX: X-Bass": {
+          "playback_switch": false,
+          "playback_level": 50
+        },
+        "FX: X-Bass Crossover": {
+          "playback_level": 8
+        }
+      }
+    }
+  }
+]

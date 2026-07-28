@@ -1,0 +1,138 @@
+diff --git a/sound/hda/codecs/ca0132.c b/sound/hda/codecs/ca0132.c
+--- a/sound/hda/codecs/ca0132.c
++++ b/sound/hda/codecs/ca0132.c
+@@ -524,6 +524,8 @@
+ struct ct_eq_preset {
+ 	const char *name; /*preset name*/
+ 	unsigned int vals[EQ_PRESET_MAX_PARAM_COUNT];
++	/* Nearest values exposed by the whole-dB EQ band controls. */
++	s8 band_ctl_vals[EQ_PRESET_MAX_PARAM_COUNT - 1];
+ };
+ 
+ static const struct ct_eq ca0132_alt_eq_enum = {
+@@ -539,61 +541,71 @@
+ 	 .vals = { 0x00000000, 0x00000000, 0x00000000,
+ 		   0x00000000, 0x00000000, 0x00000000,
+ 		   0x00000000, 0x00000000, 0x00000000,
+-		   0x00000000, 0x00000000	     }
++		   0x00000000, 0x00000000	     },
++	 .band_ctl_vals = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
+ 	},
+ 	{ .name = "Acoustic",
+ 	 .vals = { 0x00000000, 0x00000000, 0x3F8CCCCD,
+ 		   0x40000000, 0x00000000, 0x00000000,
+ 		   0x00000000, 0x00000000, 0x40000000,
+-		   0x40000000, 0x40000000	     }
++		   0x40000000, 0x40000000	     },
++	 .band_ctl_vals = { 0, 1, 2, 0, 0, 0, 0, 2, 2, 2 }
+ 	},
+ 	{ .name = "Classical",
+ 	 .vals = { 0x00000000, 0x00000000, 0x40C00000,
+ 		   0x40C00000, 0x40466666, 0x00000000,
+ 		   0x00000000, 0x00000000, 0x00000000,
+-		   0x40466666, 0x40466666	     }
++		   0x40466666, 0x40466666	     },
++	 .band_ctl_vals = { 0, 6, 6, 3, 0, 0, 0, 0, 3, 3 }
+ 	},
+ 	{ .name = "Country",
+ 	 .vals = { 0x00000000, 0xBF99999A, 0x00000000,
+ 		   0x3FA66666, 0x3FA66666, 0x3F8CCCCD,
+ 		   0x00000000, 0x00000000, 0x40000000,
+-		   0x40466666, 0x40800000	     }
++		   0x40466666, 0x40800000	     },
++	 .band_ctl_vals = { -1, 0, 1, 1, 1, 0, 0, 2, 3, 4 }
+ 	},
+ 	{ .name = "Dance",
+ 	 .vals = { 0x00000000, 0xBF99999A, 0x40000000,
+ 		   0x40466666, 0x40866666, 0xBF99999A,
+ 		   0xBF99999A, 0x00000000, 0x00000000,
+-		   0x40800000, 0x40800000	     }
++		   0x40800000, 0x40800000	     },
++	 .band_ctl_vals = { -1, 2, 3, 4, -1, -1, 0, 0, 4, 4 }
+ 	},
+ 	{ .name = "Jazz",
+ 	 .vals = { 0x00000000, 0x00000000, 0x00000000,
+ 		   0x3F8CCCCD, 0x40800000, 0x40800000,
+ 		   0x40800000, 0x00000000, 0x3F8CCCCD,
+-		   0x40466666, 0x40466666	     }
++		   0x40466666, 0x40466666	     },
++	 .band_ctl_vals = { 0, 0, 1, 4, 4, 4, 0, 1, 3, 3 }
+ 	},
+ 	{ .name = "New Age",
+ 	 .vals = { 0x00000000, 0x00000000, 0x40000000,
+ 		   0x40000000, 0x00000000, 0x00000000,
+ 		   0x00000000, 0x3F8CCCCD, 0x40000000,
+-		   0x40000000, 0x40000000	     }
++		   0x40000000, 0x40000000	     },
++	 .band_ctl_vals = { 0, 2, 2, 0, 0, 0, 1, 2, 2, 2 }
+ 	},
+ 	{ .name = "Pop",
+ 	 .vals = { 0x00000000, 0xBFCCCCCD, 0x00000000,
+ 		   0x40000000, 0x40000000, 0x00000000,
+ 		   0xBF99999A, 0xBF99999A, 0x00000000,
+-		   0x40466666, 0x40C00000	     }
++		   0x40466666, 0x40C00000	     },
++	 .band_ctl_vals = { -2, 0, 2, 2, 0, -1, -1, 0, 3, 6 }
+ 	},
+ 	{ .name = "Rock",
+ 	 .vals = { 0x00000000, 0xBF99999A, 0xBF99999A,
+ 		   0x3F8CCCCD, 0x40000000, 0xBF99999A,
+ 		   0xBF99999A, 0x00000000, 0x00000000,
+-		   0x40800000, 0x40800000	     }
++		   0x40800000, 0x40800000	     },
++	 .band_ctl_vals = { -1, -1, 1, 2, -1, -1, 0, 0, 4, 4 }
+ 	},
+ 	{ .name = "Vocal",
+ 	 .vals = { 0x00000000, 0xC0000000, 0xBF99999A,
+ 		   0xBF99999A, 0x00000000, 0x40466666,
+ 		   0x40800000, 0x40466666, 0x00000000,
+-		   0x00000000, 0x3F8CCCCD	     }
++		   0x00000000, 0x3F8CCCCD	     },
++	 .band_ctl_vals = { -2, -1, -1, 0, 3, 4, 3, 0, 0, 1 }
+ 	}
+ };
+ 
+@@ -6177,6 +6189,31 @@
+ 	return 0;
+ }
+ 
++static void ca0132_alt_eq_update_band_ctls(struct hda_codec *codec, int sel)
++{
++	struct ca0132_spec *spec = codec->spec;
++	struct snd_kcontrol *kctl;
++	char name[SNDRV_CTL_ELEM_ID_NAME_MAXLEN];
++	unsigned int i, idx;
++
++	for (i = 0; i < ARRAY_SIZE(ca0132_alt_eq_presets[sel].band_ctl_vals);
++	     i++) {
++		idx = EQUALIZER_BAND_0 - TUNING_CTL_START_NID + i;
++		if (spec->cur_ctl_vals[idx] ==
++		    24 + ca0132_alt_eq_presets[sel].band_ctl_vals[i])
++			continue;
++
++		spec->cur_ctl_vals[idx] =
++			24 + ca0132_alt_eq_presets[sel].band_ctl_vals[i];
++		snprintf(name, sizeof(name), "%s Playback Volume",
++			 ca0132_tuning_ctls[idx].name);
++		kctl = snd_hda_find_mixer_ctl(codec, name);
++		if (kctl)
++			snd_ctl_notify(codec->card, SNDRV_CTL_EVENT_MASK_VALUE,
++				       &kctl->id);
++	}
++}
++
+ static int ca0132_alt_eq_preset_put(struct snd_kcontrol *kcontrol,
+ 				struct snd_ctl_elem_value *ucontrol)
+ {
+@@ -6203,8 +6240,10 @@
+ 			break;
+ 	}
+ 
+-	if (err >= 0)
++	if (err >= 0) {
+ 		spec->eq_preset_val = sel;
++		ca0132_alt_eq_update_band_ctls(codec, sel);
++	}
+ 
+ 	return 1;
+ }

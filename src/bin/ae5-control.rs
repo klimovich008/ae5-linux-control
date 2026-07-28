@@ -1,11 +1,30 @@
+use ae5_control::gui::editors::*;
+#[cfg(test)]
+use ae5_control::linux_driver_defaults_for;
 use ae5_control::{
-    Ae5Device, Ae5Mixer, ChannelLevel, ControlError, ControlSnapshot, Level, Profile,
-    ProfileControl, SbCommandImport, SbCommandTarget, import_sbcommand_profile_with_report,
-    snapshot_controls,
+    Ae5Device, Ae5Lighting, Ae5Mixer, BuiltinProfile, COMMAND_DEFAULT_PROFILE_COUNT, ControlError,
+    ControlSnapshot, DIRECT_MODE_CONTROL, EqChainChange, EqChainConfig,
+    LINUX_DRIVER_DEFAULTS_PRESERVED, Level, NativeRatesConfig, ONBOARD_LED_COUNT, PipeWireNode,
+    PipeWireRouteState, Profile, ProfileControl, RgbColor, SbCommandImport, SbCommandTarget,
+    SoftwareEqOutput, ae5_input, ae5_output, ae5_route_state, apply_linux_driver_defaults,
+    apply_software_eq, builtin_profiles, capture_control_block_reason, direct_mode_block_reason,
+    disable_eq_chain, discover_sbcommand_installation, enable_eq_chain, eq_chain_config,
+    equalizer_band_block_reason, export_library_profile, front_vmaster_clamp_warning,
+    headphone_playback_issue, import_discovered_sbcommand_profile_with_report,
+    import_sbcommand_profile_with_report, library_profile, native_rates_config,
+    playback_switch_block_reason, profile_library, profile_library_directory,
+    rename_library_profile, set_ae5_default_input, set_ae5_default_output,
+    set_native_rates_enabled, set_saved_led, set_saved_lighting, smart_volume_level_block_reason,
+    snapshot_controls, software_eq_output, unload_software_eq,
+    unsafe_playback_control_block_reason, validate_eq_chain_activation,
+    validate_linux_driver_defaults,
 };
+use gtk::gio;
 use gtk::prelude::*;
-use gtk::{gdk::Display, gio};
 use std::cell::{Cell, RefCell};
+use std::ffi::OsString;
+use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::{
@@ -13,30 +32,89 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const APP_ID: &str = "io.github.klimovich008.ae5control";
 const MAIN_STACK_NAME: &str = "main-navigation";
+const BUILTIN_PROFILE_PICKER_NAME: &str = "builtin-profile-picker";
+const PERSONAL_PROFILE_CAROUSEL_NAME: &str = "personal-profile-carousel";
+const BUILTIN_PROFILE_CAROUSEL_NAME: &str = "builtin-profile-carousel";
+const PERFORMANCE_PROBE: &str = "AE5_CONTROL_PERFORMANCE_PROBE";
 
-fn main() -> gtk::glib::ExitCode {
-    let application = gtk::Application::builder().application_id(APP_ID).build();
-    application.connect_activate(build_window);
-    application.run()
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum KernelReadiness {
+    Ready,
+    Stock,
+    Attention,
 }
 
-fn build_window(application: &gtk::Application) {
-    install_css();
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct OperationStatus {
+    success: bool,
+    message: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+struct RefreshViewState {
+    visible_page: Option<String>,
+    builtin_profile: Option<u32>,
+    personal_profile_scroll: Option<f64>,
+    builtin_profile_scroll: Option<f64>,
+    /// Where the visible page was scrolled to vertically.
+    ///
+    /// Every mixer write rebuilds the page from fresh hardware state, which
+    /// threw the reader back to the top. Changing a control near the bottom of
+    /// a long page therefore lost your place on every single edit.
+    page_scroll: Option<f64>,
+    operation_status: Option<OperationStatus>,
+}
+
+fn main() -> gtk::glib::ExitCode {
+    if std::env::var_os("GSK_RENDERER").is_none() {
+        // SAFETY: GTK and worker threads have not started, so no other thread can read the
+        // process environment while the static UI selects its lower-memory renderer.
+        unsafe { std::env::set_var("GSK_RENDERER", "cairo") };
+    }
+    let started = Instant::now();
+    ae5_control::gui::tracelog::trace(
+        "app",
+        &format!(
+            "start version={} pid={}",
+            env!("CARGO_PKG_VERSION"),
+            std::process::id()
+        ),
+    );
+    let performance_probe = std::env::var_os(PERFORMANCE_PROBE).is_some();
+    let mut builder = gtk::Application::builder().application_id(APP_ID);
+    if performance_probe {
+        builder = builder.flags(gio::ApplicationFlags::NON_UNIQUE);
+    }
+    let application = builder.build();
+    application.connect_activate(move |application| {
+        build_window(application, started, performance_probe);
+    });
+    let exit = application.run();
+    ae5_control::gui::tracelog::trace("app", "event loop exited");
+    exit
+}
+
+fn build_window(application: &gtk::Application, started: Instant, performance_probe: bool) {
+    ae5_control::gui::theme::install_css();
 
     let window = gtk::ApplicationWindow::builder()
         .application(application)
         .title("AE-5 Control")
-        .default_width(980)
-        .default_height(680)
+        .default_width(1120)
+        .default_height(700)
         .build();
 
     if let Some(card_index) = refresh_window(&window, None)
         && let Err(error) = start_mixer_watch(&window, card_index)
     {
+        ae5_control::gui::tracelog::trace(
+            "watch",
+            &format!("mixer event watch failed to start: {error}"),
+        );
         set_main_status(
             &window,
             false,
@@ -44,27 +122,88 @@ fn build_window(application: &gtk::Application) {
         );
     }
     window.present();
+    ae5_control::gui::tracelog::trace("app", "main window presented");
+    if performance_probe {
+        start_performance_probe(&window, started);
+    }
+}
+
+fn start_performance_probe(window: &gtk::ApplicationWindow, started: Instant) {
+    let window = window.clone();
+    gtk::glib::idle_add_local_once(move || {
+        let startup_ms = started.elapsed().as_millis();
+        let refresh_started = Instant::now();
+        if refresh_window(&window, None).is_none() {
+            println!("probe_error=hardware refresh failed");
+            let _ = std::io::stdout().flush();
+            return;
+        }
+        gtk::glib::idle_add_local_once(move || {
+            println!("startup_ms={startup_ms}");
+            println!(
+                "control_refresh_ms={}",
+                refresh_started.elapsed().as_millis()
+            );
+            println!("probe_ready=1");
+            let _ = std::io::stdout().flush();
+        });
+    });
 }
 
 fn refresh_window(window: &gtk::ApplicationWindow, message: Option<&str>) -> Option<i32> {
-    let visible_page = main_stack(window).and_then(|stack| stack.visible_child_name());
+    let view_state = capture_refresh_view_state(window);
+    ae5_control::gui::tracelog::trace(
+        "refresh",
+        &format!(
+            "full rebuild: message={message:?} page={:?} scroll={:?}",
+            view_state.visible_page, view_state.page_scroll
+        ),
+    );
+    let operation_status =
+        operation_status_for_refresh(message, view_state.operation_status.clone());
     match load_hardware() {
         Ok((device, controls)) => {
             let card_index = device.card_index;
+            ae5_control::gui::tracelog::trace(
+                "refresh",
+                &format!(
+                    "hardware loaded: card={card_index} controls={}",
+                    controls.len()
+                ),
+            );
             window.set_child(Some(&content(
                 window,
                 &device,
                 &controls,
-                message,
-                visible_page.as_deref(),
+                operation_status
+                    .as_ref()
+                    .map(|status| status.message.as_str()),
+                view_state.visible_page.as_deref(),
             )));
+            restore_refresh_view_state(window, &view_state);
+            if let Some(status) = operation_status {
+                set_main_status(window, status.success, &status.message);
+            }
             Some(card_index)
         }
         Err(error) => {
-            window.set_child(Some(&error_view(&error)));
+            ae5_control::gui::tracelog::trace("refresh", &format!("hardware load FAILED: {error}"));
+            window.set_child(Some(&error_view(window, &error)));
             None
         }
     }
+}
+
+fn operation_status_for_refresh(
+    message: Option<&str>,
+    retained: Option<OperationStatus>,
+) -> Option<OperationStatus> {
+    message
+        .map(|message| OperationStatus {
+            success: true,
+            message: message.to_owned(),
+        })
+        .or(retained)
 }
 
 fn load_hardware() -> Result<(Ae5Device, Vec<ControlSnapshot>), String> {
@@ -84,15 +223,19 @@ fn content(
     message: Option<&str>,
     visible_page: Option<&str>,
 ) -> gtk::Box {
+    // One footer, spanning the full window. Two per-column footers could never
+    // stay aligned because their contents had different natural heights.
     let root = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    root.append(&hero(device, controls));
+    root.add_css_class("application-shell");
+    let columns = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    columns.set_vexpand(true);
     let status = gtk::Label::new(Some(
         message.unwrap_or("Ready — every change is verified against the hardware."),
     ));
     status.set_xalign(0.0);
-    status.set_wrap(true);
+    status.set_hexpand(true);
+    status.set_ellipsize(gtk::pango::EllipsizeMode::End);
     status.add_css_class("operation-status");
-    root.append(&status);
 
     let stack = gtk::Stack::builder()
         .transition_type(gtk::StackTransitionType::Crossfade)
@@ -101,44 +244,176 @@ fn content(
         .build();
     stack.set_widget_name(MAIN_STACK_NAME);
 
-    stack.add_titled(
-        &profile_page(window, device.card_index, &status),
-        Some("profiles"),
-        "Profiles",
-    );
-    for category in Category::ALL {
-        let page = control_page(
-            device.card_index,
-            &status,
-            controls
-                .iter()
-                .filter(|control| category.matches(&control.name)),
-        );
-        stack.add_titled(&page, Some(category.id()), category.title());
+    for (name, title) in [
+        ("effects", "Sound effects"),
+        ("equalizer", "Equalizer"),
+        ("playback", "Playback"),
+        ("recording", "Recording"),
+        ("scout", "Scout Mode"),
+        ("mixer", "Mixer"),
+        ("lighting", "Lighting"),
+        ("profiles", "Profiles"),
+        ("settings", "Settings"),
+    ] {
+        let holder = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        holder.set_hexpand(true);
+        holder.set_vexpand(true);
+        stack.add_titled(&holder, Some(name), title);
     }
-    if let Some(page) = visible_page {
-        stack.set_visible_child_name(page);
+
+    let initial_page = visible_page.unwrap_or("effects");
+    stack.set_visible_child_name(initial_page);
+    populate_page(&stack, window, device, controls, &status, initial_page);
+    {
+        let window = window.clone();
+        let device = device.clone();
+        let controls = controls.to_vec();
+        let status = status.clone();
+        stack.connect_visible_child_name_notify(move |stack| {
+            if let Some(name) = stack.visible_child_name() {
+                populate_page(stack, &window, &device, &controls, &status, &name);
+            }
+        });
     }
 
     let sidebar = gtk::StackSidebar::builder()
         .stack(&stack)
-        .width_request(190)
+        .width_request(208)
+        .vexpand(true)
         .build();
     sidebar.add_css_class("navigation-sidebar");
 
-    let body = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-    body.append(&sidebar);
-    body.append(&gtk::Separator::new(gtk::Orientation::Vertical));
-    body.append(&stack);
-    root.append(&body);
+    let sidebar_panel = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    sidebar_panel.add_css_class("sidebar-panel");
+    sidebar_panel.append(&sidebar_brand(device));
+    sidebar_panel.append(&sidebar);
+    // The signal path lives in the sidebar's spare space; in the main column it
+    // cost the height that forced pages to scroll.
+    sidebar_panel.append(&ae5_control::gui::signal_path::signal_path(controls));
+
+    let main = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    main.set_hexpand(true);
+    main.set_vexpand(true);
+    main.add_css_class("main-panel");
+    main.append(&hero(device, controls));
+    main.append(&stack);
+
+    columns.append(&sidebar_panel);
+    columns.append(&main);
+    root.append(&columns);
+    root.append(&status_rail(&status, device.card_index, controls));
     root
 }
 
+fn populate_page(
+    stack: &gtk::Stack,
+    window: &gtk::ApplicationWindow,
+    device: &Ae5Device,
+    controls: &[ControlSnapshot],
+    status: &gtk::Label,
+    name: &str,
+) {
+    let Some(holder) = stack
+        .child_by_name(name)
+        .and_then(|child| child.downcast::<gtk::Box>().ok())
+    else {
+        return;
+    };
+    if holder.first_child().is_some() {
+        return;
+    }
+
+    let page: gtk::Widget = match name {
+        "settings" => settings_page(window, device, controls, status).upcast(),
+        "scout" => ae5_control::gui::pages::scout::scout_page().upcast(),
+        "mixer" => mixer_page(device.card_index, status, controls).upcast(),
+        "equalizer" => equalizer_page(window, device.card_index, status, controls).upcast(),
+        "effects" => sound_effects_page(window, device.card_index, status, controls).upcast(),
+        "playback" => playback_page(device.card_index, status, controls).upcast(),
+        "recording" => recording_page(device.card_index, status, controls).upcast(),
+        "lighting" => lighting_page(window, status).upcast(),
+        "profiles" => profile_page(window, device.card_index, status).upcast(),
+        _ => {
+            let Some(category) = Category::ALL
+                .into_iter()
+                .find(|category| category.id() == name)
+            else {
+                return;
+            };
+            control_page(
+                device.card_index,
+                status,
+                controls,
+                category,
+                controls
+                    .iter()
+                    .filter(|control| category.matches(&control.name)),
+            )
+            .upcast()
+        }
+    };
+    page.set_hexpand(true);
+    page.set_vexpand(true);
+    holder.append(&page);
+}
+
+/// The application mark, sized to share the top bar's baseline with the hero.
+///
+/// It used to stack the app name over the device name at its own taller
+/// height, so the rule under it never met the rule under the hero. The device
+/// name is the hero's job; repeating it here only broke the line.
+fn sidebar_brand(_device: &Ae5Device) -> gtk::Box {
+    let brand = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    brand.add_css_class("sidebar-brand");
+
+    let title = gtk::Label::new(Some("AE-5 CONTROL"));
+    title.set_xalign(0.0);
+    title.set_valign(gtk::Align::Center);
+    title.add_css_class("sidebar-title");
+    brand.append(&title);
+    brand
+}
+
+fn status_rail(status: &gtk::Label, card_index: i32, controls: &[ControlSnapshot]) -> gtk::Box {
+    let rail = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    rail.add_css_class("status-rail");
+
+    let mark = gtk::Label::new(Some("AE-5"));
+    mark.add_css_class("status-mark");
+    rail.append(&mark);
+    rail.append(status);
+
+    // Output level and mute now live in the signal path above, where they read
+    // as a stage rather than as small caps competing with a build string.
+    if let Some(route) = controls
+        .iter()
+        .find(|control| control.name == "Output Select")
+    {
+        rail.append(&footer_output_selector(card_index, status, route));
+    }
+    rail
+}
+
+fn hardware_level_label(level: &Level) -> String {
+    if level.value == level.max {
+        "0 dB".to_owned()
+    } else {
+        format!("{}/{} raw", level.value, level.max)
+    }
+}
+
+/// The top bar: what card this is, on one line.
+///
+/// It used to stack a title over a subtitle and reserve two lines plus generous
+/// padding for four facts that never change while the application is open. On a
+/// 1343x858 window that cost enough height to push the Acoustic engine sliders
+/// under the signal path. The identity is now one line; the full ALSA, PCI,
+/// subsystem and codec detail already lives on the Device page, which is where
+/// someone actually reading it would go.
 fn hero(device: &Ae5Device, controls: &[ControlSnapshot]) -> gtk::Box {
-    let header = gtk::Box::new(gtk::Orientation::Horizontal, 20);
+    let header = gtk::Box::new(gtk::Orientation::Horizontal, 10);
     header.add_css_class("hero");
 
-    let titles = gtk::Box::new(gtk::Orientation::Vertical, 4);
     let title = gtk::Label::new(Some(
         device
             .codec_name
@@ -147,24 +422,2463 @@ fn hero(device: &Ae5Device, controls: &[ControlSnapshot]) -> gtk::Box {
     ));
     title.set_xalign(0.0);
     title.add_css_class("hero-title");
-    let subtitle = gtk::Label::new(Some(&format!(
+    header.append(&title);
+
+    let identity = gtk::Label::new(Some(&format!("PCI {}", device.pci_id())));
+    identity.set_xalign(0.0);
+    identity.set_hexpand(true);
+    identity.add_css_class("hero-identity");
+    identity.set_tooltip_text(Some(&format!(
         "{} · PCI {} · subsystem {}",
         device.alsa_name,
         device.pci_id(),
         device.subsystem_id()
     )));
-    subtitle.set_xalign(0.0);
-    subtitle.add_css_class("dim-label");
-    titles.append(&title);
-    titles.append(&subtitle);
-    header.append(&titles);
+    header.append(&identity);
 
-    let status = gtk::Label::new(Some(&format!("{} live controls", controls.len())));
+    let status = gtk::Label::new(Some(&format!("ONLINE · {} CONTROLS", controls.len())));
     status.add_css_class("status-pill");
     status.set_halign(gtk::Align::End);
-    status.set_hexpand(true);
     header.append(&status);
     header
+}
+
+fn device_page(
+    window: &gtk::ApplicationWindow,
+    device: &Ae5Device,
+    controls: &[ControlSnapshot],
+    status: &gtk::Label,
+) -> gtk::ScrolledWindow {
+    let page = gtk::Box::new(gtk::Orientation::Vertical, 18);
+    page.add_css_class("profile-page");
+
+    let heading = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    let title = gtk::Label::new(Some("Device & diagnostics"));
+    title.set_xalign(0.0);
+    title.set_hexpand(true);
+    title.add_css_class("page-title");
+    heading.append(&title);
+    let matched = gtk::Label::new(Some("PCI DEVICE MATCHED"));
+    matched.add_css_class("status-pill");
+    heading.append(&matched);
+    page.append(&heading);
+
+    let identity = gtk::Box::new(gtk::Orientation::Vertical, 4);
+    for detail in [
+        format!("ALSA card {} · {}", device.card_index, device.alsa_name),
+        device.alsa_long_name.clone(),
+        format!(
+            "PCI {} · subsystem {}",
+            device.pci_id(),
+            device.subsystem_id()
+        ),
+        format!(
+            "Codec {}",
+            device.codec_name.as_deref().unwrap_or("not reported")
+        ),
+    ] {
+        let label = gtk::Label::new(Some(&detail));
+        label.set_xalign(0.0);
+        label.set_selectable(true);
+        identity.append(&label);
+    }
+    page.append(&ae5_control::gui::widgets::profile_card(
+        "01",
+        "Detected hardware",
+        "AE-5 Control matches the PCI and subsystem IDs instead of relying on an unstable ALSA card number.",
+        &identity,
+    ));
+
+    let release = fs::read_to_string("/proc/sys/kernel/osrelease")
+        .map(|value| value.trim().to_owned())
+        .unwrap_or_else(|_| "unavailable".to_owned());
+    let taint = fs::read_to_string("/proc/sys/kernel/tainted")
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok());
+    let direct_mode = controls
+        .iter()
+        .any(|control| control.name == DIRECT_MODE_CONTROL);
+    let lighting = Ae5Lighting::discover().is_ok();
+    let (kernel_summary, kernel_readiness) =
+        kernel_readiness_summary(&release, taint, direct_mode, lighting);
+    let kernel_status = gtk::Label::new(Some(&kernel_summary));
+    kernel_status.set_xalign(0.0);
+    kernel_status.set_wrap(true);
+    kernel_status.set_selectable(true);
+    kernel_status.add_css_class(match kernel_readiness {
+        KernelReadiness::Ready => "operation-ok",
+        KernelReadiness::Stock => "dim-label",
+        KernelReadiness::Attention => "warning-value",
+    });
+    let kernel_details = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    kernel_details.append(&kernel_status);
+    page.append(&ae5_control::gui::widgets::profile_card(
+        "02",
+        "Kernel & project interfaces",
+        "Read-only boot readiness. Interface detection does not replace physical driver acceptance.",
+        &kernel_details,
+    ));
+
+    let warnings = driver_range_warnings(controls);
+    let capability_summary = gtk::Box::new(gtk::Orientation::Vertical, 4);
+    let selectable = controls
+        .iter()
+        .filter(|control| control.selected.is_some())
+        .count();
+    let playback = controls
+        .iter()
+        .filter(|control| control.playback_switch.is_some() || control.playback_level.is_some())
+        .count();
+    let recording = controls
+        .iter()
+        .filter(|control| control.capture_switch.is_some() || control.capture_level.is_some())
+        .count();
+    let summary = gtk::Label::new(Some(&format!(
+        "{} live controls · {} selectable · {} playback · {} recording",
+        controls.len(),
+        selectable,
+        playback,
+        recording
+    )));
+    summary.set_xalign(0.0);
+    capability_summary.append(&summary);
+    let health = gtk::Label::new(Some(if warnings.is_empty() {
+        "Driver ranges are internally consistent."
+    } else {
+        "One or more driver values are outside their declared ranges."
+    }));
+    health.set_xalign(0.0);
+    health.add_css_class(if warnings.is_empty() {
+        "operation-ok"
+    } else {
+        "warning-value"
+    });
+    capability_summary.append(&health);
+    for warning in &warnings {
+        let label = gtk::Label::new(Some(warning));
+        label.set_xalign(0.0);
+        label.set_wrap(true);
+        label.add_css_class("warning-value");
+        capability_summary.append(&label);
+    }
+    page.append(&ae5_control::gui::widgets::profile_card(
+        "03",
+        "Live capabilities",
+        "Only controls exposed by the running ALSA driver appear in the application.",
+        &capability_summary,
+    ));
+
+    let (route_summary, route_healthy) =
+        route_health_summary(controls, ae5_route_state(device.card_index));
+    let route_health = gtk::Label::new(Some(&route_summary));
+    route_health.set_xalign(0.0);
+    route_health.set_wrap(true);
+    route_health.set_selectable(true);
+    route_health.add_css_class(if route_healthy {
+        "operation-ok"
+    } else {
+        "warning-value"
+    });
+    let route_actions = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    route_actions.append(&route_health);
+    if !route_healthy {
+        let repair = gtk::Button::with_label("Repair current route");
+        repair.set_halign(gtk::Align::Start);
+        repair.set_tooltip_text(Some(
+            "Explicitly reapplies the current ALSA/PipeWire routes and may unmute hardware Master and the Front DAC.",
+        ));
+        route_actions.append(&repair);
+
+        let card_index = device.card_index;
+        let status = status.clone();
+        let window = window.clone();
+        repair.connect_clicked(move |button| {
+            button.set_sensitive(false);
+            let result = Ae5Mixer::open(card_index)
+                .map_err(ControlError::from)
+                .and_then(|mixer| mixer.repair_routes());
+            match result {
+                Ok(changes) => {
+                    let message = if changes.is_empty() {
+                        "Desktop routes were already healthy; no changes made.".to_owned()
+                    } else {
+                        format!("Desktop route repaired: {}.", changes.join(", "))
+                    };
+                    let _ = refresh_window(&window, Some(&message));
+                }
+                Err(error) => {
+                    set_status(&status, false, &format!("Route repair failed: {error}"));
+                    button.set_sensitive(true);
+                }
+            }
+        });
+    }
+    page.append(&ae5_control::gui::widgets::profile_card(
+        "04",
+        "Desktop route health",
+        "The check is read-only. The repair action is explicit and may unmute hardware Master or Front when Headphone output requires it.",
+        &route_actions,
+    ));
+
+    let report_actions = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+    let save_report = gtk::Button::with_label("Save diagnostics report");
+    report_actions.append(&save_report);
+    page.append(&ae5_control::gui::widgets::profile_card(
+        "05",
+        "Private diagnostics",
+        "Create a local report without root. Hostname, user, storage, network data, and unrelated PipeWire devices are omitted by default. Review the file before sharing it.",
+        &report_actions,
+    ));
+
+    {
+        let window = window.clone();
+        let status = status.clone();
+        save_report.connect_clicked(move |button| {
+            let window = window.clone();
+            let status = status.clone();
+            let button = button.clone();
+            button.set_sensitive(false);
+            gtk::glib::spawn_future_local(async move {
+                match save_diagnostics_report(&window).await {
+                    Ok(Some(message)) => set_status(&status, true, &message),
+                    Ok(None) => {}
+                    Err(error) => {
+                        set_status(&status, false, &format!("Diagnostics failed: {error}"))
+                    }
+                }
+                button.set_sensitive(true);
+            });
+        });
+    }
+
+    gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .child(&page)
+        .build()
+}
+
+fn kernel_readiness_summary(
+    release: &str,
+    taint: Option<u64>,
+    direct_mode: bool,
+    lighting: bool,
+) -> (String, KernelReadiness) {
+    let taint_text = match taint {
+        Some(0) => "0 (clean)".to_owned(),
+        Some(value) => format!("{value} (review before driver testing)"),
+        None => "unavailable".to_owned(),
+    };
+    let readiness = match taint {
+        Some(0) if direct_mode && lighting => KernelReadiness::Ready,
+        Some(0) => KernelReadiness::Stock,
+        _ => KernelReadiness::Attention,
+    };
+    let direct_mode_text = if direct_mode {
+        "available"
+    } else {
+        "unavailable"
+    };
+    let lighting_text = if lighting {
+        "available (five LEDs)"
+    } else {
+        "unavailable"
+    };
+    let conclusion = match readiness {
+        KernelReadiness::Ready => {
+            "Project interfaces detected; physical acceptance is still pending."
+        }
+        KernelReadiness::Stock => {
+            "Stock-compatible control path active; project-only interfaces are not all present."
+        }
+        KernelReadiness::Attention => "Kernel state needs review before physical driver testing.",
+    };
+
+    (
+        format!(
+            "Running kernel: {release}\nKernel taint: {taint_text}\n\
+             Direct Mode: {direct_mode_text}\nOnboard lighting: {lighting_text}\n{conclusion}"
+        ),
+        readiness,
+    )
+}
+
+fn settings_page(
+    window: &gtk::ApplicationWindow,
+    device: &Ae5Device,
+    controls: &[ControlSnapshot],
+    status: &gtk::Label,
+) -> gtk::Box {
+    let page = gtk::Box::new(gtk::Orientation::Vertical, 0);
+
+    let header = gtk::Box::new(gtk::Orientation::Vertical, 12);
+    header.add_css_class("settings-header");
+    let heading = gtk::Label::new(Some("Settings"));
+    heading.set_xalign(0.0);
+    heading.add_css_class("page-title");
+    header.append(&heading);
+
+    let stack = gtk::Stack::builder()
+        .transition_type(gtk::StackTransitionType::Crossfade)
+        .hexpand(true)
+        .vexpand(true)
+        .build();
+    stack.add_titled(
+        &device_page(window, device, controls, status),
+        Some("device"),
+        "Device",
+    );
+    stack.add_titled(
+        &ae5_control::gui::pages::compatibility::compatibility_page(),
+        Some("compatibility"),
+        "Compatibility",
+    );
+    let switcher = gtk::StackSwitcher::builder()
+        .stack(&stack)
+        .halign(gtk::Align::Start)
+        .build();
+    switcher.add_css_class("page-tabs");
+    header.append(&switcher);
+
+    page.append(&header);
+    page.append(&stack);
+    page
+}
+
+fn sound_effects_page(
+    window: &gtk::ApplicationWindow,
+    card_index: i32,
+    status: &gtk::Label,
+    controls: &[ControlSnapshot],
+) -> gtk::ScrolledWindow {
+    let page = gtk::Box::new(gtk::Orientation::Vertical, 18);
+    page.add_css_class("profile-page");
+
+    let header = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    let title = gtk::Label::new(Some("Sound effects"));
+    title.set_xalign(0.0);
+    title.set_hexpand(true);
+    title.add_css_class("page-title");
+    header.append(&title);
+    if let Some(engine) = controls
+        .iter()
+        .find(|control| control.name == "Enable OutFX")
+        && let Some(enabled) = engine.playback_switch
+    {
+        let engine_label = gtk::Label::new(Some("Acoustic engine"));
+        engine_label.add_css_class("dim-label");
+        header.append(&engine_label);
+        header.append(&switch_editor(
+            card_index,
+            status,
+            &engine.name,
+            enabled,
+            false,
+            unsafe_playback_control_block_reason(&engine.name),
+        ));
+    }
+    page.append(&header);
+
+    let safety = gtk::Label::new(Some(
+        "Hardware OutFX is disabled: repeated tests produced severe distortion and required \
+         codec reinitialization. These values are retained for the Windows-like software \
+         effects implementation.",
+    ));
+    safety.set_xalign(0.0);
+    safety.set_wrap(true);
+    safety.add_css_class("warning-label");
+    page.append(&safety);
+
+    // Which profile the card is on belongs where the tweaking happens, not on a
+    // separate page. Without it, one slider nudge left every card unmarked and
+    // the interface stopped saying where the current sound came from.
+    let provenance = profile_provenance(controls);
+    let provenance_row = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+    provenance_row.add_css_class("provenance-row");
+    let provenance_label = gtk::Label::new(Some(&provenance.describe()));
+    provenance_label.set_xalign(0.0);
+    provenance_label.set_hexpand(true);
+    provenance_label.add_css_class("provenance-label");
+    provenance_label.add_css_class(provenance.css_class());
+    provenance_row.append(&provenance_label);
+
+    let save_current = gtk::Button::with_label("Save as new profile");
+    save_current.add_css_class("provenance-save");
+    save_current.set_tooltip_text(Some(
+        "Write the card's current settings to a new profile in your library.",
+    ));
+    {
+        let window = window.clone();
+        let status = status.clone();
+        save_current.connect_clicked(move |_| {
+            let window = window.clone();
+            let status = status.clone();
+            gtk::glib::spawn_future_local(async move {
+                match save_current_profile(&window, card_index).await {
+                    Ok(Some(message)) => {
+                        let _ = refresh_window(&window, Some(&message));
+                    }
+                    Ok(None) => {}
+                    Err(error) => set_status(&status, false, &format!("Save failed: {error}")),
+                }
+            });
+        });
+    }
+    provenance_row.append(&save_current);
+    page.append(&provenance_row);
+
+    let profile_heading = gtk::Label::new(Some(&format!(
+        "Profiles · yours first, then {COMMAND_DEFAULT_PROFILE_COUNT} factory presets"
+    )));
+    profile_heading.set_xalign(0.0);
+    profile_heading.add_css_class("mixer-section");
+    page.append(&profile_heading);
+
+    // Live hardware state is deliberately not a card here. A card in a row of
+    // appliable profiles reads as "click me to apply", and state is not
+    // appliable; that mismatch is what made the row ambiguous. The active
+    // profile is marked on its own card instead.
+    let profile_strip = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    match profile_library() {
+        Ok(library) => {
+            for entry in library.profiles {
+                let active = profile_matches_controls(&entry.profile, controls);
+                let detail = if active {
+                    active_profile_detail(&entry.profile)
+                } else {
+                    profile_scope_summary(&entry.profile)
+                };
+                let card = sound_profile_card(
+                    if active { "ACTIVE" } else { "PROFILE" },
+                    &entry.profile.name,
+                    &detail,
+                    (!active).then_some("Preview & apply"),
+                    active,
+                );
+                if let Some(button) = find_widget(card.clone().upcast(), |widget| {
+                    widget.has_css_class("profile-card-action")
+                })
+                .and_then(|widget| widget.downcast::<gtk::Button>().ok())
+                {
+                    let path = entry.path;
+                    let window = window.clone();
+                    let status = status.clone();
+                    button.connect_clicked(move |_| {
+                        let path = path.clone();
+                        let window = window.clone();
+                        let status = status.clone();
+                        gtk::glib::spawn_future_local(async move {
+                            match apply_profile_path(&window, card_index, &path).await {
+                                Ok(Some(message)) => {
+                                    let _ = refresh_window(&window, Some(&message));
+                                }
+                                Ok(None) => {}
+                                Err(error) => {
+                                    set_status(&status, false, &format!("Apply failed: {error}"))
+                                }
+                            }
+                        });
+                    });
+                }
+                profile_strip.append(&card);
+            }
+        }
+        Err(error) => {
+            profile_strip.append(&sound_profile_card(
+                "PROFILES",
+                "Library unavailable",
+                &error.to_string(),
+                None,
+                false,
+            ));
+        }
+    }
+    // Yours and the factory set are one library, browsed in one carousel. Two
+    // stacked rows cost twice the vertical space to make a distinction the
+    // kicker on each card already makes.
+    let defaults_strip = &profile_strip;
+    match builtin_profiles() {
+        Ok(profiles) => {
+            for preset in profiles {
+                let layout = controls
+                    .iter()
+                    .find(|control| control.name == "Surround Channel Config")
+                    .and_then(|control| control.selected.as_deref());
+                let live_profile = controls
+                    .iter()
+                    .find(|control| control.name == "Output Select")
+                    .and_then(|control| control.selected.as_deref())
+                    .and_then(|output| preset.profile_for(output, layout).ok());
+                let active = live_profile
+                    .as_ref()
+                    .is_some_and(|profile| profile_matches_controls(profile, controls));
+                let detail = live_profile.as_ref().filter(|_| active).map_or_else(
+                    || "Speaker + headphone variants".to_owned(),
+                    active_profile_detail,
+                );
+                let card = sound_profile_card(
+                    if active { "ACTIVE" } else { "BUILT-IN" },
+                    &preset.name,
+                    &detail,
+                    (!active).then_some("Preview & apply"),
+                    active,
+                );
+                if let Some(button) = find_widget(card.clone().upcast(), |widget| {
+                    widget.has_css_class("profile-card-action")
+                })
+                .and_then(|widget| widget.downcast::<gtk::Button>().ok())
+                {
+                    let preset = preset.clone();
+                    let window = window.clone();
+                    let status = status.clone();
+                    button.connect_clicked(move |_| {
+                        let preset = preset.clone();
+                        let window = window.clone();
+                        let status = status.clone();
+                        gtk::glib::spawn_future_local(async move {
+                            match apply_builtin_profile(&window, card_index, &preset).await {
+                                Ok(Some(message)) => {
+                                    let _ = refresh_window(&window, Some(&message));
+                                }
+                                Ok(None) => {}
+                                Err(error) => {
+                                    set_status(&status, false, &format!("Apply failed: {error}"))
+                                }
+                            }
+                        });
+                    });
+                }
+                defaults_strip.append(&card);
+            }
+        }
+        Err(error) => {
+            defaults_strip.append(&sound_profile_card(
+                "BUILT-IN",
+                "Defaults unavailable",
+                error,
+                None,
+                false,
+            ));
+        }
+    }
+    let profiles = gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Automatic)
+        .vscrollbar_policy(gtk::PolicyType::Never)
+        .min_content_height(172)
+        .child(&profile_strip)
+        .build();
+    profiles.set_widget_name(PERSONAL_PROFILE_CAROUSEL_NAME);
+    profiles.add_css_class("profile-carousel");
+    page.append(&profiles);
+
+    let effects_heading = gtk::Label::new(Some("Acoustic engine"));
+    effects_heading.set_xalign(0.0);
+    effects_heading.add_css_class("mixer-section");
+    page.append(&effects_heading);
+
+    let effects = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+    effects.set_homogeneous(true);
+    for name in [
+        "FX: Surround",
+        "FX: Crystalizer",
+        "FX: X-Bass",
+        "FX: Smart Volume",
+        "FX: Dialog Plus",
+    ] {
+        if let Some(control) = controls.iter().find(|control| control.name == name) {
+            effects.append(&effect_control_card(card_index, status, control, controls));
+        }
+    }
+    page.append(&effects);
+
+    let secondary_controls = ["FX: Smart Volume Setting", "FX: X-Bass Crossover"]
+        .into_iter()
+        .filter_map(|name| controls.iter().find(|control| control.name == name))
+        .collect::<Vec<_>>();
+    if !secondary_controls.is_empty() {
+        let advanced = gtk::Expander::new(Some("Advanced effect tuning"));
+        advanced.set_child(Some(&control_list(
+            card_index,
+            status,
+            controls,
+            secondary_controls.into_iter(),
+        )));
+        page.append(&advanced);
+    }
+
+    gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .child(&page)
+        .build()
+}
+
+fn sound_profile_card(
+    kicker: &str,
+    title: &str,
+    detail: &str,
+    action: Option<&str>,
+    active: bool,
+) -> gtk::Box {
+    let card = gtk::Box::new(gtk::Orientation::Vertical, 6);
+    // Wide enough for a two-line scope sentence and a wrapped title. The card
+    // used to ellipsize its title, which turned real profile names into
+    // "Adventure And Ac..." and made the list unreadable.
+    card.set_size_request(206, 146);
+    card.add_css_class("sound-profile-card");
+    if active {
+        card.add_css_class("sound-profile-card-active");
+    }
+
+    let kicker = gtk::Label::new(Some(kicker));
+    kicker.set_xalign(0.0);
+    kicker.add_css_class("profile-card-kicker");
+    let accessible_title = title.to_owned();
+    let title = gtk::Label::new(Some(title));
+    title.set_xalign(0.0);
+    title.set_wrap(true);
+    title.set_lines(2);
+    title.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    title.add_css_class("profile-card-title");
+    let detail = gtk::Label::new(Some(detail));
+    detail.set_xalign(0.0);
+    detail.set_wrap(true);
+    detail.set_lines(2);
+    detail.add_css_class("dim-label");
+
+    card.append(&kicker);
+    card.append(&title);
+    card.append(&detail);
+    if let Some(action) = action {
+        let button = gtk::Button::with_label(action);
+        button.set_halign(gtk::Align::Start);
+        button.add_css_class("profile-card-action");
+        let accessible_label = format!("{action} “{accessible_title}”");
+        button.update_property(&[gtk::accessible::Property::Label(&accessible_label)]);
+        card.append(&button);
+    }
+    // The kicker already reads ACTIVE on the live card, and the card carries an
+    // accent border besides. A third statement of the same fact only cost the
+    // row height that clipped the buttons below it.
+    card
+}
+
+fn profile_matches_controls(profile: &Profile, controls: &[ControlSnapshot]) -> bool {
+    safe_hardware_profile_control_count(profile) > 0
+        && profile_mismatch_count(profile, controls) == 0
+}
+
+fn safe_hardware_profile_control_count(profile: &Profile) -> usize {
+    profile
+        .controls
+        .keys()
+        .filter(|name| {
+            unsafe_playback_control_block_reason(name).is_none()
+                && capture_control_block_reason(name).is_none()
+        })
+        .count()
+}
+
+/// How many of a profile's controls differ from the live card.
+///
+/// Zero means the card is exactly on this profile. A small non-zero count means
+/// the user started from it and has since changed something, which is the state
+/// the interface previously had no way to express: after one slider nudge no
+/// card claimed to be active and the app went silent about provenance.
+fn profile_mismatch_count(profile: &Profile, controls: &[ControlSnapshot]) -> usize {
+    let skip_equalizer_bands = profile
+        .controls
+        .get("FX: Equalizer Preset")
+        .and_then(|control| control.choice.as_deref())
+        .is_some_and(|preset| !preset.eq_ignore_ascii_case("Flat"));
+
+    profile
+        .controls
+        .iter()
+        .filter(|(name, expected)| !control_matches(name, expected, controls, skip_equalizer_bands))
+        .count()
+}
+
+fn control_matches(
+    name: &str,
+    expected: &ProfileControl,
+    controls: &[ControlSnapshot],
+    skip_equalizer_bands: bool,
+) -> bool {
+    (|| {
+        if capture_control_block_reason(name).is_some()
+            || unsafe_playback_control_block_reason(name).is_some()
+            || skip_equalizer_bands && name.starts_with("EQ Band")
+        {
+            return true;
+        }
+        let Some(actual) = controls.iter().find(|control| control.name == *name) else {
+            return false;
+        };
+        expected.choice.as_ref().is_none_or(|value| {
+            actual
+                .selected
+                .as_ref()
+                .is_some_and(|actual| actual.eq_ignore_ascii_case(value))
+        }) && expected
+            .playback_switch
+            .is_none_or(|value| actual.playback_switch == Some(value))
+            && expected
+                .capture_switch
+                .is_none_or(|value| actual.capture_switch == Some(value))
+            && expected.playback_level.is_none_or(|value| {
+                actual.playback_level.as_ref().map(|level| level.value) == Some(value)
+            })
+            && expected.capture_level.is_none_or(|value| {
+                actual.capture_level.as_ref().map(|level| level.value) == Some(value)
+            })
+            && expected.playback_channels.iter().all(|(channel, value)| {
+                actual
+                    .playback_channels
+                    .iter()
+                    .find(|actual| actual.name.eq_ignore_ascii_case(channel))
+                    .map(|actual| actual.value)
+                    == Some(*value)
+            })
+            && expected.capture_channels.iter().all(|(channel, value)| {
+                actual
+                    .capture_channels
+                    .iter()
+                    .find(|actual| actual.name.eq_ignore_ascii_case(channel))
+                    .map(|actual| actual.value)
+                    == Some(*value)
+            })
+    })()
+}
+
+/// Which saved profile the card is on, and whether it has since been changed.
+enum ProfileProvenance {
+    /// The card matches this profile exactly.
+    Exact(String),
+    /// The card is closest to this profile but differs in `changed` controls.
+    Modified { name: String, changed: usize },
+    /// No saved profile is close enough to claim.
+    Unmatched,
+}
+
+impl ProfileProvenance {
+    fn describe(&self) -> String {
+        match self {
+            Self::Exact(name) => format!("On “{name}”"),
+            Self::Modified { name, changed } => format!(
+                "On “{name}” with {changed} control{} changed",
+                if *changed == 1 { "" } else { "s" }
+            ),
+            Self::Unmatched => "Not saved as a profile".to_owned(),
+        }
+    }
+
+    fn css_class(&self) -> &'static str {
+        match self {
+            Self::Exact(_) => "provenance-exact",
+            Self::Modified { .. } => "provenance-modified",
+            Self::Unmatched => "provenance-unmatched",
+        }
+    }
+}
+
+/// Work out which saved profile the live card came from.
+///
+/// A profile only claims the card if fewer than half its controls differ;
+/// beyond that the user has moved somewhere else entirely and naming a profile
+/// would mislead rather than orient.
+fn profile_provenance(controls: &[ControlSnapshot]) -> ProfileProvenance {
+    let Ok(library) = profile_library() else {
+        return ProfileProvenance::Unmatched;
+    };
+
+    let mut best: Option<(String, usize, usize)> = None;
+    for entry in library.profiles {
+        let total = safe_hardware_profile_control_count(&entry.profile);
+        if total == 0 {
+            continue;
+        }
+        let changed = profile_mismatch_count(&entry.profile, controls);
+        if changed == 0 {
+            return ProfileProvenance::Exact(entry.profile.name);
+        }
+        let better = best
+            .as_ref()
+            .is_none_or(|(_, best_changed, _)| changed < *best_changed);
+        if better {
+            best = Some((entry.profile.name, changed, total));
+        }
+    }
+
+    match best {
+        Some((name, changed, total)) if changed * 2 < total => {
+            ProfileProvenance::Modified { name, changed }
+        }
+        _ => ProfileProvenance::Unmatched,
+    }
+}
+
+/// Describe, in words, what applying this profile will change.
+///
+/// The card previously showed a control count, which told the user nothing
+/// about consequence: a ten-band equalizer preset and a profile that rewrites
+/// routing and every effect looked equally harmless. Naming the affected areas
+/// is the difference between an informed click and a guess.
+fn profile_scope_summary(profile: &Profile) -> String {
+    let mut equalizer = 0usize;
+    let mut effects = 0usize;
+    let mut blocked = 0usize;
+    let mut routing = 0usize;
+    let mut other = 0usize;
+
+    for name in profile.controls.keys() {
+        if name.starts_with("EQ Band") {
+            equalizer += 1;
+        } else if name.starts_with("FX: ") || name == "Enable OutFX" {
+            effects += 1;
+        } else if unsafe_playback_control_block_reason(name).is_some() {
+            blocked += 1;
+        } else if matches!(
+            name.as_str(),
+            "Output Select" | "Input Source" | "Surround Channel Config"
+        ) || name.contains("Auto Detect")
+        {
+            routing += 1;
+        } else {
+            other += 1;
+        }
+    }
+
+    let plural = |count: usize| if count == 1 { "" } else { "s" };
+    let mut hardware: Vec<String> = Vec::new();
+    if routing > 0 {
+        hardware.push("output routing".to_owned());
+    }
+    if other > 0 {
+        hardware.push(format!("{other} more control{}", plural(other)));
+    }
+
+    let mut software: Vec<String> = Vec::new();
+    if equalizer > 0 {
+        software.push(format!("{equalizer} equalizer band{}", plural(equalizer)));
+    }
+    if effects > 0 {
+        software.push(format!("{effects} effect{}", plural(effects)));
+    }
+    let join_parts = |mut parts: Vec<String>| match parts.len() {
+        0 => String::new(),
+        1 => parts.pop().unwrap_or_default(),
+        _ => {
+            let last = parts.pop().unwrap_or_default();
+            format!("{} and {last}", parts.join(", "))
+        }
+    };
+    let hardware = join_parts(hardware);
+    let software = join_parts(software);
+    let mut summary = match (hardware.is_empty(), software.is_empty()) {
+        (true, true) => "Changes nothing on this card".to_owned(),
+        (false, true) => format!("Changes {hardware}"),
+        (true, false) => format!("Retains {software} for software processing"),
+        (false, false) => {
+            format!("Changes {hardware}; retains {software} for software processing")
+        }
+    };
+    if blocked > 0 {
+        summary.push_str(&format!(
+            "; retains {blocked} unsafe hardware setting{} without applying",
+            plural(blocked)
+        ));
+    }
+    summary
+}
+
+fn active_profile_detail(profile: &Profile) -> String {
+    let retained = profile
+        .controls
+        .keys()
+        .filter(|name| unsafe_playback_control_block_reason(name).is_some())
+        .count();
+
+    if retained == 0 {
+        "Hardware controls match".to_owned()
+    } else {
+        format!(
+            "Safe hardware controls match · {retained} unsafe hardware setting{} retained without applying",
+            if retained == 1 { "" } else { "s" }
+        )
+    }
+}
+
+/// The user-facing noun for an effect, used in prose rather than headings.
+fn effect_noun(name: &str) -> &str {
+    match name {
+        "FX: X-Bass" => "bass boost",
+        "FX: Dialog Plus" => "dialog enhancement",
+        "FX: Smart Volume" => "levelling",
+        "FX: Crystalizer" => "crystalizer",
+        "FX: Surround" => "surround",
+        other => other.strip_prefix("FX: ").unwrap_or(other),
+    }
+}
+
+fn effect_control_card(
+    card_index: i32,
+    status: &gtk::Label,
+    control: &ControlSnapshot,
+    all_controls: &[ControlSnapshot],
+) -> gtk::Box {
+    let card = gtk::Box::new(gtk::Orientation::Vertical, 10);
+    card.set_size_request(158, 168);
+    card.add_css_class("effect-card");
+
+    // A switched-off effect used to keep its accent stripe and a live slider,
+    // so a control that changed nothing audible looked and behaved exactly
+    // like one that did. Off means off: grey stripe, dimmed reading, and the
+    // level editor refuses input until the effect is switched back on.
+    let effect_enabled = control.playback_switch != Some(false);
+    if !effect_enabled {
+        card.add_css_class("effect-card-off");
+    }
+
+    let header = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    let title = gtk::Label::new(Some(match control.name.as_str() {
+        "FX: X-Bass" => "Bass",
+        "FX: Dialog Plus" => "Dialog+",
+        name => name.strip_prefix("FX: ").unwrap_or(name),
+    }));
+    title.set_xalign(0.0);
+    title.set_hexpand(true);
+    title.add_css_class("effect-card-title");
+    header.append(&title);
+    // The switch used to sit here, apart from the dial, leaving the biggest and
+    // most obvious target on the card inert. The dial is the switch now.
+    let switch_block = playback_switch_block_reason(&control.name, true, all_controls);
+    card.append(&header);
+
+    if let Some(level) = &control.playback_level {
+        match control.playback_switch {
+            Some(enabled) => card.append(&ae5_control::gui::editors::dial_switch(
+                card_index,
+                status,
+                &control.name,
+                enabled,
+                &level.value.to_string(),
+                switch_block,
+            )),
+            None => {
+                let value = gtk::Label::new(Some(&level.value.to_string()));
+                value.set_halign(gtk::Align::Center);
+                value.add_css_class("effect-dial-value");
+                value.set_tooltip_text(Some(&format!(
+                    "{} of {}..{}",
+                    level.value, level.min, level.max
+                )));
+                card.append(&value);
+            }
+        }
+
+        // An effect switched on while its level sits at the floor applies
+        // nothing. The card used to show "on" next to "0" and leave the user to
+        // reconcile it; say plainly which one wins.
+        let scale_note = if !effect_enabled {
+            Some(format!("{} is off", effect_noun(&control.name)))
+        } else if level.value <= level.min {
+            Some(format!(
+                "on, but {} applies nothing",
+                effect_noun(&control.name)
+            ))
+        } else if control.name == "FX: Smart Volume" {
+            Some("night \u{2194} loud".to_owned())
+        } else {
+            None
+        };
+        // The note row is always present, empty when there is nothing to say.
+        // Rendering it conditionally made every card with a note push its slider
+        // one line lower than the cards without one, so the row of sliders
+        // stepped up and down instead of reading as a line.
+        let hint = gtk::Label::new(scale_note.as_deref().or(Some("")));
+        hint.set_halign(gtk::Align::Center);
+        hint.set_wrap(true);
+        hint.set_lines(1);
+        hint.set_justify(gtk::Justification::Center);
+        hint.add_css_class("effect-scale-note");
+        card.append(&hint);
+
+        let level_block = unsafe_playback_control_block_reason(&control.name)
+            .or_else(|| direct_mode_block_reason(&control.name, all_controls))
+            .or_else(|| smart_volume_level_block_reason(&control.name, all_controls));
+        let editor = level_editor(
+            card_index,
+            status,
+            &control.name,
+            level,
+            false,
+            None,
+            level_block,
+        );
+        editor.set_sensitive(effect_enabled && level_block.is_none());
+        ae5_control::gui::editors::mark_interactive(&editor);
+        if !effect_enabled {
+            editor.set_tooltip_text(Some(&format!(
+                "Switch {} on to change its level",
+                effect_noun(&control.name)
+            )));
+        }
+        if let Ok(scale) = editor.clone().downcast::<gtk::Scale>() {
+            scale.set_width_request(126);
+            scale.set_hexpand(true);
+        }
+        card.append(&editor);
+    }
+
+    card
+}
+
+fn playback_page(card_index: i32, status: &gtk::Label, controls: &[ControlSnapshot]) -> gtk::Box {
+    let page = gtk::Box::new(gtk::Orientation::Vertical, 0);
+
+    let header = gtk::Box::new(gtk::Orientation::Vertical, 10);
+    header.add_css_class("settings-header");
+    let title = gtk::Label::new(Some("Playback"));
+    title.set_xalign(0.0);
+    title.add_css_class("page-title");
+    header.append(&title);
+
+    let stack = gtk::Stack::builder()
+        .transition_type(gtk::StackTransitionType::Crossfade)
+        .hexpand(true)
+        .vexpand(true)
+        .build();
+    stack.add_titled(
+        &analog_playback_page(card_index, status, controls),
+        Some("analog"),
+        "Analog",
+    );
+    stack.add_titled(
+        &digital_playback_page(card_index, status, controls),
+        Some("digital"),
+        "Digital",
+    );
+    let switcher = gtk::StackSwitcher::builder()
+        .stack(&stack)
+        .halign(gtk::Align::Start)
+        .build();
+    switcher.add_css_class("page-tabs");
+    header.append(&switcher);
+
+    page.append(&header);
+    page.append(&stack);
+    page
+}
+
+fn analog_playback_page(
+    card_index: i32,
+    status: &gtk::Label,
+    controls: &[ControlSnapshot],
+) -> gtk::ScrolledWindow {
+    let page = gtk::Box::new(gtk::Orientation::Vertical, 16);
+    page.add_css_class("profile-page");
+
+    if let Some(warning) = front_vmaster_clamp_warning(controls) {
+        let notice = gtk::Label::new(Some(&format!("Gain staging\n{warning}")));
+        notice.set_xalign(0.0);
+        notice.set_wrap(true);
+        notice.add_css_class("gain-stage-notice");
+        page.append(&notice);
+    }
+
+    if let Some(output) = controls
+        .iter()
+        .find(|control| control.name == "Output Select")
+    {
+        let route = gtk::Label::new(Some(&format!(
+            "Active route: {} · change Speakers / Headphones from the footer",
+            output.selected.as_deref().unwrap_or("unknown")
+        )));
+        route.set_xalign(0.0);
+        route.set_wrap(true);
+        route.add_css_class("playback-route-note");
+        page.append(&route);
+    }
+
+    let settings_title = gtk::Label::new(Some("Playback setup"));
+    settings_title.set_xalign(0.0);
+    settings_title.add_css_class("mixer-section");
+    page.append(&settings_title);
+
+    let grid = gtk::Grid::builder()
+        .column_spacing(12)
+        .row_spacing(12)
+        .column_homogeneous(true)
+        .build();
+    for (index, name) in [
+        "AE-5: Headphone Gain",
+        "AE-5: Sound Filter",
+        "Surround Channel Config",
+        "HP/Speaker Auto Detect",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        if let Some(control) = controls.iter().find(|control| control.name == name) {
+            grid.attach(
+                &playback_setting_tile(card_index, status, control, controls),
+                (index % 2) as i32,
+                (index / 2) as i32,
+                1,
+                1,
+            );
+        }
+    }
+
+    let direct_tile = if let Some(control) = controls
+        .iter()
+        .find(|control| control.name == DIRECT_MODE_CONTROL)
+    {
+        playback_setting_tile(card_index, status, control, controls)
+    } else {
+        playback_unavailable_tile(
+            "Direct Mode",
+            "Available after booting the installed 7.1.4-ae5-current test kernel.",
+        )
+    };
+    grid.attach(&direct_tile, 0, 2, 1, 1);
+    grid.attach(
+        &playback_unavailable_tile(
+            "Audio quality",
+            "Native PipeWire rates: 44.1, 48, and 96 kHz. Linux exposes the transport format separately from Creative's Windows label.",
+        ),
+        1,
+        2,
+        1,
+        1,
+    );
+    grid.attach(
+        &playback_unavailable_tile(
+            "Headphone model tuning",
+            "Command's model files contain display metadata only; the correction response \
+             remains inside Creative's Windows driver/APO. Imported custom EQ profiles are \
+             available on Linux without pretending those proprietary curves were copied.",
+        ),
+        0,
+        3,
+        2,
+        1,
+    );
+    page.append(&grid);
+
+    let advanced_controls = [
+        "Full-Range Front Speakers",
+        "Full-Range Rear Speakers",
+        "Bass Redirection",
+        "Bass Redirection Crossover",
+    ]
+    .into_iter()
+    .filter_map(|name| controls.iter().find(|control| control.name == name))
+    .collect::<Vec<_>>();
+    if !advanced_controls.is_empty() {
+        let advanced = gtk::Expander::new(Some("Advanced speaker controls"));
+        advanced.set_child(Some(&control_list(
+            card_index,
+            status,
+            controls,
+            advanced_controls.into_iter(),
+        )));
+        page.append(&advanced);
+    }
+
+    gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .child(&page)
+        .build()
+}
+
+fn footer_output_selector(
+    card_index: i32,
+    status: &gtk::Label,
+    control: &ControlSnapshot,
+) -> gtk::Box {
+    let choices = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    choices.add_css_class("footer-output-selector");
+    let label = gtk::Label::new(Some("ROUTE"));
+    label.add_css_class("footer-route-label");
+    choices.append(&label);
+
+    let speakers = gtk::ToggleButton::with_label("Speakers");
+    let headphones = gtk::ToggleButton::with_label("Headphones");
+    headphones.set_group(Some(&speakers));
+    for button in [&speakers, &headphones] {
+        button.add_css_class("footer-output-choice");
+    }
+
+    let selected_index = if control.selected.as_deref() == Some("Headphone") {
+        1
+    } else {
+        0
+    };
+    if selected_index == 0 {
+        speakers.set_active(true);
+    } else {
+        headphones.set_active(true);
+    }
+    let buttons = [speakers.clone(), headphones.clone()];
+    if let Some(reason) = unsafe_playback_control_block_reason(&control.name) {
+        for button in &buttons {
+            button.set_sensitive(false);
+            button.set_tooltip_text(Some(reason));
+        }
+    }
+    let verified = Rc::new(Cell::new(selected_index));
+    let updating = Rc::new(Cell::new(false));
+    for (index, (button, requested)) in [
+        (speakers.clone(), "Speakers"),
+        (headphones.clone(), "Headphone"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let buttons = buttons.clone();
+        let verified = verified.clone();
+        let updating = updating.clone();
+        let status = status.clone();
+        let control_name = control.name.clone();
+        button.connect_toggled(move |button| {
+            if updating.get() || !button.is_active() {
+                return;
+            }
+            match with_mixer(card_index, |mixer| {
+                mixer.set_choice_checked(&control_name, requested, false)
+            }) {
+                Ok(actual) => {
+                    verified.set(index);
+                    // Deliberately NOT marked as a self-originated write. A
+                    // route change cascades: the driver re-runs its output
+                    // path, WirePlumber re-applies the managed route, and gain
+                    // staging, headphone gain and channel map all move with it.
+                    // The button reflects one control; the rest of the window
+                    // must rebuild to stay truthful.
+                    ae5_control::gui::tracelog::trace(
+                        "route",
+                        &format!("switch -> {requested}: {}", control_summary(&actual)),
+                    );
+                    let message = format!("Applied and verified: {}", control_summary(&actual));
+                    set_status(&status, true, &message);
+                    // Rebuild explicitly rather than waiting for an ALSA event
+                    // to arrive. The driver and WirePlumber both settle after a
+                    // route change, so the window that drew the old route is
+                    // stale the moment this write returns — and a window that
+                    // shows the wrong route is worse than one that flickers.
+                    gtk::glib::idle_add_local_once(move || {
+                        if let Some(window) = active_main_window() {
+                            let _ = refresh_window(&window, Some(&message));
+                        }
+                    });
+                }
+                Err(error) => {
+                    ae5_control::gui::tracelog::trace(
+                        "route",
+                        &format!("switch -> {requested} FAILED: {error}"),
+                    );
+                    updating.set(true);
+                    buttons[verified.get()].set_active(true);
+                    updating.set(false);
+                    set_status(&status, false, &format!("Output change failed: {error}"));
+                }
+            }
+        });
+    }
+    choices.append(&speakers);
+    choices.append(&headphones);
+    choices
+}
+
+fn playback_setting_tile(
+    card_index: i32,
+    status: &gtk::Label,
+    control: &ControlSnapshot,
+    all_controls: &[ControlSnapshot],
+) -> gtk::Box {
+    let tile = gtk::Box::new(gtk::Orientation::Vertical, 8);
+    tile.add_css_class("playback-setting-tile");
+    let title = gtk::Label::new(Some(&control_display_name(&control.name)));
+    title.set_xalign(0.0);
+    title.add_css_class("section-title");
+    tile.append(&title);
+
+    let block = unsafe_playback_control_block_reason(&control.name)
+        .or_else(|| direct_mode_block_reason(&control.name, all_controls));
+    let permission = if control.name == "AE-5: Headphone Gain" {
+        let permission = gtk::CheckButton::with_label("Allow 150–600 Ω");
+        permission.set_tooltip_text(Some(
+            "Enable only when high-impedance headphones are connected.",
+        ));
+        tile.append(&permission);
+        Some(permission)
+    } else {
+        None
+    };
+    if control.selected.is_some() {
+        tile.append(&choice_editor(
+            card_index, status, control, permission, block,
+        ));
+    }
+    if let Some(enabled) = control.playback_switch {
+        let editor = switch_editor(card_index, status, &control.name, enabled, false, block);
+        editor.set_halign(gtk::Align::Start);
+        tile.append(&editor);
+    }
+    tile
+}
+
+fn playback_unavailable_tile(title: &str, detail: &str) -> gtk::Box {
+    let tile = gtk::Box::new(gtk::Orientation::Vertical, 8);
+    tile.add_css_class("playback-setting-tile");
+    let title = gtk::Label::new(Some(title));
+    title.set_xalign(0.0);
+    title.add_css_class("section-title");
+    let detail = gtk::Label::new(Some(detail));
+    detail.set_xalign(0.0);
+    detail.set_wrap(true);
+    detail.add_css_class("dim-label");
+    tile.append(&title);
+    tile.append(&detail);
+    tile
+}
+
+fn digital_playback_page(
+    card_index: i32,
+    status: &gtk::Label,
+    controls: &[ControlSnapshot],
+) -> gtk::ScrolledWindow {
+    let page = gtk::Box::new(gtk::Orientation::Vertical, 16);
+    page.add_css_class("profile-page");
+    let intro = gtk::Label::new(Some(
+        "Digital output controls are separate from the analog Speakers / Headphones path.",
+    ));
+    intro.set_xalign(0.0);
+    intro.set_wrap(true);
+    intro.add_css_class("dim-label");
+    page.append(&intro);
+    page.append(&control_list(
+        card_index,
+        status,
+        controls,
+        ["IEC958", "IEC958 Default PCM"]
+            .into_iter()
+            .filter_map(|name| controls.iter().find(|control| control.name == name)),
+    ));
+    gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .child(&page)
+        .build()
+}
+
+fn equalizer_page(
+    window: &gtk::ApplicationWindow,
+    card_index: i32,
+    status: &gtk::Label,
+    controls: &[ControlSnapshot],
+) -> gtk::ScrolledWindow {
+    let page = gtk::Box::new(gtk::Orientation::Vertical, 18);
+    page.add_css_class("profile-page");
+
+    let heading = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    let title = gtk::Label::new(Some("Equalizer"));
+    title.set_xalign(0.0);
+    title.set_hexpand(true);
+    title.add_css_class("page-title");
+    heading.append(&title);
+    let enabled = controls
+        .iter()
+        .find(|control| control.name == "FX: Equalizer")
+        .and_then(|control| control.playback_switch)
+        .is_some_and(|enabled| enabled);
+    let preset = controls
+        .iter()
+        .find(|control| control.name == "FX: Equalizer Preset")
+        .and_then(|control| control.selected.as_deref())
+        .unwrap_or("custom");
+    let outfx_enabled = controls
+        .iter()
+        .find(|control| control.name == "Enable OutFX")
+        .and_then(|control| control.playback_switch)
+        == Some(true);
+    let summary = gtk::Label::new(Some(&hardware_eq_summary(enabled, outfx_enabled, preset)));
+    if enabled && !outfx_enabled {
+        summary.set_tooltip_text(Some(
+            "The hardware EQ setting is saved, but OutFX is off so it is not processing audio.",
+        ));
+    }
+    summary.add_css_class("status-pill");
+    heading.append(&summary);
+    page.append(&heading);
+
+    let intro = gtk::Label::new(Some(
+        "Use PipeWire software EQ for desktop stereo. The CA0132 hardware EQ below is read-only \
+         because it shares the unsafe OutFX path. Both use the ten Sound Blaster Command center \
+         frequencies; Windows migration maps Bass to 62 Hz and Treble to 8 kHz.",
+    ));
+    intro.set_xalign(0.0);
+    intro.set_wrap(true);
+    intro.add_css_class("dim-label");
+    page.append(&intro);
+
+    page.append(&software_equalizer_card(
+        window, card_index, status, controls,
+    ));
+
+    let hardware = gtk::Label::new(Some("Hardware equalizer · disabled"));
+    hardware.set_xalign(0.0);
+    hardware.add_css_class("mixer-section");
+    page.append(&hardware);
+
+    page.append(&control_list(
+        card_index,
+        status,
+        controls,
+        ["FX: Equalizer", "FX: Equalizer Preset"]
+            .into_iter()
+            .filter_map(|name| controls.iter().find(|control| control.name == name)),
+    ));
+
+    let bands = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+    bands.set_homogeneous(true);
+    bands.add_css_class("equalizer-bands");
+    for (index, frequency) in [
+        "31", "62", "125", "250", "500", "1k", "2k", "4k", "8k", "16k",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let name = format!("EQ Band{index}");
+        let Some(control) = controls.iter().find(|control| control.name == name) else {
+            continue;
+        };
+        let Some(level) = &control.playback_level else {
+            continue;
+        };
+        let band = gtk::Box::new(gtk::Orientation::Vertical, 6);
+        band.set_halign(gtk::Align::Center);
+        let editor = level_editor_oriented(
+            card_index,
+            status,
+            &control.name,
+            level,
+            false,
+            None,
+            direct_mode_block_reason(&control.name, controls)
+                .or_else(|| unsafe_playback_control_block_reason(&control.name))
+                .or_else(|| equalizer_band_block_reason(&control.name, controls)),
+            gtk::Orientation::Vertical,
+        );
+        let label = gtk::Label::new(Some(frequency));
+        label.add_css_class("equalizer-frequency");
+        band.append(&editor);
+        band.append(&label);
+        bands.append(&band);
+    }
+    page.append(&bands);
+
+    gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .child(&page)
+        .build()
+}
+
+fn hardware_eq_summary(enabled: bool, outfx_enabled: bool, preset: &str) -> String {
+    format!(
+        "HW EQ {} · {}",
+        if enabled && outfx_enabled {
+            "ON"
+        } else if enabled {
+            "ARMED"
+        } else {
+            "OFF"
+        },
+        preset.to_uppercase()
+    )
+}
+
+fn software_equalizer_card(
+    window: &gtk::ApplicationWindow,
+    card_index: i32,
+    status: &gtk::Label,
+    controls: &[ControlSnapshot],
+) -> gtk::Box {
+    let config = eq_chain_config();
+    let output = software_eq_output(card_index);
+    let physical = ae5_output(card_index);
+    let outfx_disabled = controls
+        .iter()
+        .find(|control| control.name == "Enable OutFX")
+        .and_then(|control| control.playback_switch)
+        == Some(false);
+
+    let actions = gtk::Box::new(gtk::Orientation::Vertical, 10);
+    let state = gtk::Label::new(Some(&software_eq_summary(
+        config.as_ref().ok(),
+        output.as_ref().ok().and_then(|output| output.as_ref()),
+    )));
+    state.set_xalign(0.0);
+    state.set_wrap(true);
+    state.set_selectable(true);
+    actions.append(&state);
+
+    let buttons = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+    let configure = gtk::Button::with_label("Choose profile & apply");
+    configure.add_css_class("suggested-action");
+    let activate = gtk::Button::with_label("Apply saved EQ");
+    let disable = gtk::Button::with_label("Disable");
+
+    let config_ok = config.as_ref().ok();
+    let live = output.as_ref().ok().and_then(|output| output.as_ref());
+    let current_target = physical
+        .as_ref()
+        .ok()
+        .and_then(|output| output.as_ref())
+        .map(|output| output.node_name.as_str());
+    let graph_current = config_ok.is_some_and(|config| {
+        config.enabled
+            && config.signature().as_deref() == live.and_then(|output| output.signature.as_deref())
+            && config.target_node.as_deref() == current_target
+    });
+    configure.set_sensitive(config.is_ok() && outfx_disabled);
+    if !outfx_disabled {
+        configure.set_tooltip_text(Some(
+            "Turn OutFX off first so hardware and software effects are not applied together.",
+        ));
+    }
+    activate.set_sensitive(
+        config_ok.is_some_and(|config| config.enabled) && !graph_current && outfx_disabled,
+    );
+    if graph_current {
+        activate.set_label("Applied in place");
+    }
+    disable.set_sensitive(config_ok.is_some_and(|config| config.enabled) || live.is_some());
+
+    buttons.append(&configure);
+    buttons.append(&activate);
+    buttons.append(&disable);
+    actions.append(&buttons);
+
+    {
+        let window = window.clone();
+        let status = status.clone();
+        configure.connect_clicked(move |button| {
+            let window = window.clone();
+            let status = status.clone();
+            let button = button.clone();
+            button.set_sensitive(false);
+            gtk::glib::spawn_future_local(async move {
+                match install_software_eq_profile(&window, card_index).await {
+                    Ok(Some(change)) => {
+                        let message = match activate_software_eq(card_index) {
+                            Ok(output) => format!(
+                                "Software EQ {} and applied inside {}. Automatic preamp: {:+.2} dB.",
+                                if change.changed { "saved" } else { "was already saved" },
+                                output.node.description,
+                                change.config.preamp_db
+                            ),
+                            Err(error) => {
+                                set_status(
+                                    &status,
+                                    false,
+                                    &format!("Software EQ apply failed: {error}"),
+                                );
+                                button.set_sensitive(true);
+                                return;
+                            }
+                        };
+                        let _ = refresh_window(&window, Some(&message));
+                    }
+                    Ok(None) => button.set_sensitive(true),
+                    Err(error) => {
+                        set_status(
+                            &status,
+                            false,
+                            &format!("Software EQ install failed: {error}"),
+                        );
+                        button.set_sensitive(true);
+                    }
+                }
+            });
+        });
+    }
+    {
+        let window = window.clone();
+        let status = status.clone();
+        activate.connect_clicked(move |button| {
+            button.set_sensitive(false);
+            match activate_software_eq(card_index) {
+                Ok(output) => {
+                    let _ = refresh_window(
+                        &window,
+                        Some(&format!(
+                            "Software EQ is active inside the existing output: {}.",
+                            output.node.description
+                        )),
+                    );
+                }
+                Err(error) => {
+                    set_status(
+                        &status,
+                        false,
+                        &format!("Software EQ activation failed: {error}"),
+                    );
+                    button.set_sensitive(true);
+                }
+            }
+        });
+    }
+    {
+        let window = window.clone();
+        let status = status.clone();
+        disable.connect_clicked(move |button| {
+            button.set_sensitive(false);
+            match disable_software_eq_safely(card_index) {
+                Ok(change) => {
+                    let message = if change.changed {
+                        "Software EQ unloaded from the physical AE-5 and its saved configuration was removed."
+                    } else {
+                        "Software EQ runtime graph was cleared; no saved configuration existed."
+                    };
+                    let _ = refresh_window(&window, Some(message));
+                }
+                Err(error) => {
+                    set_status(
+                        &status,
+                        false,
+                        &format!("Software EQ disable failed: {error}"),
+                    );
+                    button.set_sensitive(true);
+                }
+            }
+        });
+    }
+
+    ae5_control::gui::widgets::profile_card(
+        "01",
+        "PipeWire in-place equalizer",
+        "Phase A processes stereo audio inside the existing physical AE-5 sink, so volume and mute remain single-stage. Response-aware preamp headroom is automatic, and activation is refused while OutFX is on.",
+        &actions,
+    )
+}
+
+fn software_eq_summary(
+    config: Option<&EqChainConfig>,
+    output: Option<&SoftwareEqOutput>,
+) -> String {
+    let Some(config) = config else {
+        return "Configuration unavailable or not managed by AE-5 Control.".to_owned();
+    };
+    if !config.enabled {
+        return if output.is_some() {
+            "Not configured\nAn in-place runtime graph is still marked active; use Disable to clear it."
+                .to_owned()
+        } else {
+            "Not configured\nDesktop audio uses the physical output without software EQ.".to_owned()
+        };
+    }
+
+    let target = config.target_node.as_deref().unwrap_or("unavailable");
+    match output {
+        None => format!(
+            "Saved for {target}\nNot applied in this PipeWire session · automatic preamp {:+.2} dB.",
+            config.preamp_db
+        ),
+        Some(output) if config.signature().as_deref() != output.signature.as_deref() => format!(
+            "Saved for {target}\nA different runtime graph is active · automatic preamp {:+.2} dB.",
+            config.preamp_db
+        ),
+        Some(output) => format!(
+            "Applied in place to {} · one volume stage · automatic preamp {:+.2} dB.",
+            output.node.description, config.preamp_db
+        ),
+    }
+}
+
+async fn install_software_eq_profile(
+    window: &gtk::ApplicationWindow,
+    card_index: i32,
+) -> Result<Option<EqChainChange>, String> {
+    let Some(path) = open_native_profile_path(window, "Choose a profile for software EQ").await?
+    else {
+        return Ok(None);
+    };
+    let profile = Profile::load(&path).map_err(|error| error.to_string())?;
+    ae5_control::gui::tracelog::trace(
+        "eq",
+        &format!(
+            "profile selected: name={:?} controls={}",
+            profile.name,
+            profile.controls.len()
+        ),
+    );
+    let controls = snapshot_controls(card_index).map_err(|error| error.to_string())?;
+    let output = ae5_output(card_index)
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "PipeWire has no physical AE-5 output".to_owned())?;
+    enable_eq_chain(&profile, &controls, &output.node_name)
+        .map(Some)
+        .map_err(|error| error.to_string())
+}
+
+fn activate_software_eq(card_index: i32) -> Result<SoftwareEqOutput, String> {
+    ae5_control::gui::tracelog::trace("eq", "activation requested");
+    let result = (|| {
+        let config = eq_chain_config().map_err(|error| error.to_string())?;
+        let controls = snapshot_controls(card_index).map_err(|error| error.to_string())?;
+        let physical = ae5_output(card_index)
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| "PipeWire has no physical AE-5 output".to_owned())?;
+        validate_eq_chain_activation(&config, &controls, &physical.node_name)
+            .map_err(|error| error.to_string())?;
+        let graph = config
+            .filter_graph()
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| "the saved software EQ has no graph".to_owned())?;
+        let signature = config
+            .signature()
+            .ok_or_else(|| "the saved software EQ has no signature".to_owned())?;
+        apply_software_eq(card_index, &graph, &signature).map_err(|error| error.to_string())
+    })();
+    match &result {
+        Ok(output) => ae5_control::gui::tracelog::trace(
+            "eq",
+            &format!("activation verified: target={}", output.node.description),
+        ),
+        Err(error) => {
+            ae5_control::gui::tracelog::trace("eq", &format!("activation FAILED: {error}"))
+        }
+    }
+    result
+}
+
+fn disable_software_eq_safely(card_index: i32) -> Result<EqChainChange, String> {
+    ae5_control::gui::tracelog::trace("eq", "disable requested");
+    let result = unload_software_eq(card_index)
+        .map_err(|error| error.to_string())
+        .and_then(|_| disable_eq_chain().map_err(|error| error.to_string()));
+    match &result {
+        Ok(change) => ae5_control::gui::tracelog::trace(
+            "eq",
+            &format!("disable verified: saved_state_changed={}", change.changed),
+        ),
+        Err(error) => ae5_control::gui::tracelog::trace("eq", &format!("disable FAILED: {error}")),
+    }
+    result
+}
+
+fn recording_page(
+    card_index: i32,
+    status: &gtk::Label,
+    controls: &[ControlSnapshot],
+) -> gtk::ScrolledWindow {
+    let page = gtk::Box::new(gtk::Orientation::Vertical, 18);
+    page.add_css_class("profile-page");
+
+    let heading = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    let title = gtk::Label::new(Some("Recording"));
+    title.set_xalign(0.0);
+    title.set_hexpand(true);
+    title.add_css_class("page-title");
+    heading.append(&title);
+
+    if let Some(source) = controls
+        .iter()
+        .find(|control| control.name == "Input Source")
+    {
+        let current = gtk::Label::new(Some(&format!(
+            "INPUT · {}",
+            source.selected.as_deref().unwrap_or("UNKNOWN")
+        )));
+        current.add_css_class("status-pill");
+        heading.append(&current);
+    }
+    page.append(&heading);
+
+    let intro = gtk::Label::new(Some(
+        "Select the physical input first, then configure capture gain and the CA0132 \
+         recording processor. Every available change is written and read back immediately.",
+    ));
+    intro.set_xalign(0.0);
+    intro.set_wrap(true);
+    intro.add_css_class("dim-label");
+    page.append(&intro);
+
+    if let Some(source) = controls
+        .iter()
+        .find(|control| control.name == "Input Source")
+    {
+        let source_panel = gtk::Box::new(gtk::Orientation::Horizontal, 18);
+        source_panel.add_css_class("recording-source-panel");
+        let labels = gtk::Box::new(gtk::Orientation::Vertical, 4);
+        labels.set_hexpand(true);
+        let title = gtk::Label::new(Some("Recording source"));
+        title.set_xalign(0.0);
+        title.add_css_class("section-title");
+        let detail = gtk::Label::new(Some(
+            "This selects the card input; desktop application routing remains on the Mixer page.",
+        ));
+        detail.set_xalign(0.0);
+        detail.set_wrap(true);
+        detail.add_css_class("dim-label");
+        labels.append(&title);
+        labels.append(&detail);
+        source_panel.append(&labels);
+        source_panel.append(&choice_editor(card_index, status, source, None, None));
+        page.append(&source_panel);
+    }
+
+    let capture = gtk::Label::new(Some("Capture path"));
+    capture.set_xalign(0.0);
+    capture.add_css_class("mixer-section");
+    page.append(&capture);
+    page.append(&control_list(
+        card_index,
+        status,
+        controls,
+        ["Capture", "Mic Boost"]
+            .into_iter()
+            .filter_map(|name| controls.iter().find(|control| control.name == name)),
+    ));
+
+    let processing_controls = [
+        "Enable InFX",
+        "FX: Noise Reduction",
+        "FX: Mic SVM",
+        "SVM Level",
+        "FX: Voice Focus",
+        "VoiceFX",
+    ]
+    .into_iter()
+    .filter_map(|name| controls.iter().find(|control| control.name == name))
+    .collect::<Vec<_>>();
+    if !processing_controls.is_empty() {
+        let processing = gtk::Label::new(Some("Recording processor"));
+        processing.set_xalign(0.0);
+        processing.add_css_class("mixer-section");
+        page.append(&processing);
+        page.append(&control_list(
+            card_index,
+            status,
+            controls,
+            processing_controls.into_iter(),
+        ));
+    }
+
+    if let Some(loopback) = controls
+        .iter()
+        .find(|control| control.name == "What U Hear")
+    {
+        let advanced = gtk::Expander::new(Some("Desktop loopback"));
+        advanced.set_child(Some(&control_list(
+            card_index,
+            status,
+            controls,
+            std::iter::once(loopback),
+        )));
+        page.append(&advanced);
+    }
+
+    gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .child(&page)
+        .build()
+}
+
+fn mixer_page(
+    card_index: i32,
+    status: &gtk::Label,
+    controls: &[ControlSnapshot],
+) -> gtk::ScrolledWindow {
+    let page = gtk::Box::new(gtk::Orientation::Vertical, 18);
+    page.add_css_class("profile-page");
+
+    let heading = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    let title = gtk::Label::new(Some("Mixer"));
+    title.set_xalign(0.0);
+    title.set_hexpand(true);
+    title.add_css_class("page-title");
+    heading.append(&title);
+    if let Some(master) = controls.iter().find(|control| control.name == "Master") {
+        let level = master
+            .playback_level
+            .as_ref()
+            .map_or_else(|| "LEVEL UNKNOWN".to_owned(), hardware_level_label);
+        let summary = gtk::Label::new(Some(&format!(
+            "MASTER {} · {level}",
+            if master.playback_switch == Some(false) {
+                "MUTED"
+            } else {
+                "ACTIVE"
+            }
+        )));
+        summary.add_css_class("status-pill");
+        heading.append(&summary);
+    }
+    page.append(&heading);
+
+    let intro = gtk::Label::new(Some(
+        "Hardware playback and recording levels are shown together. Desktop default-device \
+         choices remain separate from the card's ALSA mixer state.",
+    ));
+    intro.set_xalign(0.0);
+    intro.set_wrap(true);
+    intro.add_css_class("dim-label");
+    page.append(&intro);
+
+    if let Some(warning) = front_vmaster_clamp_warning(controls) {
+        let notice = gtk::Label::new(Some(&format!("Gain staging\n{warning}")));
+        notice.set_xalign(0.0);
+        notice.set_wrap(true);
+        notice.add_css_class("gain-stage-notice");
+        page.append(&notice);
+    }
+
+    let playback = gtk::Label::new(Some("Playback"));
+    playback.set_xalign(0.0);
+    playback.add_css_class("mixer-section");
+    page.append(&playback);
+    page.append(&control_list(
+        card_index,
+        status,
+        controls,
+        ["Master", "PCM", "Front", "Surround", "Center", "LFE"]
+            .into_iter()
+            .filter_map(|name| controls.iter().find(|control| control.name == name)),
+    ));
+
+    let recording = gtk::Label::new(Some("Recording"));
+    recording.set_xalign(0.0);
+    recording.add_css_class("mixer-section");
+    page.append(&recording);
+    page.append(&control_list(
+        card_index,
+        status,
+        controls,
+        ["Capture", "What U Hear"]
+            .into_iter()
+            .filter_map(|name| controls.iter().find(|control| control.name == name)),
+    ));
+
+    let routing = gtk::Label::new(Some("Desktop routing"));
+    routing.set_xalign(0.0);
+    routing.add_css_class("mixer-section");
+    page.append(&routing);
+    page.append(&routing_card(
+        card_index,
+        status,
+        "01",
+        "Desktop playback output",
+        ae5_output(card_index),
+        set_ae5_default_output,
+    ));
+    page.append(&routing_card(
+        card_index,
+        status,
+        "02",
+        "Desktop recording input",
+        ae5_input(card_index),
+        set_ae5_default_input,
+    ));
+    page.append(&native_rates_card(status, native_rates_config()));
+
+    gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .child(&page)
+        .build()
+}
+
+fn lighting_page(window: &gtk::ApplicationWindow, status: &gtk::Label) -> gtk::ScrolledWindow {
+    let page = gtk::Box::new(gtk::Orientation::Vertical, 18);
+    page.add_css_class("profile-page");
+
+    let heading = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    let title = gtk::Label::new(Some("Onboard lighting"));
+    title.set_xalign(0.0);
+    title.set_hexpand(true);
+    title.add_css_class("page-title");
+    heading.append(&title);
+    let available = Ae5Lighting::discover().is_ok();
+    let state = gtk::Label::new(Some(if available {
+        "5 LEDS ONLINE"
+    } else {
+        "KERNEL SUPPORT REQUIRED"
+    }));
+    state.add_css_class(if available {
+        "status-pill"
+    } else {
+        "unavailable-pill"
+    });
+    heading.append(&state);
+    page.append(&heading);
+
+    let intro = gtk::Label::new(Some(
+        "Set the five LEDs built into the AE-5. Colors are verified through the \
+         Linux multicolor LED class and saved for the next desktop login.",
+    ));
+    intro.set_xalign(0.0);
+    intro.set_wrap(true);
+    intro.add_css_class("dim-label");
+    page.append(&intro);
+
+    match Ae5Lighting::discover().and_then(|lighting| lighting.colors()) {
+        Ok(colors) => {
+            let all = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+            let summary =
+                gtk::Label::new(Some(&if colors.iter().all(|color| *color == colors[0]) {
+                    format!("All five LEDs are {}", colors[0])
+                } else {
+                    "The five LEDs currently use different colors".to_owned()
+                }));
+            summary.set_xalign(0.0);
+            summary.set_hexpand(true);
+            let button = color_button("Choose one color for all onboard LEDs", colors[0]);
+            {
+                let window = window.clone();
+                let status = status.clone();
+                let updating = Rc::new(Cell::new(false));
+                let updating_on_change = updating.clone();
+                button.connect_rgba_notify(move |button| {
+                    if updating_on_change.get() {
+                        return;
+                    }
+                    let requested = rgb_from_rgba(&button.rgba());
+                    match set_saved_lighting([requested; ONBOARD_LED_COUNT]) {
+                        Ok(_) => {
+                            let _ = refresh_window(
+                                &window,
+                                Some(&format!(
+                                    "Applied, verified, and saved {requested} for all onboard LEDs."
+                                )),
+                            );
+                        }
+                        Err(error) => {
+                            updating_on_change.set(true);
+                            button.set_rgba(&rgba_from_rgb(colors[0]));
+                            updating_on_change.set(false);
+                            set_status(&status, false, &format!("Lighting change failed: {error}"));
+                        }
+                    }
+                });
+            }
+            all.append(&summary);
+            all.append(&button);
+            page.append(&ae5_control::gui::widgets::profile_card(
+                "01",
+                "Unified color",
+                "Choose one color for the complete five-LED chain.",
+                &all,
+            ));
+
+            let individual = gtk::Box::new(gtk::Orientation::Vertical, 10);
+            for (index, color) in colors.into_iter().enumerate() {
+                let row = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+                row.add_css_class("profile-library-row");
+                let label = gtk::Label::new(Some(&format!("LED {} · {color}", index + 1)));
+                label.set_xalign(0.0);
+                label.set_hexpand(true);
+                let button = color_button(
+                    &format!("Choose a color for onboard LED {}", index + 1),
+                    color,
+                );
+                {
+                    let window = window.clone();
+                    let status = status.clone();
+                    let updating = Rc::new(Cell::new(false));
+                    let updating_on_change = updating.clone();
+                    button.connect_rgba_notify(move |button| {
+                        if updating_on_change.get() {
+                            return;
+                        }
+                        let requested = rgb_from_rgba(&button.rgba());
+                        match set_saved_led(index + 1, requested) {
+                            Ok(_) => {
+                                let _ = refresh_window(
+                                    &window,
+                                    Some(&format!(
+                                        "Applied, verified, and saved {requested} for onboard LED {}.",
+                                        index + 1
+                                    )),
+                                );
+                            }
+                            Err(error) => {
+                                updating_on_change.set(true);
+                                button.set_rgba(&rgba_from_rgb(color));
+                                updating_on_change.set(false);
+                                set_status(
+                                    &status,
+                                    false,
+                                    &format!("Lighting change failed: {error}"),
+                                );
+                            }
+                        }
+                    });
+                }
+                row.append(&label);
+                row.append(&button);
+                individual.append(&row);
+            }
+            page.append(&ae5_control::gui::widgets::profile_card(
+                "02",
+                "Individual LEDs",
+                "Each selection resends one coherent five-LED frame in the kernel.",
+                &individual,
+            ));
+        }
+        Err(error) => {
+            let unavailable = gtk::Box::new(gtk::Orientation::Vertical, 6);
+            let title = gtk::Label::new(Some("Lighting interface unavailable"));
+            title.set_xalign(0.0);
+            title.add_css_class("warning-label");
+            let detail = gtk::Label::new(Some(&error.to_string()));
+            detail.set_xalign(0.0);
+            detail.set_wrap(true);
+            unavailable.append(&title);
+            unavailable.append(&detail);
+            page.append(&ae5_control::gui::widgets::profile_card(
+                "01",
+                "Kernel support required",
+                "Install and boot a kernel containing the AE-5 onboard multicolor LED patch.",
+                &unavailable,
+            ));
+        }
+    }
+
+    gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .child(&page)
+        .build()
+}
+
+fn color_button(label: &str, color: RgbColor) -> gtk::ColorDialogButton {
+    let dialog = gtk::ColorDialog::builder()
+        .title(label)
+        .modal(true)
+        .with_alpha(false)
+        .build();
+    let button = gtk::ColorDialogButton::new(Some(dialog));
+    button.set_rgba(&rgba_from_rgb(color));
+    button.set_tooltip_text(Some(label));
+    button.update_property(&[gtk::accessible::Property::Label(label)]);
+    button
+}
+
+fn rgba_from_rgb(color: RgbColor) -> gtk::gdk::RGBA {
+    gtk::gdk::RGBA::new(
+        f32::from(color.red) / 255.0,
+        f32::from(color.green) / 255.0,
+        f32::from(color.blue) / 255.0,
+        1.0,
+    )
+}
+
+fn rgb_from_rgba(color: &gtk::gdk::RGBA) -> RgbColor {
+    let channel = |value: f32| (value.clamp(0.0, 1.0) * 255.0).round() as u8;
+    RgbColor::new(
+        channel(color.red()),
+        channel(color.green()),
+        channel(color.blue()),
+    )
+}
+
+fn native_rates_card(status: &gtk::Label, current: std::io::Result<NativeRatesConfig>) -> gtk::Box {
+    let actions = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    let state = gtk::Label::new(None);
+    state.set_xalign(0.0);
+    state.set_wrap(true);
+    state.set_hexpand(true);
+    let button = gtk::Button::with_label("Enable after restart");
+    button.add_css_class("suggested-action");
+    let enabled = Rc::new(Cell::new(false));
+
+    match current {
+        Ok(config) => {
+            enabled.set(config.enabled);
+            state.set_text(&native_rates_summary(&config));
+            if config.enabled {
+                button.set_label("Disable after restart");
+            }
+        }
+        Err(error) => {
+            state.set_text(&format!("Configuration unavailable: {error}"));
+            button.set_sensitive(false);
+        }
+    }
+    actions.append(&state);
+    actions.append(&button);
+
+    let status = status.clone();
+    let state_on_click = state.clone();
+    let enabled_on_click = enabled.clone();
+    button.connect_clicked(move |button| {
+        let requested = !enabled_on_click.get();
+        match set_native_rates_enabled(requested) {
+            Ok(config) => {
+                enabled_on_click.set(config.enabled);
+                state_on_click.set_text(&native_rates_summary(&config));
+                button.set_label(if config.enabled {
+                    "Disable after restart"
+                } else {
+                    "Enable after restart"
+                });
+                set_status(
+                    &status,
+                    true,
+                    "Native-rate configuration saved. Restart PipeWire or log in again to apply.",
+                );
+            }
+            Err(error) => set_status(
+                &status,
+                false,
+                &format!("Native-rate configuration failed: {error}"),
+            ),
+        }
+    });
+
+    ae5_control::gui::widgets::profile_card(
+        "03",
+        "Native sample rates",
+        "Experimental: allow 44.1, 48, and 96 kHz streams to avoid unnecessary \
+         resampling. This changes the global PipeWire graph and may affect other devices.",
+        &actions,
+    )
+}
+
+fn native_rates_summary(config: &NativeRatesConfig) -> String {
+    if config.enabled {
+        "Enabled in PipeWire configuration\n44.1, 48, and 96 kHz".to_owned()
+    } else {
+        "Disabled\nUsing the distribution PipeWire defaults".to_owned()
+    }
+}
+
+fn routing_card(
+    card_index: i32,
+    status: &gtk::Label,
+    index: &str,
+    title: &str,
+    current: std::io::Result<Option<PipeWireNode>>,
+    make_default: fn(i32) -> std::io::Result<PipeWireNode>,
+) -> gtk::Box {
+    let actions = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    let state = gtk::Label::new(None);
+    state.set_xalign(0.0);
+    state.set_wrap(true);
+    state.set_hexpand(true);
+    let button = gtk::Button::with_label("Make default");
+    button.add_css_class("suggested-action");
+
+    match current {
+        Ok(Some(node)) => {
+            state.set_text(&pipewire_node_summary(&node));
+            button.set_sensitive(!node.is_default);
+            if node.is_default {
+                button.set_label("Default");
+            }
+        }
+        Ok(None) => {
+            state.set_text("AE-5 node unavailable in PipeWire.");
+            button.set_sensitive(false);
+        }
+        Err(error) => {
+            state.set_text(&format!("PipeWire status unavailable: {error}"));
+            button.set_sensitive(false);
+        }
+    }
+    actions.append(&state);
+    actions.append(&button);
+
+    let status = status.clone();
+    let state_on_click = state.clone();
+    button.connect_clicked(move |button| match make_default(card_index) {
+        Ok(node) => {
+            state_on_click.set_text(&pipewire_node_summary(&node));
+            button.set_label("Default");
+            button.set_sensitive(false);
+            set_status(
+                &status,
+                true,
+                &format!("AE-5 is now the default for {}.", node.description),
+            );
+        }
+        Err(error) => set_status(
+            &status,
+            false,
+            &format!("Default-device change failed: {error}"),
+        ),
+    });
+
+    ae5_control::gui::widgets::profile_card(
+        index,
+        title,
+        "The selected default is stored by WirePlumber for desktop applications.",
+        &actions,
+    )
+}
+
+fn pipewire_node_summary(node: &PipeWireNode) -> String {
+    let mute = node.muted.map_or("mute state unavailable", |muted| {
+        if muted { "muted" } else { "unmuted" }
+    });
+    let volume = node.volume_percent.map_or_else(
+        || "PipeWire node volume unavailable".to_owned(),
+        |volume| {
+            format!(
+                "PipeWire node volume: {volume}% ({mute})\nWith the installed AE-5 soft-mixer profile, \
+                 this is software attenuation and does not rewrite Master, Front, or PCM."
+            )
+        },
+    );
+    format!(
+        "{}\n{} — {}\n{volume}",
+        node.description,
+        node.node_name,
+        if node.is_default {
+            "currently default"
+        } else {
+            "not default"
+        }
+    )
+}
+
+fn route_health_summary(
+    controls: &[ControlSnapshot],
+    current: std::io::Result<PipeWireRouteState>,
+) -> (String, bool) {
+    let output_choice = controls
+        .iter()
+        .find(|control| control.name == "Output Select")
+        .and_then(|control| control.selected.as_deref());
+    let input_choice = controls
+        .iter()
+        .find(|control| control.name == "Input Source")
+        .and_then(|control| control.selected.as_deref());
+    let speaker_layout = controls
+        .iter()
+        .find(|control| control.name == "Surround Channel Config")
+        .and_then(|control| control.selected.as_deref());
+    match (current, output_choice, speaker_layout, input_choice) {
+        (Ok(state), Some(output), Some(layout), Some(input)) => {
+            let issues = [
+                state.output_issue(output, layout),
+                headphone_playback_issue(controls).map(str::to_owned),
+                state.input_issue(input),
+            ]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
+            (
+                format!(
+                    "{}\nALSA output: {output}\nPipeWire output: {}\nALSA input: {input}\nPipeWire input: {}\nProfile: {} ({}){}",
+                    if issues.is_empty() {
+                        "Matched"
+                    } else {
+                        "Needs attention"
+                    },
+                    state.output_route.as_deref().unwrap_or("unavailable"),
+                    state.input_route.as_deref().unwrap_or("unavailable"),
+                    state.active_profile.as_deref().unwrap_or("unavailable"),
+                    state
+                        .profile_set
+                        .as_deref()
+                        .unwrap_or("unknown profile set"),
+                    if issues.is_empty() {
+                        String::new()
+                    } else {
+                        format!("\n{}", issues.join("\n"))
+                    }
+                ),
+                issues.is_empty(),
+            )
+        }
+        (Ok(_), None, _, _) => ("Output Select is unavailable from ALSA.".to_owned(), false),
+        (Ok(_), _, None, _) => (
+            "Surround Channel Config is unavailable from ALSA.".to_owned(),
+            false,
+        ),
+        (Ok(_), _, _, None) => ("Input Source is unavailable from ALSA.".to_owned(), false),
+        (Err(error), _, _, _) => (
+            format!("PipeWire route status is unavailable: {error}"),
+            false,
+        ),
+    }
+}
+
+fn driver_range_warnings(controls: &[ControlSnapshot]) -> Vec<String> {
+    controls
+        .iter()
+        .flat_map(|control| {
+            [
+                ("playback", control.playback_level.as_ref()),
+                ("capture", control.capture_level.as_ref()),
+            ]
+            .into_iter()
+            .filter_map(move |(direction, level)| {
+                let level = level?;
+                (!(level.min..=level.max).contains(&level.value)).then(|| {
+                    format!(
+                        "{} {direction} value {} is outside {}..{}",
+                        control.name, level.value, level.min, level.max
+                    )
+                })
+            })
+        })
+        .collect()
+}
+
+async fn save_diagnostics_report(
+    window: &gtk::ApplicationWindow,
+) -> Result<Option<String>, String> {
+    let dialog = gtk::FileDialog::builder()
+        .title("Save private AE-5 diagnostics")
+        .modal(true)
+        .initial_name("ae5-report.txt")
+        .build();
+    let file = match dialog.save_future(Some(window)).await {
+        Ok(file) => file,
+        Err(error) if is_cancelled(&error) => return Ok(None),
+        Err(error) => return Err(error.to_string()),
+    };
+    let path = file
+        .path()
+        .ok_or_else(|| "only local files are supported".to_owned())?;
+    let argv = diagnostics_argv(&path);
+    let argv = argv.iter().map(OsString::as_os_str).collect::<Vec<_>>();
+    let process = gio::Subprocess::newv(
+        &argv,
+        gio::SubprocessFlags::STDOUT_PIPE | gio::SubprocessFlags::STDERR_PIPE,
+    )
+    .map_err(|error| {
+        format!("unable to start ae5-collect-report; install the AE-5 Control package: {error}")
+    })?;
+    let (stdout, stderr) = process
+        .communicate_utf8_future(None)
+        .await
+        .map_err(|error| error.to_string())?;
+    if !process.is_successful() {
+        let detail = stderr
+            .as_deref()
+            .or(stdout.as_deref())
+            .map(str::trim)
+            .filter(|message| !message.is_empty())
+            .unwrap_or("the report command failed without an error message");
+        return Err(format!(
+            "ae5-collect-report exited with status {}: {detail}",
+            process.exit_status()
+        ));
+    }
+
+    Ok(Some(format!(
+        "Diagnostics saved to {}. Review the file before sharing it.",
+        path.display()
+    )))
+}
+
+fn diagnostics_argv(path: &Path) -> [OsString; 2] {
+    [
+        OsString::from("ae5-collect-report"),
+        path.as_os_str().to_owned(),
+    ]
 }
 
 fn profile_page(
@@ -175,19 +2889,50 @@ fn profile_page(
     let page = gtk::Box::new(gtk::Orientation::Vertical, 18);
     page.add_css_class("profile-page");
 
-    let heading = gtk::Label::new(Some("Profiles & migration"));
-    heading.set_xalign(0.0);
-    heading.add_css_class("page-title");
+    let heading = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    let title = gtk::Label::new(Some("Profiles & migration"));
+    title.set_xalign(0.0);
+    title.set_hexpand(true);
+    title.add_css_class("page-title");
+    heading.append(&title);
+    if let Ok(library) = profile_library() {
+        let summary = gtk::Label::new(Some(&format!(
+            "{} PERSONAL · {} BUILT-IN",
+            library.profiles.len(),
+            COMMAND_DEFAULT_PROFILE_COUNT
+        )));
+        summary.add_css_class("status-pill");
+        heading.append(&summary);
+    }
     page.append(&heading);
 
     let intro = gtk::Label::new(Some(
         "Capture the live card, preview transactional changes, or convert your \
-         Sound Blaster Command JSON without altering the source files.",
+         Sound Blaster Command setup without altering the source files.",
     ));
     intro.set_xalign(0.0);
     intro.set_wrap(true);
     intro.add_css_class("dim-label");
     page.append(&intro);
+
+    let defaults_actions = builtin_profile_actions(window, card_index, status);
+    page.append(&ae5_control::gui::widgets::profile_card(
+        "01",
+        "Sound Blaster Command defaults",
+        "All 33 factory Sound Effects profiles from Command 3.5.10.0 are embedded as \
+         validated Linux controls. The live Speakers / Headphones route chooses the matching \
+         variant; built-ins never change the selected output.",
+        &defaults_actions,
+    ));
+
+    let saved_actions = saved_profile_actions(window, card_index, status);
+    page.append(&ae5_control::gui::widgets::profile_card(
+        "02",
+        "Personal profiles",
+        "Profiles in the standard per-user library are available immediately after \
+         an app restart. Every apply still uses preview, validation, readback, and rollback.",
+        &saved_actions,
+    ));
 
     let native_actions = gtk::Box::new(gtk::Orientation::Horizontal, 10);
     let save = gtk::Button::with_label("Save current state");
@@ -195,22 +2940,41 @@ fn profile_page(
     let apply = gtk::Button::with_label("Preview & apply profile");
     native_actions.append(&save);
     native_actions.append(&apply);
-    page.append(&profile_card(
-        "01",
-        "Native profiles",
+    page.append(&ae5_control::gui::widgets::profile_card(
+        "03",
+        "Profile files",
         "Portable JSON uses semantic ALSA names. Applying validates every value, \
          verifies readback, and rolls back the targeted controls on failure.",
         &native_actions,
     ));
 
-    let import = gtk::Button::with_label("Import Windows profile");
+    let reset = gtk::Button::with_label("Preview & reset processing");
+    reset.add_css_class("destructive-action");
+    reset.set_tooltip_text(Some(
+        "Preserves routing, speaker layout, mixer volumes, mutes, and PipeWire settings.",
+    ));
+    let reset_actions = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+    reset_actions.append(&reset);
+    page.append(&ae5_control::gui::widgets::profile_card(
+        "04",
+        "Linux driver defaults",
+        "Restore the CA0132 processing values initialized by the Linux driver. \
+         A native backup is saved before the first mixer write; this is not claimed \
+         to reproduce Sound Blaster Command's undocumented factory reset.",
+        &reset_actions,
+    ));
+
+    let import_active = gtk::Button::with_label("Import active Windows setup");
+    import_active.add_css_class("suggested-action");
+    let import = gtk::Button::with_label("Choose profile & EQ files");
     let import_actions = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+    import_actions.append(&import_active);
     import_actions.append(&import);
-    page.append(&profile_card(
-        "02",
+    page.append(&ae5_control::gui::widgets::profile_card(
+        "05",
         "Sound Blaster Command",
-        "Choose the Creative profile and EQ JSON files, select headphones or \
-         speakers, inspect the mapped Linux controls, then save a native copy.",
+        "Choose a mounted Windows user folder to discover and import its active setup, \
+         or choose Creative profile and EQ files manually. Review every mapping before saving.",
         &import_actions,
     ));
 
@@ -222,7 +2986,9 @@ fn profile_page(
             let status = status.clone();
             gtk::glib::spawn_future_local(async move {
                 match save_current_profile(&window, card_index).await {
-                    Ok(Some(message)) => set_status(&status, true, &message),
+                    Ok(Some(message)) => {
+                        let _ = refresh_window(&window, Some(&message));
+                    }
                     Ok(None) => {}
                     Err(error) => set_status(&status, false, &format!("Save failed: {error}")),
                 }
@@ -249,12 +3015,48 @@ fn profile_page(
     {
         let window = window.clone();
         let status = status.clone();
+        reset.connect_clicked(move |_| {
+            let window = window.clone();
+            let status = status.clone();
+            gtk::glib::spawn_future_local(async move {
+                match reset_linux_driver_defaults(&window, card_index).await {
+                    Ok(Some(message)) => {
+                        let _ = refresh_window(&window, Some(&message));
+                    }
+                    Ok(None) => {}
+                    Err(error) => set_status(&status, false, &format!("Reset failed: {error}")),
+                }
+            });
+        });
+    }
+    {
+        let window = window.clone();
+        let status = status.clone();
+        import_active.connect_clicked(move |_| {
+            let window = window.clone();
+            let status = status.clone();
+            gtk::glib::spawn_future_local(async move {
+                match import_active_windows_profile(&window, card_index).await {
+                    Ok(Some(message)) => {
+                        let _ = refresh_window(&window, Some(&message));
+                    }
+                    Ok(None) => {}
+                    Err(error) => set_status(&status, false, &format!("Import failed: {error}")),
+                }
+            });
+        });
+    }
+    {
+        let window = window.clone();
+        let status = status.clone();
         import.connect_clicked(move |_| {
             let window = window.clone();
             let status = status.clone();
             gtk::glib::spawn_future_local(async move {
                 match import_windows_profile(&window, card_index).await {
-                    Ok(Some(message)) => set_status(&status, true, &message),
+                    Ok(Some(message)) => {
+                        let _ = refresh_window(&window, Some(&message));
+                    }
                     Ok(None) => {}
                     Err(error) => set_status(&status, false, &format!("Import failed: {error}")),
                 }
@@ -268,34 +3070,270 @@ fn profile_page(
         .build()
 }
 
-fn profile_card(index: &str, title: &str, description: &str, actions: &gtk::Box) -> gtk::Box {
-    let card = gtk::Box::new(gtk::Orientation::Vertical, 10);
-    card.add_css_class("profile-card");
+fn builtin_profile_actions(
+    window: &gtk::ApplicationWindow,
+    card_index: i32,
+    status: &gtk::Label,
+) -> gtk::Box {
+    let actions = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+    let Ok(profiles) = builtin_profiles() else {
+        let unavailable = gtk::Label::new(Some("The embedded profile catalog is unavailable."));
+        unavailable.add_css_class("warning-label");
+        actions.append(&unavailable);
+        return actions;
+    };
 
-    let heading = gtk::Box::new(gtk::Orientation::Horizontal, 12);
-    let index = gtk::Label::new(Some(index));
-    index.add_css_class("section-index");
-    let title = gtk::Label::new(Some(title));
-    title.set_xalign(0.0);
-    title.add_css_class("section-title");
-    heading.append(&index);
-    heading.append(&title);
-    card.append(&heading);
+    let names = profiles
+        .iter()
+        .map(|profile| profile.name.as_str())
+        .collect::<Vec<_>>();
+    let picker = gtk::DropDown::from_strings(&names);
+    picker.set_widget_name(BUILTIN_PROFILE_PICKER_NAME);
+    picker.set_hexpand(true);
+    picker.update_property(&[gtk::accessible::Property::Label(
+        "Built-in Sound Blaster Command profile",
+    )]);
+    let apply = gtk::Button::with_label("Preview & apply");
+    apply.add_css_class("suggested-action");
 
-    let description = gtk::Label::new(Some(description));
-    description.set_xalign(0.0);
-    description.set_wrap(true);
-    description.add_css_class("dim-label");
-    card.append(&description);
-    card.append(actions);
-    card
+    {
+        let picker = picker.clone();
+        let window = window.clone();
+        let status = status.clone();
+        apply.connect_clicked(move |_| {
+            let selected = picker.selected() as usize;
+            let Some(preset) = builtin_profiles()
+                .ok()
+                .and_then(|profiles| profiles.get(selected))
+                .cloned()
+            else {
+                set_status(
+                    &status,
+                    false,
+                    "The selected built-in profile is unavailable.",
+                );
+                return;
+            };
+            let window = window.clone();
+            let status = status.clone();
+            gtk::glib::spawn_future_local(async move {
+                match apply_builtin_profile(&window, card_index, &preset).await {
+                    Ok(Some(message)) => {
+                        let _ = refresh_window(&window, Some(&message));
+                    }
+                    Ok(None) => {}
+                    Err(error) => set_status(&status, false, &format!("Apply failed: {error}")),
+                }
+            });
+        });
+    }
+
+    actions.append(&picker);
+    actions.append(&apply);
+    actions
+}
+
+fn saved_profile_actions(
+    window: &gtk::ApplicationWindow,
+    card_index: i32,
+    status: &gtk::Label,
+) -> gtk::Box {
+    let actions = gtk::Box::new(gtk::Orientation::Vertical, 8);
+    match profile_library() {
+        Ok(library) => {
+            if library.profiles.is_empty() {
+                let empty = gtk::Label::new(Some(
+                    "No saved profiles yet. New and converted profiles start in this library.",
+                ));
+                empty.set_xalign(0.0);
+                empty.set_wrap(true);
+                empty.add_css_class("dim-label");
+                actions.append(&empty);
+            }
+            for entry in library.profiles {
+                let row = gtk::Box::new(gtk::Orientation::Vertical, 8);
+                row.add_css_class("profile-library-row");
+                let details = gtk::Box::new(gtk::Orientation::Vertical, 4);
+                details.set_hexpand(true);
+                let name = gtk::Entry::builder()
+                    .text(&entry.profile.name)
+                    .max_length(80)
+                    .hexpand(true)
+                    .build();
+                name.update_property(&[gtk::accessible::Property::Label(&format!(
+                    "Name for saved profile {}",
+                    entry.profile.name
+                ))]);
+                let file = gtk::Label::new(Some(&format!(
+                    "{} controls · {}",
+                    entry.profile.controls.len(),
+                    entry
+                        .path
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or("profile.json")
+                )));
+                file.set_xalign(0.0);
+                file.set_wrap(true);
+                file.add_css_class("dim-label");
+                details.append(&name);
+                details.append(&file);
+
+                let buttons = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+                buttons.set_halign(gtk::Align::End);
+                let apply = gtk::Button::with_label("Preview & apply");
+                apply.add_css_class("suggested-action");
+                let export = gtk::Button::with_label("Export copy");
+                let rename = gtk::Button::with_label("Rename");
+                let trash = gtk::Button::with_label("Move to Trash");
+                for (button, action) in [
+                    (&apply, "Preview and apply"),
+                    (&export, "Export a copy of"),
+                    (&rename, "Rename"),
+                    (&trash, "Move to Trash"),
+                ] {
+                    let accessible_label = format!("{action} “{}”", entry.profile.name);
+                    button.update_property(&[gtk::accessible::Property::Label(&accessible_label)]);
+                }
+                export.set_tooltip_text(Some(
+                    "Save a standalone copy without changing the library profile.",
+                ));
+                trash.add_css_class("destructive-action");
+                trash.set_tooltip_text(Some("The profile can be restored from the desktop Trash."));
+
+                {
+                    let path = entry.path.clone();
+                    let window = window.clone();
+                    let status = status.clone();
+                    apply.connect_clicked(move |_| {
+                        let path = path.clone();
+                        let window = window.clone();
+                        let status = status.clone();
+                        gtk::glib::spawn_future_local(async move {
+                            match apply_profile_path(&window, card_index, &path).await {
+                                Ok(Some(message)) => {
+                                    let _ = refresh_window(&window, Some(&message));
+                                }
+                                Ok(None) => {}
+                                Err(error) => {
+                                    set_status(&status, false, &format!("Apply failed: {error}"))
+                                }
+                            }
+                        });
+                    });
+                }
+
+                {
+                    let path = entry.path.clone();
+                    let window = window.clone();
+                    let status = status.clone();
+                    export.connect_clicked(move |_| {
+                        let path = path.clone();
+                        let window = window.clone();
+                        let status = status.clone();
+                        gtk::glib::spawn_future_local(async move {
+                            match export_saved_profile(&window, &path).await {
+                                Ok(Some(message)) => set_status(&status, true, &message),
+                                Ok(None) => {}
+                                Err(error) => {
+                                    set_status(&status, false, &format!("Export failed: {error}"))
+                                }
+                            }
+                        });
+                    });
+                }
+
+                {
+                    let path = entry.path.clone();
+                    let window = window.clone();
+                    let status = status.clone();
+                    let name = name.clone();
+                    rename.connect_clicked(move |_| {
+                        match rename_library_profile(&path, name.text().as_str()) {
+                            Ok(stored) => {
+                                let message =
+                                    format!("Renamed saved profile to “{}”.", stored.profile.name);
+                                let _ = refresh_window(&window, Some(&message));
+                            }
+                            Err(error) => {
+                                set_status(&status, false, &format!("Rename failed: {error}"))
+                            }
+                        }
+                    });
+                }
+                {
+                    let rename = rename.clone();
+                    name.connect_activate(move |_| rename.emit_clicked());
+                }
+                {
+                    let path = entry.path;
+                    let window = window.clone();
+                    let status = status.clone();
+                    trash.connect_clicked(move |_| {
+                        let path = path.clone();
+                        let window = window.clone();
+                        let status = status.clone();
+                        gtk::glib::spawn_future_local(async move {
+                            match trash_saved_profile(&window, &path).await {
+                                Ok(Some(message)) => {
+                                    let _ = refresh_window(&window, Some(&message));
+                                }
+                                Ok(None) => {}
+                                Err(error) => {
+                                    set_status(&status, false, &format!("Move failed: {error}"))
+                                }
+                            }
+                        });
+                    });
+                }
+
+                row.append(&details);
+                buttons.append(&apply);
+                buttons.append(&export);
+                buttons.append(&rename);
+                buttons.append(&trash);
+                row.append(&buttons);
+                actions.append(&row);
+            }
+            if !library.skipped.is_empty() {
+                let warning = gtk::Label::new(Some(&format!(
+                    "{} invalid JSON profile{} skipped. Open the library folder to inspect them.",
+                    library.skipped.len(),
+                    if library.skipped.len() == 1 {
+                        " was"
+                    } else {
+                        "s were"
+                    }
+                )));
+                warning.set_xalign(0.0);
+                warning.set_wrap(true);
+                warning.add_css_class("warning-label");
+                actions.append(&warning);
+            }
+            let location = gtk::Label::new(Some(&library.directory.display().to_string()));
+            location.set_xalign(0.0);
+            location.set_selectable(true);
+            location.set_wrap(true);
+            location.add_css_class("dim-label");
+            actions.append(&location);
+        }
+        Err(error) => {
+            let warning = gtk::Label::new(Some(&format!("Profile library unavailable: {error}")));
+            warning.set_xalign(0.0);
+            warning.set_wrap(true);
+            warning.add_css_class("warning-label");
+            actions.append(&warning);
+        }
+    }
+    actions
 }
 
 async fn save_current_profile(
     window: &gtk::ApplicationWindow,
     card_index: i32,
 ) -> Result<Option<String>, String> {
-    let Some(path) = save_json_path(window, "Save native AE-5 profile", "ae5-profile.json").await?
+    let Some(path) =
+        save_json_path(window, "Save native AE-5 profile", "ae5-profile.json", true).await?
     else {
         return Ok(None);
     };
@@ -318,25 +3356,132 @@ async fn apply_native_profile(
     window: &gtk::ApplicationWindow,
     card_index: i32,
 ) -> Result<Option<String>, String> {
-    let Some(path) = open_json_path(window, "Open native AE-5 profile").await? else {
+    let Some(path) = open_native_profile_path(window, "Open native AE-5 profile").await? else {
         return Ok(None);
     };
-    let profile = Profile::load(&path).map_err(|error| error.to_string())?;
-    let mixer = Ae5Mixer::open(card_index).map_err(|error| error.to_string())?;
-    profile
-        .check(&mixer, true)
+    apply_profile_path(window, card_index, &path).await
+}
+
+async fn apply_profile_path(
+    window: &gtk::ApplicationWindow,
+    card_index: i32,
+    path: &Path,
+) -> Result<Option<String>, String> {
+    let profile = Profile::load(path).map_err(|error| error.to_string())?;
+    ae5_control::gui::tracelog::trace(
+        "profile",
+        &format!(
+            "saved profile loaded: name={:?} controls={}",
+            profile.name,
+            profile.controls.len()
+        ),
+    );
+    apply_profile(window, card_index, profile).await
+}
+
+async fn apply_builtin_profile(
+    window: &gtk::ApplicationWindow,
+    card_index: i32,
+    preset: &BuiltinProfile,
+) -> Result<Option<String>, String> {
+    let controls = snapshot_controls(card_index).map_err(|error| error.to_string())?;
+    let selected = |name| {
+        controls
+            .iter()
+            .find(|control| control.name == name)
+            .and_then(|control| control.selected.as_deref())
+    };
+    let output = selected("Output Select")
+        .ok_or_else(|| "the live Speakers / Headphones route is unavailable".to_owned())?;
+    let layout = selected("Surround Channel Config");
+    ae5_control::gui::tracelog::trace(
+        "profile",
+        &format!(
+            "built-in requested: name={:?} output={output:?} layout={layout:?}",
+            preset.name
+        ),
+    );
+    let profile = preset
+        .profile_for(output, layout)
         .map_err(|error| error.to_string())?;
+    apply_profile(window, card_index, profile).await
+}
+
+async fn apply_profile(
+    window: &gtk::ApplicationWindow,
+    card_index: i32,
+    profile: Profile,
+) -> Result<Option<String>, String> {
+    ae5_control::gui::tracelog::trace(
+        "profile",
+        &format!(
+            "apply requested: name={:?} controls={}",
+            profile.name,
+            profile.controls.len()
+        ),
+    );
+    let mixer = Ae5Mixer::open(card_index).map_err(|error| error.to_string())?;
+    if let Err(error) = profile.check(&mixer, true) {
+        ae5_control::gui::tracelog::trace(
+            "profile",
+            &format!("preflight FAILED: name={:?} error={error}", profile.name),
+        );
+        return Err(error.to_string());
+    }
 
     let high_gain = profile_requires_high_gain(&profile);
     if !confirm_profile(window, &profile, high_gain, "Apply profile").await? {
+        ae5_control::gui::tracelog::trace(
+            "profile",
+            &format!("apply cancelled: name={:?}", profile.name),
+        );
         return Ok(None);
     }
-    let report = profile
-        .apply(&mixer, high_gain)
-        .map_err(|error| error.to_string())?;
+    let report = match profile.apply(&mixer, high_gain) {
+        Ok(report) => report,
+        Err(error) => {
+            ae5_control::gui::tracelog::trace(
+                "profile",
+                &format!("apply FAILED: name={:?} error={error}", profile.name),
+            );
+            return Err(error.to_string());
+        }
+    };
+    ae5_control::gui::tracelog::trace(
+        "profile",
+        &format!(
+            "apply verified: name={:?} applied={} skipped={}",
+            profile.name, report.controls_applied, report.controls_skipped
+        ),
+    );
     Ok(Some(format!(
-        "Applied “{}”; {} controls were verified against the hardware.",
-        profile.name, report.controls_applied
+        "Applied “{}”; {} safe controls were verified against the hardware. {} unsafe playback \
+         controls remain saved and were not written to CA0132.",
+        profile.name, report.controls_applied, report.controls_skipped
+    )))
+}
+
+async fn reset_linux_driver_defaults(
+    window: &gtk::ApplicationWindow,
+    card_index: i32,
+) -> Result<Option<String>, String> {
+    let mixer = Ae5Mixer::open(card_index).map_err(|error| error.to_string())?;
+    let defaults = validate_linux_driver_defaults(&mixer).map_err(|error| error.to_string())?;
+    let library = profile_library_directory().map_err(|error| error.to_string())?;
+
+    if !confirm_linux_driver_defaults(window, &defaults, &library).await? {
+        return Ok(None);
+    }
+
+    std::fs::create_dir_all(&library).map_err(|error| error.to_string())?;
+    let backup = linux_driver_defaults_backup_path(&library)?;
+    let report = apply_linux_driver_defaults(&mixer, &backup).map_err(|error| error.to_string())?;
+    Ok(Some(format!(
+        "Restored {} safe Linux-driver controls; {} unsafe hardware playback controls were \
+         skipped. Previous valid state saved as {}.",
+        report.controls_applied,
+        report.controls_skipped,
+        backup.display()
     )))
 }
 
@@ -358,13 +3503,49 @@ async fn import_windows_profile(
     };
     let initial_name = format!("windows-{}.json", target);
     let Some(output) =
-        save_json_path(window, "Save converted native profile", &initial_name).await?
+        save_json_path(window, "Save converted native profile", &initial_name, true).await?
     else {
         return Ok(None);
     };
     let name = profile_name_from_path(&output)?;
     let import = import_sbcommand_profile_with_report(&name, &profile_path, &eq_path, target)
         .map_err(|error| error.to_string())?;
+    validate_confirm_save_import(window, card_index, import, target, output).await
+}
+
+async fn import_active_windows_profile(
+    window: &gtk::ApplicationWindow,
+    card_index: i32,
+) -> Result<Option<String>, String> {
+    let Some(windows_user) =
+        select_folder_path(window, "Choose the mounted Windows user folder").await?
+    else {
+        return Ok(None);
+    };
+    let installation =
+        discover_sbcommand_installation(&windows_user).map_err(|error| error.to_string())?;
+    let Some(target) = choose_import_target(window).await? else {
+        return Ok(None);
+    };
+    let initial_name = format!("windows-active-{}.json", target);
+    let Some(output) =
+        save_json_path(window, "Save converted native profile", &initial_name, true).await?
+    else {
+        return Ok(None);
+    };
+    let name = profile_name_from_path(&output)?;
+    let import = import_discovered_sbcommand_profile_with_report(&name, &installation, target)
+        .map_err(|error| error.to_string())?;
+    validate_confirm_save_import(window, card_index, import, target, output).await
+}
+
+async fn validate_confirm_save_import(
+    window: &gtk::ApplicationWindow,
+    card_index: i32,
+    import: SbCommandImport,
+    target: SbCommandTarget,
+    output: PathBuf,
+) -> Result<Option<String>, String> {
     import
         .profile
         .check(
@@ -410,6 +3591,56 @@ async fn choose_import_target(
     }
 }
 
+async fn trash_saved_profile(
+    window: &gtk::ApplicationWindow,
+    path: &Path,
+) -> Result<Option<String>, String> {
+    let stored = library_profile(path).map_err(|error| error.to_string())?;
+    let dialog = gtk::AlertDialog::builder()
+        .modal(true)
+        .message(format!("Move “{}” to Trash?", stored.profile.name))
+        .detail("This removes the profile from AE-5 Control. You can restore it from the desktop Trash.")
+        .buttons(["Cancel", "Move to Trash"])
+        .cancel_button(0)
+        .default_button(0)
+        .build();
+    match dialog.choose_future(Some(window)).await {
+        Ok(1) => {}
+        Ok(_) => return Ok(None),
+        Err(error) if is_cancelled(&error) => return Ok(None),
+        Err(error) => return Err(error.to_string()),
+    }
+
+    gio::File::for_path(&stored.path)
+        .trash_future(gtk::glib::Priority::DEFAULT)
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(Some(format!("Moved “{}” to Trash.", stored.profile.name)))
+}
+
+async fn export_saved_profile(
+    window: &gtk::ApplicationWindow,
+    path: &Path,
+) -> Result<Option<String>, String> {
+    let stored = library_profile(path).map_err(|error| error.to_string())?;
+    let initial_name = stored
+        .path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("ae5-profile.json");
+    let Some(destination) =
+        save_json_path(window, "Export native AE-5 profile", initial_name, false).await?
+    else {
+        return Ok(None);
+    };
+    export_library_profile(&stored.path, &destination).map_err(|error| error.to_string())?;
+    Ok(Some(format!(
+        "Exported “{}” to {}.",
+        stored.profile.name,
+        destination.display()
+    )))
+}
+
 async fn confirm_profile(
     window: &gtk::ApplicationWindow,
     profile: &Profile,
@@ -440,6 +3671,49 @@ async fn confirm_profile(
         Err(error) if is_cancelled(&error) => Ok(false),
         Err(error) => Err(error.to_string()),
     }
+}
+
+async fn confirm_linux_driver_defaults(
+    window: &gtk::ApplicationWindow,
+    profile: &Profile,
+    backup_directory: &Path,
+) -> Result<bool, String> {
+    let dialog = gtk::AlertDialog::builder()
+        .modal(true)
+        .message("Reset to AE-5 Linux driver defaults?")
+        .detail(linux_driver_defaults_preview(profile, backup_directory))
+        .buttons(["Cancel", "Save backup & reset"])
+        .cancel_button(0)
+        .default_button(0)
+        .build();
+    match dialog.choose_future(Some(window)).await {
+        Ok(1) => Ok(true),
+        Ok(_) => Ok(false),
+        Err(error) if is_cancelled(&error) => Ok(false),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+fn linux_driver_defaults_preview(profile: &Profile, backup_directory: &Path) -> String {
+    let preserved = LINUX_DRIVER_DEFAULTS_PRESERVED
+        .iter()
+        .map(|item| format!("• {item}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!(
+        "{}\n\nPreserved:\n{}\n\nBefore the first write, a restorable native profile will be saved in {}.",
+        profile_preview(profile),
+        preserved,
+        backup_directory.display()
+    )
+}
+
+fn linux_driver_defaults_backup_path(directory: &Path) -> Result<PathBuf, String> {
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| error.to_string())?
+        .as_millis();
+    Ok(directory.join(format!("before-linux-driver-defaults-{timestamp}.json")))
 }
 
 async fn confirm_import(
@@ -523,12 +3797,47 @@ async fn open_json_path(
     }
 }
 
+async fn open_native_profile_path(
+    window: &gtk::ApplicationWindow,
+    title: &str,
+) -> Result<Option<PathBuf>, String> {
+    let dialog = json_dialog(title);
+    set_initial_profile_folder(&dialog)?;
+    match dialog.open_future(Some(window)).await {
+        Ok(file) => file
+            .path()
+            .map(Some)
+            .ok_or_else(|| "only local files are supported".to_owned()),
+        Err(error) if is_cancelled(&error) => Ok(None),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+async fn select_folder_path(
+    window: &gtk::ApplicationWindow,
+    title: &str,
+) -> Result<Option<PathBuf>, String> {
+    let dialog = gtk::FileDialog::builder().title(title).modal(true).build();
+    match dialog.select_folder_future(Some(window)).await {
+        Ok(folder) => folder
+            .path()
+            .map(Some)
+            .ok_or_else(|| "only local folders are supported".to_owned()),
+        Err(error) if is_cancelled(&error) => Ok(None),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
 async fn save_json_path(
     window: &gtk::ApplicationWindow,
     title: &str,
     initial_name: &str,
+    start_in_library: bool,
 ) -> Result<Option<PathBuf>, String> {
     let dialog = json_dialog(title);
+    if start_in_library {
+        set_initial_profile_folder(&dialog)?;
+    }
     dialog.set_initial_name(Some(initial_name));
     match dialog.save_future(Some(window)).await {
         Ok(file) => file
@@ -540,8 +3849,16 @@ async fn save_json_path(
     }
 }
 
+fn set_initial_profile_folder(dialog: &gtk::FileDialog) -> Result<(), String> {
+    let directory = profile_library_directory().map_err(|error| error.to_string())?;
+    std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
+    dialog.set_initial_folder(Some(&gio::File::for_path(directory)));
+    Ok(())
+}
+
 fn is_cancelled(error: &gtk::glib::Error) -> bool {
     error.matches(gio::IOErrorEnum::Cancelled)
+        || error.message().eq_ignore_ascii_case("Dismissed by user")
 }
 
 fn profile_name_from_path(path: &Path) -> Result<String, String> {
@@ -624,402 +3941,11 @@ fn format_profile_channels(channels: &std::collections::BTreeMap<String, i64>) -
         .join(", ")
 }
 
-fn control_page<'a>(
-    card_index: i32,
-    status: &gtk::Label,
-    controls: impl Iterator<Item = &'a ControlSnapshot>,
-) -> gtk::ScrolledWindow {
-    let list = gtk::ListBox::new();
-    list.set_selection_mode(gtk::SelectionMode::None);
-    list.add_css_class("control-list");
-    for control in controls {
-        list.append(&control_row(card_index, status, control));
-    }
-
-    let page = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    page.set_margin_top(20);
-    page.set_margin_bottom(20);
-    page.set_margin_start(24);
-    page.set_margin_end(24);
-    page.append(&list);
-
-    gtk::ScrolledWindow::builder()
-        .hscrollbar_policy(gtk::PolicyType::Never)
-        .child(&page)
-        .build()
-}
-
-fn control_row(card_index: i32, status: &gtk::Label, control: &ControlSnapshot) -> gtk::ListBoxRow {
-    let row = gtk::Box::new(gtk::Orientation::Horizontal, 24);
-    row.add_css_class("control-row");
-
-    let name = gtk::Label::new(Some(&control.name));
-    name.set_xalign(0.0);
-    name.set_hexpand(true);
-    name.set_wrap(true);
-    row.append(&name);
-
-    let editors = gtk::Box::new(gtk::Orientation::Horizontal, 12);
-    editors.set_halign(gtk::Align::End);
-    let high_gain_permission = if control.name == "AE-5: Headphone Gain" {
-        let permission = gtk::CheckButton::with_label("Allow 150–600 Ω");
-        permission.set_tooltip_text(Some(
-            "Enable only when high-impedance headphones are connected.",
-        ));
-        editors.append(&permission);
-        Some(permission)
-    } else {
-        None
-    };
-    if control.selected.is_some() {
-        editors.append(&choice_editor(
-            card_index,
-            status,
-            control,
-            high_gain_permission,
-        ));
-    }
-    if let Some(enabled) = control.playback_switch {
-        editors.append(&labelled(
-            "Playback",
-            &switch_editor(card_index, status, &control.name, enabled, false),
-        ));
-    }
-    if let Some(level) = &control.playback_level {
-        editors.append(&level_editors(
-            card_index,
-            status,
-            &control.name,
-            level,
-            &control.playback_channels,
-            false,
-        ));
-    }
-    if let Some(enabled) = control.capture_switch {
-        editors.append(&labelled(
-            "Capture",
-            &switch_editor(card_index, status, &control.name, enabled, true),
-        ));
-    }
-    if let Some(level) = &control.capture_level {
-        editors.append(&level_editors(
-            card_index,
-            status,
-            &control.name,
-            level,
-            &control.capture_channels,
-            true,
-        ));
-    }
-    row.append(&editors);
-
-    gtk::ListBoxRow::builder()
-        .activatable(false)
-        .selectable(false)
-        .child(&row)
-        .build()
-}
-
-fn choice_editor(
-    card_index: i32,
-    status: &gtk::Label,
-    control: &ControlSnapshot,
-    high_gain_permission: Option<gtk::CheckButton>,
-) -> gtk::DropDown {
-    let choices = control
-        .choices
-        .iter()
-        .map(String::as_str)
-        .collect::<Vec<_>>();
-    let dropdown = gtk::DropDown::from_strings(&choices);
-    dropdown.update_property(&[gtk::accessible::Property::Label(&format!(
-        "{} choice",
-        control.name
-    ))]);
-    let selected = control
-        .selected
-        .as_ref()
-        .and_then(|selected| control.choices.iter().position(|choice| choice == selected))
-        .unwrap_or_default() as u32;
-    dropdown.set_selected(selected);
-    dropdown.set_tooltip_text(Some("Changes are written and read back immediately."));
-
-    let verified = Rc::new(Cell::new(selected));
-    let updating = Rc::new(Cell::new(false));
-    let name = control.name.clone();
-    let choices = control.choices.clone();
-    let status = status.clone();
-    dropdown.connect_selected_notify(move |dropdown| {
-        if updating.get() {
-            return;
-        }
-        let requested_index = dropdown.selected();
-        let Some(requested) = choices.get(requested_index as usize) else {
-            return;
-        };
-        let allow_high_gain = high_gain_permission
-            .as_ref()
-            .is_some_and(gtk::CheckButton::is_active);
-        if is_high_gain(&name, requested) && !allow_high_gain {
-            revert_dropdown(dropdown, &updating, verified.get());
-            set_status(
-                &status,
-                false,
-                "High gain was not applied. Enable “Allow 150–600 Ω” first.",
-            );
-            return;
-        }
-
-        match with_mixer(card_index, |mixer| {
-            mixer.set_choice_checked(&name, requested, allow_high_gain)
-        }) {
-            Ok(actual) => {
-                verified.set(requested_index);
-                set_status(
-                    &status,
-                    true,
-                    &format!("Applied and verified: {}", control_summary(&actual)),
-                );
-            }
-            Err(error) => {
-                revert_dropdown(dropdown, &updating, verified.get());
-                set_status(&status, false, &format!("Change failed: {error}"));
-            }
-        }
-    });
-    dropdown
-}
-
-fn switch_editor(
-    card_index: i32,
-    status: &gtk::Label,
-    name: &str,
-    enabled: bool,
-    capture: bool,
-) -> gtk::Switch {
-    let control = gtk::Switch::builder()
-        .active(enabled)
-        .valign(gtk::Align::Center)
-        .build();
-    control.update_property(&[gtk::accessible::Property::Label(&format!(
-        "{} {} switch",
-        name,
-        if capture { "capture" } else { "playback" }
-    ))]);
-    let verified = Rc::new(Cell::new(enabled));
-    let updating = Rc::new(Cell::new(false));
-    let name = name.to_owned();
-    let status = status.clone();
-    control.connect_active_notify(move |control| {
-        if updating.get() {
-            return;
-        }
-        let requested = control.is_active();
-        let result = with_mixer(card_index, |mixer| {
-            if capture {
-                mixer.set_capture_switch(&name, requested)
-            } else {
-                mixer.set_playback_switch(&name, requested)
-            }
-        });
-        match result {
-            Ok(actual) => {
-                verified.set(requested);
-                set_status(
-                    &status,
-                    true,
-                    &format!("Applied and verified: {}", control_summary(&actual)),
-                );
-            }
-            Err(error) => {
-                updating.set(true);
-                control.set_active(verified.get());
-                updating.set(false);
-                set_status(&status, false, &format!("Change failed: {error}"));
-            }
-        }
-    });
-    control
-}
-
-fn level_editors(
-    card_index: i32,
-    status: &gtk::Label,
-    name: &str,
-    level: &Level,
-    channels: &[ChannelLevel],
-    capture: bool,
-) -> gtk::Widget {
-    if channels.len() < 2 {
-        return level_editor(card_index, status, name, level, capture, None);
-    }
-
-    let group = gtk::Box::new(gtk::Orientation::Vertical, 6);
-    for channel in channels {
-        let channel_level = Level {
-            value: channel.value,
-            min: level.min,
-            max: level.max,
-        };
-        let editor = level_editor(
-            card_index,
-            status,
-            name,
-            &channel_level,
-            capture,
-            Some(&channel.name),
-        );
-        group.append(&labelled(
-            &format!(
-                "{} · {}",
-                if capture { "Capture" } else { "Playback" },
-                channel.name
-            ),
-            &editor,
-        ));
-    }
-    group.upcast()
-}
-
-fn level_editor(
-    card_index: i32,
-    status: &gtk::Label,
-    name: &str,
-    level: &Level,
-    capture: bool,
-    channel: Option<&str>,
-) -> gtk::Widget {
-    if !(level.min..=level.max).contains(&level.value) {
-        let warning = gtk::Label::new(Some(&format!(
-            "{} (driver reports {}..{})",
-            level.value, level.min, level.max
-        )));
-        warning.add_css_class("warning-value");
-        warning.set_tooltip_text(Some(
-            "The driver returned an out-of-range value; editing is disabled.",
-        ));
-        return warning.upcast();
-    }
-
-    let scale = gtk::Scale::with_range(
-        gtk::Orientation::Horizontal,
-        level.min as f64,
-        level.max as f64,
-        1.0,
-    );
-    scale.set_value(level.value as f64);
-    scale.set_digits(0);
-    scale.set_draw_value(true);
-    scale.set_width_request(210);
-    let accessible_label = match channel {
-        Some(channel) => format!(
-            "{} {} {} level",
-            name,
-            if capture { "capture" } else { "playback" },
-            channel
-        ),
-        None => format!(
-            "{} {} level",
-            name,
-            if capture { "capture" } else { "playback" }
-        ),
-    };
-    scale.update_property(&[gtk::accessible::Property::Label(&accessible_label)]);
-
-    let verified = Rc::new(Cell::new(level.value));
-    let updating = Rc::new(Cell::new(false));
-    let pending = Rc::new(RefCell::new(None::<gtk::glib::SourceId>));
-    let name = name.to_owned();
-    let channel = channel.map(str::to_owned);
-    let status = status.clone();
-    scale.connect_value_changed(move |scale| {
-        if updating.get() {
-            return;
-        }
-        if let Some(source) = pending.borrow_mut().take() {
-            source.remove();
-        }
-        let requested = scale.value().round() as i64;
-        let scale = scale.clone();
-        let verified = verified.clone();
-        let updating = updating.clone();
-        let pending_for_timeout = pending.clone();
-        let name = name.clone();
-        let channel = channel.clone();
-        let status = status.clone();
-        let source = gtk::glib::timeout_add_local_once(Duration::from_millis(160), move || {
-            pending_for_timeout.borrow_mut().take();
-            let result = with_mixer(card_index, |mixer| match (capture, channel.as_deref()) {
-                (true, Some(channel)) => mixer.set_capture_channel_level(&name, channel, requested),
-                (false, Some(channel)) => {
-                    mixer.set_playback_channel_level(&name, channel, requested)
-                }
-                (true, None) => mixer.set_capture_level(&name, requested),
-                (false, None) => mixer.set_playback_level(&name, requested),
-            });
-            match result {
-                Ok(actual) => {
-                    verified.set(requested);
-                    set_status(
-                        &status,
-                        true,
-                        &format!("Applied and verified: {}", control_summary(&actual)),
-                    );
-                }
-                Err(error) => {
-                    updating.set(true);
-                    scale.set_value(verified.get() as f64);
-                    updating.set(false);
-                    set_status(&status, false, &format!("Change failed: {error}"));
-                }
-            }
-        });
-        *pending.borrow_mut() = Some(source);
-    });
-    scale.upcast()
-}
-
-fn labelled(label: &str, widget: &impl IsA<gtk::Widget>) -> gtk::Box {
-    let group = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-    let label = gtk::Label::new(Some(label));
-    label.add_css_class("dim-label");
-    group.append(&label);
-    group.append(widget);
-    group
-}
-
-fn with_mixer<T>(
-    card_index: i32,
-    operation: impl FnOnce(&Ae5Mixer) -> Result<T, ControlError>,
-) -> Result<T, String> {
-    let mixer = Ae5Mixer::open(card_index).map_err(|error| error.to_string())?;
-    operation(&mixer).map_err(|error| error.to_string())
-}
-
-fn is_high_gain(name: &str, requested: &str) -> bool {
-    name == "AE-5: Headphone Gain" && requested.to_ascii_lowercase().starts_with("high")
-}
-
-fn revert_dropdown(dropdown: &gtk::DropDown, updating: &Cell<bool>, selected: u32) {
-    updating.set(true);
-    dropdown.set_selected(selected);
-    updating.set(false);
-}
-
-fn control_summary(control: &ControlSnapshot) -> String {
-    control.to_string()
-}
-
-fn set_status(status: &gtk::Label, success: bool, message: &str) {
-    status.remove_css_class("operation-ok");
-    status.remove_css_class("operation-error");
-    status.add_css_class(if success {
-        "operation-ok"
-    } else {
-        "operation-error"
-    });
-    status.set_text(message);
-}
+/// How long to wait for the mixer to go quiet before rebuilding the window.
+const REFRESH_SETTLE_TICK: Duration = Duration::from_millis(120);
+/// How many consecutive quiet ticks count as settled. 120 ms x 3 keeps the
+/// window responsive while absorbing the burst a route change produces.
+const REFRESH_SETTLE_TICKS: u32 = 3;
 
 fn start_mixer_watch(window: &gtk::ApplicationWindow, card_index: i32) -> Result<(), String> {
     let mixer = Ae5Mixer::open(card_index).map_err(|error| error.to_string())?;
@@ -1038,15 +3964,49 @@ fn start_mixer_watch(window: &gtk::ApplicationWindow, card_index: i32) -> Result
             while running.load(Ordering::Acquire) {
                 match mixer.wait_for_event(Duration::from_millis(500)) {
                     Ok(false) => {}
+                    // Our own writes echo back as ALSA events. Rebuilding for
+                    // them meant every click and every step of a slider drag
+                    // repainted the whole window — the "blink" — and a route
+                    // switch raced its own rebuild. The editors already show
+                    // verified readback for our writes, so only changes made
+                    // by someone else warrant a rebuild.
+                    Ok(true) if ae5_control::gui::tracelog::self_event_age_ms().is_some() => {
+                        if let Some(age) = ae5_control::gui::tracelog::self_event_age_ms() {
+                            ae5_control::gui::tracelog::trace(
+                                "watch",
+                                &format!("self-originated event suppressed ({age} ms after write)"),
+                            );
+                        }
+                    }
                     Ok(true) if !refresh_queued.swap(true, Ordering::AcqRel) => {
+                        ae5_control::gui::tracelog::trace(
+                            "watch",
+                            "external mixer event -> settling before refresh",
+                        );
+                        // Coalesce. A route change, a WirePlumber restore or
+                        // another application walking the mixer emits a burst
+                        // of events, and rebuilding per event replaced the
+                        // whole window roughly once a second — which reads as
+                        // the application hanging, because every widget the
+                        // user reaches for is destroyed under the pointer.
+                        // Drain the burst first, then rebuild once.
+                        let mut settled = 0u32;
+                        while settled < REFRESH_SETTLE_TICKS && running.load(Ordering::Acquire) {
+                            match mixer.wait_for_event(REFRESH_SETTLE_TICK) {
+                                Ok(true) => settled = 0,
+                                Ok(false) => settled += 1,
+                                Err(_) => break,
+                            }
+                        }
                         let refresh_queued = refresh_queued.clone();
                         gtk::glib::MainContext::default().invoke(move || {
                             refresh_queued.store(false, Ordering::Release);
+                            ae5_control::gui::tracelog::trace(
+                                "watch",
+                                "burst settled -> rebuilding window once",
+                            );
                             if let Some(window) = active_main_window() {
-                                let _ = refresh_window(
-                                    &window,
-                                    Some("Synchronized after an ALSA mixer event."),
-                                );
+                                let _ = refresh_window(&window, None);
                             }
                         });
                     }
@@ -1086,13 +4046,138 @@ fn main_stack(window: &gtk::ApplicationWindow) -> Option<gtk::Stack> {
     .ok()
 }
 
-fn set_main_status(window: &gtk::ApplicationWindow, success: bool, message: &str) {
-    if let Some(status) = find_widget(
+fn capture_refresh_view_state(window: &gtk::ApplicationWindow) -> RefreshViewState {
+    RefreshViewState {
+        visible_page: main_stack(window)
+            .and_then(|stack| stack.visible_child_name())
+            .map(|name| name.to_string()),
+        builtin_profile: named_widget(window, BUILTIN_PROFILE_PICKER_NAME)
+            .and_then(|widget| widget.downcast::<gtk::DropDown>().ok())
+            .map(|picker| picker.selected()),
+        personal_profile_scroll: horizontal_scroll_value(window, PERSONAL_PROFILE_CAROUSEL_NAME),
+        builtin_profile_scroll: horizontal_scroll_value(window, BUILTIN_PROFILE_CAROUSEL_NAME),
+        page_scroll: visible_page_scroll(window),
+        operation_status: current_operation_status(window),
+    }
+}
+
+/// The vertical scroll offset of the page the user is currently looking at.
+fn visible_page_scroll(window: &gtk::ApplicationWindow) -> Option<f64> {
+    visible_page_scroller(window).map(|scroll| scroll.vadjustment().value())
+}
+
+/// The scroller belonging to the visible stack page.
+///
+/// Pages are built either as a `ScrolledWindow` or as a box containing one, so
+/// search the visible child rather than assuming a shape.
+fn visible_page_scroller(window: &gtk::ApplicationWindow) -> Option<gtk::ScrolledWindow> {
+    let visible = main_stack(window)?.visible_child()?;
+    if let Ok(scroll) = visible.clone().downcast::<gtk::ScrolledWindow>() {
+        return Some(scroll);
+    }
+    find_widget(visible, |widget| {
+        widget.downcast_ref::<gtk::ScrolledWindow>().is_some()
+            && !widget.has_css_class("profile-carousel")
+    })?
+    .downcast()
+    .ok()
+}
+
+fn restore_refresh_view_state(window: &gtk::ApplicationWindow, state: &RefreshViewState) {
+    if let Some(selected) = state.builtin_profile
+        && let Some(picker) = named_widget(window, BUILTIN_PROFILE_PICKER_NAME)
+            .and_then(|widget| widget.downcast::<gtk::DropDown>().ok())
+        && picker
+            .model()
+            .is_some_and(|model| selected < model.n_items())
+    {
+        picker.set_selected(selected);
+    }
+    for (name, value) in [
+        (
+            PERSONAL_PROFILE_CAROUSEL_NAME,
+            state.personal_profile_scroll,
+        ),
+        (BUILTIN_PROFILE_CAROUSEL_NAME, state.builtin_profile_scroll),
+    ] {
+        let Some(value) = value else {
+            continue;
+        };
+        let Some(scroll) = named_widget(window, name)
+            .and_then(|widget| widget.downcast::<gtk::ScrolledWindow>().ok())
+        else {
+            continue;
+        };
+        let adjustment = scroll.hadjustment();
+        gtk::glib::idle_add_local_once(move || {
+            let lower = adjustment.lower();
+            let upper = (adjustment.upper() - adjustment.page_size()).max(lower);
+            adjustment.set_value(value.clamp(lower, upper));
+        });
+    }
+
+    // Restore the reader's place the moment the rebuilt page learns its own
+    // extent. Restoring on idle painted one frame at the top first and then
+    // jumped, which read as flicker on every single edit; the adjustment's
+    // changed signal fires during allocation, before that frame is drawn.
+    if let Some(value) = state.page_scroll
+        && let Some(scroll) = visible_page_scroller(window)
+    {
+        let adjustment = scroll.vadjustment();
+        let pending: Rc<RefCell<Option<gtk::glib::SignalHandlerId>>> = Rc::new(RefCell::new(None));
+        let handler = {
+            let pending = pending.clone();
+            adjustment.connect_changed(move |adjustment| {
+                let lower = adjustment.lower();
+                let upper = (adjustment.upper() - adjustment.page_size()).max(lower);
+                if upper <= lower {
+                    return;
+                }
+                adjustment.set_value(value.clamp(lower, upper));
+                if let Some(handler) = pending.borrow_mut().take() {
+                    adjustment.disconnect(handler);
+                }
+            })
+        };
+        *pending.borrow_mut() = Some(handler);
+    }
+}
+
+fn horizontal_scroll_value(window: &gtk::ApplicationWindow, name: &str) -> Option<f64> {
+    named_widget(window, name)
+        .and_then(|widget| widget.downcast::<gtk::ScrolledWindow>().ok())
+        .map(|scroll| scroll.hadjustment().value())
+}
+
+fn current_operation_status(window: &gtk::ApplicationWindow) -> Option<OperationStatus> {
+    let status = operation_status_label(window)?;
+    let success = if status.has_css_class("operation-ok") {
+        true
+    } else if status.has_css_class("operation-error") {
+        false
+    } else {
+        return None;
+    };
+    Some(OperationStatus {
+        success,
+        message: status.text().to_string(),
+    })
+}
+
+fn named_widget(window: &gtk::ApplicationWindow, name: &str) -> Option<gtk::Widget> {
+    find_widget(window.child()?, |widget| widget.widget_name() == name)
+}
+
+fn operation_status_label(window: &gtk::ApplicationWindow) -> Option<gtk::Label> {
+    find_widget(
         window.child().unwrap_or_else(|| window.clone().upcast()),
         |widget| widget.has_css_class("operation-status"),
     )
     .and_then(|widget| widget.downcast::<gtk::Label>().ok())
-    {
+}
+
+fn set_main_status(window: &gtk::ApplicationWindow, success: bool, message: &str) {
+    if let Some(status) = operation_status_label(window) {
         set_status(&status, success, message);
     }
 }
@@ -1112,145 +4197,70 @@ fn find_widget(root: gtk::Widget, predicate: impl Fn(&gtk::Widget) -> bool) -> O
     None
 }
 
-fn error_view(message: &str) -> gtk::Box {
-    let view = gtk::Box::new(gtk::Orientation::Vertical, 12);
+fn error_view(window: &gtk::ApplicationWindow, message: &str) -> gtk::Box {
+    let view = gtk::Box::new(gtk::Orientation::Vertical, 0);
     view.set_valign(gtk::Align::Center);
     view.set_halign(gtk::Align::Center);
     view.set_margin_start(32);
     view.set_margin_end(32);
+    view.add_css_class("error-view");
+
+    let card = gtk::Box::new(gtk::Orientation::Vertical, 12);
+    card.set_size_request(520, -1);
+    card.add_css_class("unavailable-card");
+
+    let icon = gtk::Image::from_icon_name("audio-card-symbolic");
+    icon.set_pixel_size(42);
+    icon.set_halign(gtk::Align::Start);
+    icon.add_css_class("offline-icon");
+
+    let kicker = gtk::Label::new(Some("HARDWARE STATUS  //  OFFLINE"));
+    kicker.set_xalign(0.0);
+    kicker.add_css_class("error-kicker");
 
     let title = gtk::Label::new(Some("AE-5 unavailable"));
+    title.set_xalign(0.0);
     title.add_css_class("hero-title");
     let detail = gtk::Label::new(Some(message));
+    detail.set_xalign(0.0);
     detail.set_wrap(true);
+    detail.set_max_width_chars(64);
     detail.add_css_class("dim-label");
-    view.append(&title);
-    view.append(&detail);
+
+    let hint = gtk::Label::new(Some(
+        "Make sure the card is bound to snd_hda_intel and is not assigned to a virtual machine, then retry detection.",
+    ));
+    hint.set_xalign(0.0);
+    hint.set_wrap(true);
+    hint.set_max_width_chars(64);
+    hint.add_css_class("error-hint");
+
+    let retry = gtk::Button::with_label("Retry detection");
+    retry.set_halign(gtk::Align::Start);
+    retry.add_css_class("error-action");
+    {
+        let window = window.clone();
+        retry.connect_clicked(move |_| {
+            if let Some(card_index) = refresh_window(&window, Some("Hardware connection restored."))
+                && let Err(error) = start_mixer_watch(&window, card_index)
+            {
+                set_main_status(
+                    &window,
+                    false,
+                    &format!("Live synchronization failed: {error}"),
+                );
+            }
+        });
+    }
+
+    card.append(&icon);
+    card.append(&kicker);
+    card.append(&title);
+    card.append(&detail);
+    card.append(&hint);
+    card.append(&retry);
+    view.append(&card);
     view
-}
-
-#[derive(Copy, Clone)]
-enum Category {
-    Playback,
-    Effects,
-    Equalizer,
-    Recording,
-}
-
-impl Category {
-    const ALL: [Self; 4] = [
-        Self::Playback,
-        Self::Effects,
-        Self::Equalizer,
-        Self::Recording,
-    ];
-
-    fn id(self) -> &'static str {
-        match self {
-            Self::Playback => "playback",
-            Self::Effects => "effects",
-            Self::Equalizer => "equalizer",
-            Self::Recording => "recording",
-        }
-    }
-
-    fn title(self) -> &'static str {
-        match self {
-            Self::Playback => "Playback",
-            Self::Effects => "Sound effects",
-            Self::Equalizer => "Equalizer",
-            Self::Recording => "Recording",
-        }
-    }
-
-    fn matches(self, name: &str) -> bool {
-        match self {
-            Self::Equalizer => name.starts_with("EQ Band") || name == "FX: Equalizer Preset",
-            Self::Recording => {
-                name.contains("Capture")
-                    || name.starts_with("Input")
-                    || name.starts_with("Mic ")
-                    || name.starts_with("SVM ")
-                    || name.starts_with("Voice")
-                    || name.starts_with("Wedge")
-                    || name == "Enable InFX"
-                    || name.starts_with("FX: Mic")
-                    || name.starts_with("FX: Noise")
-                    || name.starts_with("FX: Voice")
-                    || name == "What U Hear"
-            }
-            Self::Effects => {
-                !Self::Recording.matches(name)
-                    && (name == "Enable OutFX"
-                        || (name.starts_with("FX:") && name != "FX: Equalizer Preset"))
-            }
-            Self::Playback => {
-                !Self::Effects.matches(name)
-                    && !Self::Equalizer.matches(name)
-                    && !Self::Recording.matches(name)
-            }
-        }
-    }
-}
-
-fn install_css() {
-    let Some(display) = Display::default() else {
-        return;
-    };
-    let provider = gtk::CssProvider::new();
-    provider.load_from_data(
-        "
-        window { background: #11161c; color: #e9eef5; }
-        .hero { padding: 28px 30px; background: #18212b; }
-        .hero-title { font-size: 24px; font-weight: 700; }
-        .dim-label { color: #9daebe; }
-        .status-pill {
-            background: #173d35;
-            color: #8ee3c5;
-            border-radius: 999px;
-            padding: 7px 12px;
-            font-weight: 600;
-        }
-        .operation-status {
-            padding: 8px 30px;
-            background: #11161c;
-            color: #9daebe;
-            border-bottom: 1px solid alpha(#ffffff, 0.08);
-        }
-        .operation-ok { color: #8ee3c5; }
-        .operation-error, .warning-value { color: #ffb4a9; }
-        .navigation-sidebar { background: #141b22; padding: 12px 8px; }
-        .profile-page { padding: 26px 30px; }
-        .page-title { font-size: 22px; font-weight: 700; }
-        .profile-card {
-            background: #151d25;
-            border: 1px solid alpha(#ffffff, 0.10);
-            border-left: 3px solid #39d0aa;
-            border-radius: 4px;
-            padding: 20px;
-        }
-        .section-index {
-            background: #173d35;
-            color: #8ee3c5;
-            border-radius: 3px;
-            padding: 4px 7px;
-            font-family: monospace;
-            font-weight: 700;
-        }
-        .section-title { font-size: 17px; font-weight: 700; }
-        .control-list { background: transparent; }
-        .control-row {
-            padding: 14px 16px;
-            border-bottom: 1px solid alpha(#ffffff, 0.08);
-        }
-        scale { min-width: 210px; }
-        ",
-    );
-    gtk::style_context_add_provider_for_display(
-        &display,
-        &provider,
-        gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
-    );
 }
 
 #[cfg(test)]
@@ -1274,6 +4284,344 @@ mod tests {
                 1
             );
         }
+    }
+
+    #[test]
+    fn command_primary_controls_appear_first() {
+        assert!(
+            Category::Playback.control_order("Output Select")
+                < Category::Playback.control_order("AE-5: Headphone Gain")
+        );
+        assert!(
+            Category::Effects.control_order("FX: Surround")
+                < Category::Effects.control_order("FX: Dialog Plus")
+        );
+        assert!(
+            Category::Recording.control_order("Input Source")
+                < Category::Recording.control_order("FX: Noise Reduction")
+        );
+        assert_eq!(
+            Category::Playback.control_order("unrecognized future control"),
+            u8::MAX
+        );
+    }
+
+    #[test]
+    fn labels_equalizer_frequencies_and_command_aliases() {
+        assert_eq!(control_display_name("EQ Band0"), "EQ Band0 · 31 Hz");
+        assert_eq!(
+            control_display_name("EQ Band1"),
+            "EQ Band1 · 62 Hz (Bass in Command)"
+        );
+        assert_eq!(
+            control_display_name("EQ Band8"),
+            "EQ Band8 · 8 kHz (Treble in Command)"
+        );
+        assert_eq!(control_display_name("EQ Band9"), "EQ Band9 · 16 kHz");
+        assert_eq!(control_display_name("EQ Band10"), "EQ Band10");
+        assert_eq!(control_display_name("Master"), "Master");
+    }
+
+    #[test]
+    fn labels_the_fixed_hardware_stage_as_zero_db() {
+        assert_eq!(
+            hardware_level_label(&Level {
+                value: 99,
+                min: 0,
+                max: 99,
+                db: None,
+            }),
+            "0 dB"
+        );
+        assert_eq!(
+            hardware_level_label(&Level {
+                value: 19,
+                min: 0,
+                max: 99,
+                db: None,
+            }),
+            "19/99 raw"
+        );
+    }
+
+    #[test]
+    fn summarizes_pipewire_default_state() {
+        let node = PipeWireNode {
+            id: 58,
+            node_name: "alsa_output.pci-ae5.analog-stereo".to_owned(),
+            description: "AE-5 Analog Stereo".to_owned(),
+            is_default: true,
+            volume_percent: Some(43),
+            muted: Some(false),
+        };
+
+        assert_eq!(
+            pipewire_node_summary(&node),
+            "AE-5 Analog Stereo\nalsa_output.pci-ae5.analog-stereo — currently default\n\
+             PipeWire node volume: 43% (unmuted)\nWith the installed AE-5 soft-mixer profile, this is \
+             software attenuation and does not rewrite Master, Front, or PCM."
+        );
+    }
+
+    #[test]
+    fn reports_matched_and_split_desktop_routes() {
+        let mut controls = vec![
+            ControlSnapshot {
+                name: "Output Select".to_owned(),
+                selected: Some("Headphone".to_owned()),
+                choices: vec!["Speakers".to_owned(), "Headphone".to_owned()],
+                playback_switch: None,
+                capture_switch: None,
+                playback_level: None,
+                capture_level: None,
+                playback_channels: Vec::new(),
+                capture_channels: Vec::new(),
+            },
+            ControlSnapshot {
+                name: "Input Source".to_owned(),
+                selected: Some("Microphone".to_owned()),
+                choices: vec![
+                    "Microphone".to_owned(),
+                    "Line In".to_owned(),
+                    "Front Microphone".to_owned(),
+                ],
+                playback_switch: None,
+                capture_switch: None,
+                playback_level: None,
+                capture_level: None,
+                playback_channels: Vec::new(),
+                capture_channels: Vec::new(),
+            },
+            ControlSnapshot {
+                name: "Surround Channel Config".to_owned(),
+                selected: Some("2.0".to_owned()),
+                choices: vec![
+                    "2.0".to_owned(),
+                    "2.1".to_owned(),
+                    "4.0".to_owned(),
+                    "4.1".to_owned(),
+                    "5.1".to_owned(),
+                ],
+                playback_switch: None,
+                capture_switch: None,
+                playback_level: None,
+                capture_level: None,
+                playback_channels: Vec::new(),
+                capture_channels: Vec::new(),
+            },
+            ControlSnapshot {
+                name: "Master".to_owned(),
+                selected: None,
+                choices: Vec::new(),
+                playback_switch: Some(true),
+                capture_switch: None,
+                playback_level: None,
+                capture_level: None,
+                playback_channels: Vec::new(),
+                capture_channels: Vec::new(),
+            },
+            ControlSnapshot {
+                name: "Front".to_owned(),
+                selected: None,
+                choices: Vec::new(),
+                playback_switch: Some(true),
+                capture_switch: None,
+                playback_level: None,
+                capture_level: None,
+                playback_channels: Vec::new(),
+                capture_channels: Vec::new(),
+            },
+        ];
+        let mut state = PipeWireRouteState {
+            profile_set: Some("sound-blaster-ae5.conf".to_owned()),
+            soft_mixer: Some(true),
+            ignore_db: Some(true),
+            persistent_playback: Some(true),
+            active_profile: Some("output:analog-stereo+input:analog-stereo".to_owned()),
+            input_route: Some("sound-blaster-ae5-input-microphone".to_owned()),
+            output_route: Some("sound-blaster-ae5-output-headphones".to_owned()),
+        };
+
+        let (summary, healthy) = route_health_summary(&controls, Ok(state.clone()));
+        assert!(healthy);
+        assert!(summary.contains("Matched\nALSA output: Headphone"));
+        assert!(summary.contains("ALSA input: Microphone"));
+        assert!(summary.contains("sound-blaster-ae5.conf"));
+
+        state.persistent_playback = Some(false);
+        let (summary, healthy) = route_health_summary(&controls, Ok(state.clone()));
+        assert!(!healthy);
+        assert!(summary.contains("session.suspend-timeout-seconds=0"));
+        state.persistent_playback = Some(true);
+
+        state.output_route = Some("analog-output-lineout;output-speaker".to_owned());
+        let (summary, healthy) = route_health_summary(&controls, Ok(state.clone()));
+        assert!(!healthy);
+        assert!(summary.contains("Needs attention"));
+        assert!(summary.contains("reapply the output choice"));
+
+        state.output_route = Some("sound-blaster-ae5-output-headphones".to_owned());
+        state.input_route = Some("sound-blaster-ae5-input-line-in".to_owned());
+        let (summary, healthy) = route_health_summary(&controls, Ok(state));
+        assert!(!healthy);
+        assert!(summary.contains("reapply the input choice"));
+
+        controls[4].playback_switch = Some(false);
+        let (summary, healthy) = route_health_summary(
+            &controls,
+            Ok(PipeWireRouteState {
+                profile_set: Some("sound-blaster-ae5.conf".to_owned()),
+                soft_mixer: Some(true),
+                ignore_db: Some(true),
+                persistent_playback: Some(true),
+                active_profile: Some("output:analog-stereo+input:analog-stereo".to_owned()),
+                input_route: Some("sound-blaster-ae5-input-microphone".to_owned()),
+                output_route: Some("sound-blaster-ae5-output-headphones".to_owned()),
+            }),
+        );
+        assert!(!healthy);
+        assert!(summary.contains("Front playback is muted"));
+
+        controls[4].playback_switch = Some(true);
+        controls[3].playback_switch = Some(false);
+        let (summary, healthy) = route_health_summary(
+            &controls,
+            Ok(PipeWireRouteState {
+                profile_set: Some("sound-blaster-ae5.conf".to_owned()),
+                soft_mixer: Some(true),
+                ignore_db: Some(true),
+                persistent_playback: Some(true),
+                active_profile: Some("output:analog-stereo+input:analog-stereo".to_owned()),
+                input_route: Some("sound-blaster-ae5-input-microphone".to_owned()),
+                output_route: Some("sound-blaster-ae5-output-headphones".to_owned()),
+            }),
+        );
+        assert!(!healthy);
+        assert!(summary.contains("hardware Master playback is muted"));
+    }
+
+    #[test]
+    fn summarizes_native_rate_configuration() {
+        let mut config = NativeRatesConfig {
+            path: PathBuf::from("/tmp/91-ae5-control-rates.conf"),
+            enabled: false,
+        };
+        assert_eq!(
+            native_rates_summary(&config),
+            "Disabled\nUsing the distribution PipeWire defaults"
+        );
+
+        config.enabled = true;
+        assert_eq!(
+            native_rates_summary(&config),
+            "Enabled in PipeWire configuration\n44.1, 48, and 96 kHz"
+        );
+    }
+
+    #[test]
+    fn round_trips_lighting_colors_through_gtk() {
+        for color in [
+            RgbColor::new(0, 0, 0),
+            RgbColor::new(255, 255, 255),
+            RgbColor::new(12, 127, 241),
+        ] {
+            assert_eq!(rgb_from_rgba(&rgba_from_rgb(color)), color);
+        }
+    }
+
+    fn profile_with(names: &[&str]) -> Profile {
+        Profile {
+            format_version: 1,
+            name: "Scope".to_owned(),
+            target: "1102:0012/1102:0051".to_owned(),
+            controls: names
+                .iter()
+                .map(|name| ((*name).to_owned(), ProfileControl::default()))
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn provenance_wording_covers_exact_modified_and_unmatched() {
+        assert_eq!(
+            ProfileProvenance::Exact("My profile".to_owned()).describe(),
+            "On “My profile”"
+        );
+        // Singular must not read "1 controls changed".
+        assert_eq!(
+            ProfileProvenance::Modified {
+                name: "My profile".to_owned(),
+                changed: 1,
+            }
+            .describe(),
+            "On “My profile” with 1 control changed"
+        );
+        assert_eq!(
+            ProfileProvenance::Modified {
+                name: "My profile".to_owned(),
+                changed: 3,
+            }
+            .describe(),
+            "On “My profile” with 3 controls changed"
+        );
+        assert_eq!(
+            ProfileProvenance::Unmatched.describe(),
+            "Not saved as a profile"
+        );
+        // Each state must be visually distinguishable.
+        let classes = [
+            ProfileProvenance::Exact(String::new()).css_class(),
+            ProfileProvenance::Modified {
+                name: String::new(),
+                changed: 1,
+            }
+            .css_class(),
+            ProfileProvenance::Unmatched.css_class(),
+        ];
+        let unique: std::collections::BTreeSet<_> = classes.iter().collect();
+        assert_eq!(unique.len(), classes.len());
+    }
+
+    #[test]
+    fn profile_scope_distinguishes_equalizer_presets_from_full_profiles() {
+        // An equalizer-only preset and a routing-plus-effects profile used to
+        // render the same way, so a destructive apply looked harmless.
+        let eq_only = profile_scope_summary(&profile_with(&[
+            "EQ Band0", "EQ Band1", "EQ Band2", "EQ Band3",
+        ]));
+        assert_eq!(eq_only, "Retains 4 equalizer bands for software processing");
+        assert!(!eq_only.contains("routing"));
+
+        let full = profile_scope_summary(&profile_with(&[
+            "Output Select",
+            "FX: X-Bass",
+            "FX: Crystalizer",
+            "EQ Band0",
+        ]));
+        if unsafe_playback_control_block_reason("Output Select").is_some() {
+            assert!(full.contains("1 unsafe hardware setting"), "{full}");
+        } else {
+            assert!(full.contains("output routing"), "{full}");
+        }
+        assert!(full.contains("2 effects"), "{full}");
+        assert!(full.contains("1 equalizer band"), "{full}");
+
+        assert_eq!(
+            profile_scope_summary(&profile_with(&[])),
+            "Changes nothing on this card"
+        );
+        // Singular and plural must both read naturally.
+        assert_eq!(
+            profile_scope_summary(&profile_with(&["FX: X-Bass"])),
+            "Retains 1 effect for software processing"
+        );
+    }
+
+    #[test]
+    fn effect_nouns_read_as_prose() {
+        assert_eq!(effect_noun("FX: X-Bass"), "bass boost");
+        assert_eq!(effect_noun("FX: Dialog Plus"), "dialog enhancement");
+        assert_eq!(effect_noun("FX: Crystalizer"), "crystalizer");
     }
 
     #[test]
@@ -1314,6 +4662,149 @@ mod tests {
     }
 
     #[test]
+    fn matches_profiles_against_live_hardware_and_describes_eq_only_defaults() {
+        let profile = Profile {
+            format_version: 1,
+            name: "DOTA 2".to_owned(),
+            target: "1102:0012/1102:0051".to_owned(),
+            controls: std::collections::BTreeMap::from([
+                (
+                    "Output Select".to_owned(),
+                    ProfileControl {
+                        choice: Some("Headphone".to_owned()),
+                        ..ProfileControl::default()
+                    },
+                ),
+                (
+                    "FX: Crystalizer".to_owned(),
+                    ProfileControl {
+                        playback_switch: Some(false),
+                        playback_level: Some(38),
+                        ..ProfileControl::default()
+                    },
+                ),
+                (
+                    "AE-5: Headphone Gain".to_owned(),
+                    ProfileControl {
+                        choice: Some("Low (16-31 Ohms)".to_owned()),
+                        ..ProfileControl::default()
+                    },
+                ),
+            ]),
+        };
+        let mut controls = vec![
+            ControlSnapshot {
+                name: "Output Select".to_owned(),
+                selected: Some("Headphone".to_owned()),
+                choices: vec!["Speakers".to_owned(), "Headphone".to_owned()],
+                playback_switch: None,
+                capture_switch: None,
+                playback_level: None,
+                capture_level: None,
+                playback_channels: Vec::new(),
+                capture_channels: Vec::new(),
+            },
+            ControlSnapshot {
+                name: "FX: Crystalizer".to_owned(),
+                selected: None,
+                choices: Vec::new(),
+                playback_switch: Some(false),
+                capture_switch: None,
+                playback_level: Some(Level {
+                    value: 38,
+                    min: 0,
+                    max: 100,
+                    db: None,
+                }),
+                capture_level: None,
+                playback_channels: Vec::new(),
+                capture_channels: Vec::new(),
+            },
+            ControlSnapshot {
+                name: "AE-5: Headphone Gain".to_owned(),
+                selected: Some("Low (16-31 Ohms)".to_owned()),
+                choices: vec![
+                    "Low (16-31 Ohms)".to_owned(),
+                    "Medium (32-149 Ohms)".to_owned(),
+                ],
+                playback_switch: None,
+                capture_switch: None,
+                playback_level: None,
+                capture_level: None,
+                playback_channels: Vec::new(),
+                capture_channels: Vec::new(),
+            },
+        ];
+
+        assert!(profile_matches_controls(&profile, &controls));
+        controls[1].playback_switch = Some(true);
+        assert!(profile_matches_controls(&profile, &controls));
+        controls[0].selected = Some("Speakers".to_owned());
+        assert_eq!(
+            profile_matches_controls(&profile, &controls),
+            unsafe_playback_control_block_reason("Output Select").is_some()
+        );
+        controls[0].selected = Some("Headphone".to_owned());
+        controls[2].selected = Some("Medium (32-149 Ohms)".to_owned());
+        assert!(!profile_matches_controls(&profile, &controls));
+        controls[2].selected = Some("Low (16-31 Ohms)".to_owned());
+
+        let mut eq_only = profile;
+        for effect in [
+            "FX: Surround",
+            "FX: X-Bass",
+            "FX: Smart Volume",
+            "FX: Dialog Plus",
+        ] {
+            eq_only.controls.insert(
+                effect.to_owned(),
+                ProfileControl {
+                    playback_switch: Some(false),
+                    ..ProfileControl::default()
+                },
+            );
+        }
+        eq_only.controls.insert(
+            "FX: Equalizer".to_owned(),
+            ProfileControl {
+                playback_switch: Some(true),
+                ..ProfileControl::default()
+            },
+        );
+        let retained = if unsafe_playback_control_block_reason("Output Select").is_some() {
+            7
+        } else {
+            6
+        };
+        assert_eq!(
+            active_profile_detail(&eq_only),
+            format!(
+                "Safe hardware controls match · {retained} unsafe hardware settings retained without applying"
+            )
+        );
+
+        let software_only = profile_with(&["FX: X-Bass"]);
+        assert!(!profile_matches_controls(&software_only, &controls));
+        let ineffective_capture_only = profile_with(&["What U Hear"]);
+        assert!(!profile_matches_controls(
+            &ineffective_capture_only,
+            &controls
+        ));
+    }
+
+    #[test]
+    fn linux_default_preview_names_preserved_state_and_backup_location() {
+        let profile = linux_driver_defaults_for(&[]).unwrap();
+        let preview =
+            linux_driver_defaults_preview(&profile, Path::new("/tmp/ae5-control/profiles"));
+
+        assert!(preview.contains("29 validated Linux controls"));
+        assert!(preview.contains("output selection and headphone auto-detect"));
+        assert!(preview.contains("playback and capture volumes"));
+        assert!(preview.contains("/tmp/ae5-control/profiles"));
+    }
+
+    #[test]
     fn migration_preview_separates_categories_and_keeps_every_unsupported_item() {
         let import = SbCommandImport {
             profile: Profile {
@@ -1329,7 +4820,13 @@ mod tests {
                 )]),
             },
             report: SbCommandImportReport {
-                exact: vec!["master → output effects".to_owned()],
+                exact: [
+                    "Sound Blaster Command 3.5.10.0 → active configuration".to_owned(),
+                    "Creative AE-5 driver 6.0.105.0065 → active Windows driver package".to_owned(),
+                ]
+                .into_iter()
+                .chain((0..10).map(|index| format!("exact mapping {index}")))
+                .collect(),
                 approximate: vec!["surround 67.5 → 68".to_owned()],
                 unsupported: (0..20)
                     .map(|index| format!("unsupported {index}"))
@@ -1338,9 +4835,172 @@ mod tests {
         };
 
         let preview = migration_preview(&import);
-        assert!(preview.contains("Exact mappings (1)"));
+        assert!(preview.contains("Exact mappings (12)"));
+        assert!(preview.contains("Sound Blaster Command 3.5.10.0"));
+        assert!(preview.contains("Creative AE-5 driver 6.0.105.0065"));
         assert!(preview.contains("Approximate mappings (1)"));
         assert!(preview.contains("Unsupported settings (20)"));
         assert!(preview.contains("unsupported 19"));
+    }
+
+    #[test]
+    fn treats_gio_and_kde_portal_dismissals_as_cancellation() {
+        let gio_cancelled =
+            gtk::glib::Error::new(gio::IOErrorEnum::Cancelled, "Operation was cancelled");
+        let portal_cancelled = gtk::glib::Error::new(gio::IOErrorEnum::Failed, "Dismissed by user");
+
+        assert!(is_cancelled(&gio_cancelled));
+        assert!(is_cancelled(&portal_cancelled));
+    }
+
+    #[test]
+    fn diagnostics_path_is_one_literal_process_argument() {
+        let path = Path::new("/tmp/ae5 report;touch nope.txt");
+        let argv = diagnostics_argv(path);
+
+        assert_eq!(argv[0], std::ffi::OsStr::new("ae5-collect-report"));
+        assert_eq!(argv[1], path.as_os_str());
+    }
+
+    #[test]
+    fn summarizes_clean_project_kernel_readiness() {
+        let (summary, readiness) =
+            kernel_readiness_summary("7.1.4-ae5-current", Some(0), true, true);
+
+        assert_eq!(readiness, KernelReadiness::Ready);
+        assert!(summary.contains("Running kernel: 7.1.4-ae5-current"));
+        assert!(summary.contains("Kernel taint: 0 (clean)"));
+        assert!(summary.contains("Direct Mode: available"));
+        assert!(summary.contains("Onboard lighting: available (five LEDs)"));
+        assert!(summary.contains("physical acceptance is still pending"));
+    }
+
+    #[test]
+    fn distinguishes_the_clean_stock_kernel_path() {
+        let (summary, readiness) =
+            kernel_readiness_summary("7.1.4-200.nobara.fc44.x86_64", Some(0), false, false);
+
+        assert_eq!(readiness, KernelReadiness::Stock);
+        assert!(summary.contains("Direct Mode: unavailable"));
+        assert!(summary.contains("Onboard lighting: unavailable"));
+        assert!(summary.contains("Stock-compatible control path active"));
+    }
+
+    #[test]
+    fn warns_when_the_kernel_is_tainted() {
+        let (summary, readiness) =
+            kernel_readiness_summary("7.1.4-ae5-current", Some(512), true, true);
+
+        assert_eq!(readiness, KernelReadiness::Attention);
+        assert!(summary.contains("Kernel taint: 512"));
+        assert!(summary.contains("needs review before physical driver testing"));
+    }
+
+    #[test]
+    fn reports_driver_values_outside_their_declared_range() {
+        let controls = vec![ControlSnapshot {
+            name: "Wedge Angle".to_owned(),
+            selected: None,
+            choices: Vec::new(),
+            playback_switch: None,
+            capture_switch: None,
+            playback_level: None,
+            capture_level: Some(Level {
+                value: 10,
+                min: 20,
+                max: 180,
+                db: None,
+            }),
+            playback_channels: Vec::new(),
+            capture_channels: Vec::new(),
+        }];
+
+        assert_eq!(
+            driver_range_warnings(&controls),
+            ["Wedge Angle capture value 10 is outside 20..180"]
+        );
+    }
+
+    #[test]
+    fn software_eq_summary_requires_the_current_graph_before_activation() {
+        let config = EqChainConfig {
+            path: PathBuf::from("/tmp/software-eq.state"),
+            enabled: true,
+            bands: Vec::new(),
+            target_node: Some("alsa_output.pci-ae5.analog-stereo".to_owned()),
+            preamp_db: -10.25,
+        };
+        assert!(software_eq_summary(Some(&config), None).contains("Not applied"));
+
+        let output = SoftwareEqOutput {
+            node: PipeWireNode {
+                id: 91,
+                node_name: "alsa_output.pci-ae5.analog-stereo".to_owned(),
+                description: "Creative Sound BlasterX AE-5".to_owned(),
+                is_default: true,
+                volume_percent: Some(30),
+                muted: Some(false),
+            },
+            signature: config.signature(),
+        };
+        assert!(software_eq_summary(Some(&config), Some(&output)).contains("Applied in place"));
+    }
+
+    #[test]
+    fn hardware_eq_summary_distinguishes_saved_from_effective_state() {
+        assert_eq!(hardware_eq_summary(true, true, "Flat"), "HW EQ ON · FLAT");
+        assert_eq!(
+            hardware_eq_summary(true, false, "Flat"),
+            "HW EQ ARMED · FLAT"
+        );
+        assert_eq!(
+            hardware_eq_summary(false, false, "Custom"),
+            "HW EQ OFF · CUSTOM"
+        );
+    }
+
+    #[test]
+    fn control_rows_describe_current_and_blocked_state() {
+        let control = ControlSnapshot {
+            name: "Bass Redirection".to_owned(),
+            selected: None,
+            choices: Vec::new(),
+            playback_switch: Some(false),
+            capture_switch: None,
+            playback_level: None,
+            capture_level: None,
+            playback_channels: Vec::new(),
+            capture_channels: Vec::new(),
+        };
+
+        assert_eq!(
+            control_row_description(
+                &control,
+                Some("Select Speakers output before enabling bass redirection.")
+            ),
+            "Current state: Bass Redirection | playback off. Unavailable: Select Speakers output before enabling bass redirection."
+        );
+    }
+
+    #[test]
+    fn refresh_retains_verified_feedback_until_an_explicit_result_replaces_it() {
+        let applied = OperationStatus {
+            success: true,
+            message: "Applied “Gaming”; 20 controls were verified against the hardware.".to_owned(),
+        };
+        assert_eq!(
+            operation_status_for_refresh(None, Some(applied.clone())),
+            Some(applied)
+        );
+        assert_eq!(
+            operation_status_for_refresh(
+                Some("Applied “My profile · Headphones”; 21 controls were verified."),
+                None,
+            ),
+            Some(OperationStatus {
+                success: true,
+                message: "Applied “My profile · Headphones”; 21 controls were verified.".to_owned(),
+            })
+        );
     }
 }

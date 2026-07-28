@@ -2,6 +2,8 @@ name: CI
 
 on:
   push:
+    branches:
+      - main
   pull_request:
 
 permissions:
@@ -13,16 +15,53 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Install native headers
-        run: sudo apt-get update && sudo apt-get install --yes appstream desktop-file-utils libasound2-dev libgtk-4-dev sox
+        run: sudo apt-get update && sudo apt-get install --yes appstream desktop-file-utils jq libasound2-dev libgtk-4-dev libpipewire-0.3-dev shellcheck sox udev
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
       - run: bash -n scripts/*.sh
-      - run: bash scripts/audio-parity.sh --self-test
+      - run: bash scripts/check-feature-parity.sh
+      - run: bash scripts/check-ae5-acp-profile.sh
+      - run: for rate in 44100 48000 96000; do AE5_SAMPLE_RATE=$rate bash scripts/audio-parity.sh --self-test; done
+      - run: bash scripts/hda-position-trace.sh --self-test
+      - run: bash scripts/track-transition-stress.sh --self-test
+      - run: bash scripts/check-software-eq-performance.sh --self-test
+      - run: bash scripts/check-software-eq-response.sh --self-test
+      - run: bash scripts/build-transition-helper.sh
+      - run: target/diagnostics/ae5-pw-renegotiate --help
+      - run: shellcheck scripts/audio-parity.sh scripts/build-transition-helper.sh scripts/check-software-eq-performance.sh scripts/check-software-eq-response.sh scripts/hda-position-trace.sh scripts/track-transition-stress.sh
+      - run: python3 .claude/hooks/volume-guard.py --self-test
       - run: bash scripts/collect-linux-report.sh --self-test
-      - run: desktop-file-validate packaging/io.github.klimovich008.ae5control.desktop
+      - run: bash scripts/collect-routing-state.sh --self-test
+      - run: bash scripts/check-ae5-kernel-runtime.sh --self-test
+      - run: bash scripts/check-vfio-host.sh --self-test
+      - run: bash scripts/install-ae5-kernel-test.sh --self-test
+      - run: desktop-file-validate packaging/*.desktop
+      - run: udevadm verify --resolve-names=never packaging/udev/*.rules
       - run: appstreamcli validate --no-net --strict packaging/io.github.klimovich008.ae5control.metainfo.xml
       - run: systemd-analyze --user verify systemd/user/*
+      - run: cargo build --locked --release --all-features && bash scripts/check-user-install.sh
       - run: cargo fmt --check
       - run: cargo clippy --all-targets --all-features -- -D warnings
       - run: cargo test --all-features
+
+  rpm:
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    container: fedora:44
+    timeout-minutes: 30
+    steps:
+      - name: Install build dependencies
+        run: dnf install --assumeyes appstream alsa-lib-devel cargo desktop-file-utils git gtk4-devel rpm-build rust systemd-udev
+      - uses: actions/checkout@v6
+      - name: Trust checked-out worktree
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Build RPM
+        run: bash scripts/build-rpm.sh
+      - name: Verify clean install and removal
+        run: |
+          rpm_path=$(find dist -maxdepth 1 -type f \
+            -name 'ae5-control-*.x86_64.rpm' \
+            ! -name '*-debuginfo-*' -print -quit)
+          test -n "$rpm_path"
+          bash scripts/check-rpm-lifecycle.sh "$rpm_path"

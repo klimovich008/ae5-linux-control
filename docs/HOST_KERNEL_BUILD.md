@@ -1,0 +1,297 @@
+# Host kernel build and installation gate
+
+> **Historical artifact warning (2026-07-27): do not install the RPMs named
+> below.** They contain the now-excluded Direct Mode candidate and predate the
+> hardware OutFX guard. Build a new side-by-side package from the current
+> `kernel/series` instead.
+
+## Historical Smart Volume/Direct Mode candidate
+
+On 2026-07-26, the complete production, onboard-RGB, Direct Mode, and Smart
+Volume resume stack was rebuilt with the current Nobara host configuration.
+The resulting side-by-side candidate is:
+
+```text
+kernel-6.18.40_ae5_lts_rgb_direct_svm_host+-1.x86_64
+kernel release: 6.18.40-ae5-lts-rgb-direct-svm-host+
+```
+
+The package was not installed on the host. It was installed only in the
+cardless Fedora build guest, where it was selected for one boot with the
+known-working guest kernel retained as the persistent default.
+
+### Exact source and build
+
+The base remains Linux `6.18.40` at
+`221fc2f4d0eda59d02af2e751a9282fa013a8e97`. Apply the seven source steps
+listed for the previous Direct Mode candidate below, then apply:
+
+```sh
+git apply /path/to/ae5-linux-control/kernel/backports/6.18/ca0132-restore-smart-volume-resume.patch
+git diff --check
+```
+
+The 6.18 adapter has SHA-256
+`29af4c56ada3b74070c7f47e88bf973dfbcfd409103a318bf76f7d11802cf1e3`.
+Its functional C changes are identical to the upstream-oriented Smart Volume
+patch. The complete patched `ca0132.c` has SHA-256
+`01ab8448b258a24046ad59f279270eff4706d9315f616a39debf79b6432a7f71`.
+
+The build started from the same
+`/boot/config-7.1.4-200.nobara.fc44.x86_64` host configuration described
+below, with `LOCALVERSION` changed to
+`-ae5-lts-rgb-direct-svm-host`. The migrated `.config` has SHA-256
+`48644a874df87d91864c8958963559ee040baeb1403bbd46233bf61134c4d009`.
+The complete host-configured CA0132 object separately passed
+`W=1 KCFLAGS=-Werror`.
+
+### Artifacts and non-installing verification
+
+| Artifact | Size | SHA-256 |
+|---|---:|---|
+| kernel RPM | 143,397,510 bytes | `9ee52be8e9afbe13bd6052be656bb9c0dd47e8f11f73e22161735e23338b7fa6` |
+| `arch/x86/boot/bzImage` | 14,553,600 bytes | `7f0e51f0fc8aaf5cd0eb6824feb4bae0c5d4677b51ef592a8ed40108cdb4370e` |
+| `vmlinux` | 69,780,192 bytes | `78881e2d112729d2b4dbfaad3f498a8b8e63bccf061abc5540798c755953a8a0` |
+| `System.map` | 10,130,155 bytes | `a740f967faf4817cf24e3a4ae63d62338f574cc1b4217424cba596faf7592f62` |
+| `.config` | 286,026 bytes | `48644a874df87d91864c8958963559ee040baeb1403bbd46233bf61134c4d009` |
+| packaged CA0132 module, zstd | 73,307 bytes | `601307b72306bebf5f594805727bb73fc213118714e126e138bbf0c3700f8b1a` |
+
+Run:
+
+```sh
+scripts/check-host-kernel-rpm.sh \
+  /path/to/kernel-6.18.40_ae5_lts_rgb_direct_svm_host+-1.x86_64.rpm \
+  6.18.40-ae5-lts-rgb-direct-svm-host+
+```
+
+The verifier passed with 6,326 zstd-compressed modules, successful `depmod`
+indexing, matching CA0132 vermagic, a build-time PKCS#7 signature, and markers
+for Direct Mode, onboard RGB, factory EQ, DSP-image bounds, and Smart Volume
+restoration. It did not run package scriptlets or install anything.
+
+The exact `bzImage` then entered x86-64 under TCG with audio and networking
+disabled, reported `6.18.40-ae5-lts-rgb-direct-svm-host+`, and reached the
+expected no-root-filesystem panic.
+
+### Cardless full boot and host checkpoint
+
+Installation in the isolated Fedora guest created the correct Btrfs BLS
+paths:
+
+```text
+linux /boot/vmlinuz-6.18.40-ae5-lts-rgb-direct-svm-host+
+initrd /boot/initramfs-6.18.40-ae5-lts-rgb-direct-svm-host+.img
+```
+
+The one-shot boot reached the exact candidate release. With no Creative PCI
+device attached, both `snd-hda-codec-ca0132` and
+`led-class-multicolor` loaded with matching vermagic and the build-time
+signer. Kernel taint was zero, no systemd unit failed, and the boot log had no
+CA0132, HDA, DSP, warning, oops, or panic entry. A second reboot automatically
+returned to the saved `6.18.40-ae5-lts+` guest kernel, proving the rollback
+path, and the guest was shut down.
+
+The host still runs its stock Nobara kernel. Host `/boot`, `/lib/modules`, boot
+loader, PCI binding, mixer, PipeWire state, and audio streams were not changed.
+Bare-metal installation remains a separate user checkpoint. If authorized,
+install only the main RPM, retain both stock kernels, keep the stock kernel as
+the saved default, and select the custom kernel for one boot. The first
+physical test remains capped at 20% and must prove a real DSP-loss suspend,
+Smart Volume restoration through a counterbalanced capture matrix, clean
+kernel logs, and exact baseline recovery.
+
+## Previous Direct Mode candidate
+
+On 2026-07-25, the physically tested Linux `6.18.40` CA0132 stack was rebuilt
+with the current Nobara host configuration as a side-by-side x86-64 kernel
+RPM. The package was not installed. No live module, mixer control, PipeWire
+node, `/boot` file, bootloader setting, or audio stream was changed.
+
+The candidate is:
+
+```text
+kernel-6.18.40_ae5_lts_rgb_direct_host+-1.x86_64
+kernel release: 6.18.40-ae5-lts-rgb-direct-host+
+```
+
+The trailing `+` intentionally records that the stable source contains the
+local AE-5 patch stack. Secure Boot was disabled on the build host. The RPM
+itself is unsigned; its in-tree modules are signed by the build-time
+autogenerated kernel key. This artifact must not be used with Secure Boot
+enabled unless a separately audited signing and key-enrollment process is
+completed.
+
+### Exact source
+
+The base is Linux `6.18.40` at
+`221fc2f4d0eda59d02af2e751a9282fa013a8e97`. Apply this sequence:
+
+1. upstream auto-detect fixes `778031e1658d` and `6fd9f6e870ea`;
+2. `kernel/ca0132-wedge-angle-default.patch`;
+3. `kernel/ca0132-eq-preset-control-cache.patch`;
+4. `kernel/ca0132-ae5-hide-ineffective-wuh-controls.patch`;
+5. `kernel/backports/6.18/ca0132-dsp-image-bounds.patch`;
+6. `kernel/backports/6.18/ca0132-ae5-onboard-leds.patch`;
+7. `kernel/ca0132-ae5-direct-mode.patch`.
+
+The first six application commands are documented in
+[`kernel/backports/6.18/README.md`](../kernel/backports/6.18/README.md). Apply
+the Direct Mode patch last:
+
+```sh
+git apply /path/to/ae5-linux-control/kernel/ca0132-ae5-direct-mode.patch
+git diff --check
+```
+
+The exact patch SHA-256 values used for this historical host-kernel build are:
+
+| Patch | SHA-256 |
+|---|---|
+| Wedge Angle default | `3fef189a2d5443b6f338bb72c935c3710603ed4defbfa04be5dbd5245459dfbd` |
+| factory-EQ cache | `9185698cada8f2d1803b7d9eb46b1beb7a86ad1bcd76ae6131f9b2e70939250c` |
+| What U Hear cleanup | `d3016d237e7ea7dd02f06922823736a0b7528208f2a6d48223a143ce643d2f02` |
+| 6.18 DSP-image bounds | `2e53dc7d759ddf7ed8d59a1016f5ff25f44f6dceedd3eb08b4d6f071616870fe` |
+| 6.18 onboard LEDs | `05cbcb09a12c5b3a46491ff0d1192f2c36c6fe7766ae1343168be300be4900e4` |
+| Direct Mode | `c05d55c3c827dc035c36614d0c67bd59c14943942d4a9b670dd2c720c65e3257` |
+
+The repository's current Direct Mode patch was regenerated on 2026-07-26 to
+remove an accidental LED-context dependency. Its SHA-256 is
+`49e571c51b035d4feb453ccabb9c42e8b28b699ca1b00ebac9dc34e7d6cbf23a`;
+it applies both to clean Linux 6.18.40 and after this production/RGB sequence.
+Its only full-stack source difference from the built artifact is the location
+of a private preprocessor array-size definition. Reproducing the exact RPM
+hashes below still requires the historical patch hash recorded in the table.
+
+### Host configuration and build
+
+The candidate started from
+`/boot/config-7.1.4-200.nobara.fc44.x86_64`, whose SHA-256 was
+`2da93a68ccd892892f96334b0a48a807963437d7ffa5e3edb7f1710eee360eb6`.
+It was migrated through Linux 6.18 `olddefconfig`, preserving the host's NVMe,
+Btrfs, AMDGPU, Intel Wi-Fi, Realtek Ethernet, xHCI, ALSA, KVM, and VFIO
+coverage.
+
+The host lacked `pahole` and Rust `bindgen`. Neither is needed by the AE-5
+runtime path, so debug BTF and kernel Rust were disabled for this candidate.
+Warnings-as-errors were disabled for the full distribution-style build;
+the patched CA0132 object was also compiled separately with
+`W=1 KCFLAGS=-Werror`.
+
+The reproducible configuration and package commands are:
+
+```sh
+source_tree=/path/to/linux-6.18.40-ae5
+build_tree=/path/to/linux-6.18.40-ae5-host-build
+
+mkdir -p "$build_tree"
+cp /boot/config-7.1.4-200.nobara.fc44.x86_64 "$build_tree/.config"
+"$source_tree/scripts/config" --file "$build_tree/.config" \
+  --set-str LOCALVERSION -ae5-lts-rgb-direct-host
+"$source_tree/scripts/config" --file "$build_tree/.config" \
+  --disable LOCALVERSION_AUTO --disable WERROR \
+  --enable DEBUG_INFO_NONE --disable DEBUG_INFO_DWARF5 \
+  --disable DEBUG_INFO_BTF --disable RUST
+make -C "$source_tree" O="$build_tree" olddefconfig
+make -C "$source_tree" O="$build_tree" -j"$(nproc)" \
+  RPMOPTS=--nodeps binrpm-pkg
+```
+
+`RPMOPTS=--nodeps` skips RPM build-host dependency resolution; it does not
+remove runtime metadata from the resulting package. The exact migrated
+`.config` SHA-256 is
+`0a52fbd0f9b9d9adee73af2b43ff71e0c6cf1b8d2f19c863abbba3723301626b`.
+
+### Artifact verification
+
+Only the main `kernel` RPM is an installation candidate. Do not install the
+generated `kernel-headers` RPM: it declares
+`Obsoletes: kernel-headers < 6.18.40_ae5_lts_rgb_direct_host+` and can replace
+the distribution header package. The `kernel-devel` RPM is unnecessary for
+the first boot.
+
+| Artifact | Size | SHA-256 |
+|---|---:|---|
+| kernel RPM | 143,355,402 bytes | `0df56e32e69d7bdb8d65390fe3a9322b6832644270202379c9c6cd5287f0fe62` |
+| `arch/x86/boot/bzImage` | 14,553,600 bytes | `0c8927865218b1049bb936a9c478bf11da707ba76ad9958ab8eff0e9c0b4723a` |
+| `vmlinux` | 69,780,192 bytes | `39657039970ad72e9a5b293000b13b588ee88639a18df3124559385f314cfcab` |
+| `System.map` | 10,130,155 bytes | `ed9d5cfb814fee396f1a2f97821fc4f48437234865f1eb16ad5eb278439289c1` |
+| packaged CA0132 module | — | `e8bce5db009caefd2d67451545c4d6cc203c30974ca045a44fc1b3bbe0f93c84` |
+
+Run the non-installing verifier with the main RPM:
+
+```sh
+scripts/check-host-kernel-rpm.sh \
+  /path/to/kernel-6.18.40_ae5_lts_rgb_direct_host+-1.x86_64.rpm \
+  6.18.40-ae5-lts-rgb-direct-host+
+```
+
+The verifier extracts into a temporary directory and checks:
+
+- one versioned module tree and no package conflicts or obsoletes;
+- all boot-critical drivers for this host;
+- the module count (6,326 for this artifact) and a successful `depmod` index;
+- matching CA0132 vermagic and PKCS#7 module signature;
+- Direct Mode, onboard-RGB, factory-EQ, and DSP-image bounds markers;
+- the versioned `kernel-install` and `/boot` post-install paths.
+
+It never runs the RPM scriptlets or writes to the live `/boot` or
+`/lib/modules`.
+
+A no-audio QEMU smoke boot of the exact `bzImage` reached the kernel:
+
+```sh
+timeout 20s qemu-system-x86_64 \
+  -machine q35,accel=tcg -cpu max -smp 1 -m 1024 \
+  -nographic -no-reboot -nic none -audio none \
+  -kernel "$build_tree/arch/x86/boot/bzImage" \
+  -append 'console=ttyS0 loglevel=6 panic=-1'
+```
+
+```text
+Linux version 6.18.40-ae5-lts-rgb-direct-host+
+```
+
+It then stopped at the expected `Unable to mount root fs` panic because no
+root disk or initramfs was supplied. This proves kernel decompression and
+early x86-64 boot, not host hardware compatibility.
+
+### Installation checkpoint
+
+Installation has deliberately not been authorized or attempted. At the
+checkpoint, first re-run the verifier, confirm the recorded SHA-256, confirm
+Secure Boot is still disabled, and confirm sufficient space in `/boot`.
+The build host currently has about 1.2 GiB free there.
+
+The reviewed main RPM's post-install script would:
+
+1. add `/lib/modules/6.18.40-ae5-lts-rgb-direct-host+`;
+2. invoke `kernel-install add`;
+3. create the versioned kernel, map, config, initramfs, and boot-loader entry.
+
+Keep both existing Nobara kernels installed and leave the stock kernel as the
+saved default. If installation is later approved, install only the exact main
+RPM with `rpm -i`, then select the custom entry manually for a one-shot first
+boot. Do not use the headers RPM and do not make the custom entry the default
+until bare-metal validation passes.
+
+If the candidate fails, reboot and manually select
+`7.1.4-200.nobara.fc44.x86_64`. Remove the custom RPM only while running a
+stock kernel.
+
+### First bare-metal gate
+
+Before any playback, verify the release, module vermagic, AE-5 PCI binding,
+kernel log, Direct Mode control, and five LED-class devices. Every later
+non-silent test must satisfy all of these simultaneously:
+
+- every relevant ALSA playback channel is at or below 20%;
+- PipeWire sink and stream volume are each at or below 20%;
+- Low headphone gain is selected;
+- the exact fixture passes `scripts/audio-parity.sh playback-preflight`;
+- headphones are unworn or physically clear during unattended playback.
+
+The current live audio state does not pass that preflight, so no playback may
+start until it is explicitly made safe. Remaining acceptance consists of the
+headphones-connected host cold boot, twenty bare-metal suspend/resume cycles,
+and a connected line-out or speaker-route signal test. The stock kernels are
+the rollback path throughout.

@@ -1,0 +1,660 @@
+diff --git a/sound/hda/codecs/ca0132.c b/sound/hda/codecs/ca0132.c
+index 3fe11983d..073af9803 100644
+--- a/sound/hda/codecs/ca0132.c
++++ b/sound/hda/codecs/ca0132.c
+@@ -1060,4 +1060,6 @@ enum dsp_download_state {
+  * CA0132 specific
+  */
+ 
++#define AE5_DIRECT_MAX_ROUTER_ENTRIES	4
++
+ struct ca0132_spec {
+@@ -1129,6 +1131,15 @@ struct ca0132_spec {
+ 	long eq_preset_val;
+ 	unsigned int tlv[4];
+ 	struct hda_vmaster_mute_hook vmaster_mute;
++	/* AE-5 Direct Mode state */
++	struct mutex ae5_direct_mutex;
++	bool ae5_direct_mode;
++	bool ae5_playback_open;
++	bool ae5_direct_restore_pending;
++	unsigned int ae5_direct_rate;
++	unsigned int ae5_direct_router_entries;
++	unsigned int ae5_direct_router_offsets[AE5_DIRECT_MAX_ROUTER_ENTRIES];
++	unsigned int ae5_direct_router_values[AE5_DIRECT_MAX_ROUTER_ENTRIES];
+ 	/* AE-5 Control values */
+ 	unsigned char ae5_headphone_gain_val;
+ 	unsigned char ae5_filter_val;
+@@ -1758,18 +1769,14 @@ static int chipio_write_multiple(struct hda_codec *codec,
+ }
+ 
+ /*
+- * Read the given address through the chip I/O widget
+- * protected by the Mutex
++ * Read the given address through the chip I/O widget.
++ * Not protected by the mutex.
+  */
+-static int chipio_read(struct hda_codec *codec,
+-		unsigned int chip_addx, unsigned int *data)
++static int chipio_read_no_mutex(struct hda_codec *codec,
++				unsigned int chip_addx, unsigned int *data)
+ {
+-	struct ca0132_spec *spec = codec->spec;
+ 	int err;
+ 
+-	guard(mutex)(&spec->chipio_mutex);
+-
+-	/* write the address, and if successful proceed to write data */
+ 	err = chipio_write_address(codec, chip_addx);
+ 	if (err < 0)
+ 		return err;
+@@ -1777,6 +1784,19 @@ static int chipio_read(struct hda_codec *codec,
+ 	return chipio_read_data(codec, data);
+ }
+ 
++/*
++ * Read the given address through the chip I/O widget.
++ * Protected by the mutex.
++ */
++static int chipio_read(struct hda_codec *codec,
++		       unsigned int chip_addx, unsigned int *data)
++{
++	struct ca0132_spec *spec = codec->spec;
++
++	guard(mutex)(&spec->chipio_mutex);
++	return chipio_read_no_mutex(codec, chip_addx, data);
++}
++
+ /*
+  * Set chip control flags through the chip I/O widget.
+  */
+@@ -3878,6 +3898,270 @@ static void r3di_gpio_dsp_status_set(struct hda_codec *codec,
+ 			    AC_VERB_SET_GPIO_DATA, cur_gpio);
+ }
+ 
++static int ca0132_pe_switch_set(struct hda_codec *codec);
++
++static int ae5_direct_mode_set_clock_no_mutex(struct hda_codec *codec,
++					      unsigned int value)
++{
++	unsigned int readback = 0;
++	int retry;
++
++	snd_hda_codec_write(codec, WIDGET_CHIP_CTRL, 0, 0x725, value);
++	for (retry = 0; retry <= 10; retry++) {
++		readback = snd_hda_codec_read(codec, WIDGET_CHIP_CTRL, 0, 0xf25, 0);
++		if ((readback & 0xff) == value)
++			return 0;
++	}
++
++	codec_err(codec,
++		  "AE-5 Direct Mode: clock selector 0x%x read back 0x%x\n",
++		  value, readback & 0xff);
++	return -EIO;
++}
++
++static int ae5_direct_mode_set_rate_no_mutex(struct hda_codec *codec,
++					     unsigned int rate)
++{
++	unsigned int reg_189000, reg_189024;
++	int err;
++
++	switch (rate) {
++	case 48000:
++		reg_189000 = 0x0001f100;
++		reg_189024 = 0x00008005;
++		break;
++	case 96000:
++		reg_189000 = 0x0001f101;
++		reg_189024 = 0x00014004;
++		break;
++	default:
++		return -EINVAL;
++	}
++
++	ca0113_mmio_command_set(codec, 0x48, 0x01, 0x80);
++	chipio_set_control_param_no_mutex(codec, CONTROL_PARAM_ASI, 4);
++	chipio_8051_write_pll_pmu_no_mutex(codec, 0x43, 0xc7);
++	err = ae5_direct_mode_set_clock_no_mutex(codec, 0x81);
++	if (err < 0)
++		return err;
++
++	err = chipio_write_no_mutex(codec, 0x189000, reg_189000);
++	if (err < 0)
++		return err;
++	err = chipio_write_no_mutex(codec, 0x189004, reg_189000);
++	if (err < 0)
++		return err;
++	err = chipio_write_no_mutex(codec, 0x189024, reg_189024);
++	if (err < 0)
++		return err;
++	err = chipio_write_no_mutex(codec, 0x189028, 0x0002000f);
++	if (err < 0)
++		return err;
++
++	ca0113_mmio_command_set(codec, 0x48, 0x0a, 0x05);
++	return 0;
++}
++
++static int ae5_direct_mode_rate_id(unsigned int rate,
++				   enum ca0132_sample_rate *rate_id)
++{
++	switch (rate) {
++	case 48000:
++		*rate_id = SR_48_000;
++		break;
++	case 96000:
++		*rate_id = SR_96_000;
++		break;
++	default:
++		return -EINVAL;
++	}
++
++	return 0;
++}
++
++static int ae5_direct_mode_router_entries(unsigned int rate,
++					  unsigned int channels,
++					  unsigned int *entries)
++{
++	if (rate != 48000 && rate != 96000)
++		return -EINVAL;
++
++	*entries = (rate / 48000) * channels;
++	if (!*entries || *entries > AE5_DIRECT_MAX_ROUTER_ENTRIES)
++		return -EINVAL;
++
++	return 0;
++}
++
++static int
++ae5_direct_mode_restore_playback_no_mutex(struct hda_codec *codec)
++{
++	struct ca0132_spec *spec = codec->spec;
++	unsigned int address, i;
++	int err = 0;
++
++	for (i = 0; i < spec->ae5_direct_router_entries; i++) {
++		address = 0x190000 +
++			  spec->ae5_direct_router_offsets[i] * 4;
++		err = chipio_write_no_mutex(codec, address,
++					    spec->ae5_direct_router_values[i]);
++		if (err < 0)
++			goto normal_route;
++	}
++
++	if (spec->ae5_direct_router_entries) {
++		err = chipio_write_no_mutex(codec, 0x19042c, 0x00000001);
++		if (err < 0)
++			goto normal_route;
++
++		spec->ae5_direct_router_entries = 0;
++	}
++
++normal_route:
++	chipio_set_stream_source_dest(codec, 0x05, 0x43, 0x00);
++	msleep(25);
++	return err;
++}
++
++static int
++ae5_direct_mode_remap_playback_no_mutex(struct hda_codec *codec,
++					unsigned int rate,
++					unsigned int channels)
++{
++	struct ca0132_spec *spec = codec->spec;
++	unsigned int entries, i, offset;
++	unsigned int offsets[AE5_DIRECT_MAX_ROUTER_ENTRIES];
++	unsigned int values[AE5_DIRECT_MAX_ROUTER_ENTRIES];
++	int err;
++
++	err = ae5_direct_mode_router_entries(rate, channels, &entries);
++	if (err < 0)
++		return err;
++	if (spec->ae5_direct_router_entries)
++		return -EBUSY;
++
++	chipio_8051_read_exram(codec, 0x1578 + 0x05, &offset);
++	for (i = 0; offset == 0xff && i < 5; i++) {
++		msleep(25);
++		chipio_8051_read_exram(codec, 0x1578 + 0x05, &offset);
++	}
++
++	for (i = 0; i < entries; i++) {
++		if (offset == 0xff) {
++			codec_err(codec,
++				  "AE-5 Direct Mode: stream 0x05 router chain ended at entry %u of %u\n",
++				  i, entries);
++			return -EIO;
++		}
++
++		offsets[i] = offset;
++		err = chipio_read_no_mutex(codec, 0x190000 + offset * 4,
++					   &values[i]);
++		if (err < 0)
++			return err;
++
++		if (i + 1 < entries)
++			chipio_8051_read_exram(codec, 0x1478 + offset,
++					       &offset);
++	}
++
++	memcpy(spec->ae5_direct_router_offsets, offsets,
++	       entries * sizeof(offsets[0]));
++	memcpy(spec->ae5_direct_router_values, values,
++	       entries * sizeof(values[0]));
++	spec->ae5_direct_router_entries = entries;
++
++	for (i = 0; i < entries; i++) {
++		offset = offsets[i];
++		values[i] &= 0xfffd00ff;
++		values[i] |= (0x40 + i) << 8;
++		err = chipio_write_no_mutex(codec, 0x190000 + offset * 4,
++					    values[i]);
++		if (err < 0)
++			return err;
++	}
++
++	return chipio_write_no_mutex(codec, 0x19042c, 0x00000001);
++}
++
++static int ae5_direct_prepare_no_mutex(struct hda_codec *codec,
++				       unsigned int rate,
++				       unsigned int channels)
++{
++	struct ca0132_spec *spec = codec->spec;
++	enum ca0132_sample_rate rate_id;
++	unsigned int stream_enabled;
++	int err, restore_err;
++
++	err = ae5_direct_mode_rate_id(rate, &rate_id);
++	if (err < 0)
++		return err;
++
++	chipio_set_stream_control(codec, 0x14, 0);
++	if (spec->ae5_direct_router_entries) {
++		err = ae5_direct_mode_restore_playback_no_mutex(codec);
++		if (err < 0)
++			return err;
++	}
++
++	chipio_set_stream_control(codec, 0x18, 0);
++	chipio_set_stream_source_dest(codec, 0x05, 0x43, 0xd0);
++	chipio_set_stream_channels(codec, 0x05, channels);
++	chipio_set_conn_rate_no_mutex(codec, 0xd0, rate_id);
++	chipio_set_stream_source_dest(codec, 0x14, 0x43, 0x00);
++	chipio_set_conn_rate_no_mutex(codec, 0x00, SR_96_000);
++	chipio_set_stream_channels(codec, 0x14, 2);
++
++	if (spec->ae5_direct_rate != rate) {
++		err = ae5_direct_mode_set_rate_no_mutex(codec, rate);
++		if (err < 0)
++			goto disable_stream;
++		spec->ae5_direct_rate = rate;
++	}
++
++	err = ae5_direct_mode_remap_playback_no_mutex(codec, rate, channels);
++	if (err < 0)
++		goto disable_stream;
++
++	chipio_set_stream_control(codec, 0x14, 1);
++	chipio_set_control_param_no_mutex(codec, CONTROL_PARAM_ASI, 7);
++	chipio_get_stream_control(codec, 0x14, &stream_enabled);
++	if (stream_enabled)
++		return 0;
++
++	codec_err(codec,
++		  "AE-5 Direct Mode: stream 0x14 failed to start\n");
++	err = -EIO;
++
++disable_stream:
++	chipio_set_stream_control(codec, 0x14, 0);
++	restore_err = ae5_direct_mode_restore_playback_no_mutex(codec);
++	if (restore_err < 0) {
++		codec_err(codec,
++			  "AE-5 Direct Mode: failed to restore playback router\n");
++		if (!err)
++			err = restore_err;
++	}
++	return err;
++}
++
++static int ae5_direct_mode_restore_processing(struct hda_codec *codec)
++{
++	struct ca0132_spec *spec = codec->spec;
++	unsigned int index = PLAY_ENHANCEMENT - EFFECT_START_NID;
++	long enabled = spec->effects_switch[index];
++	int err;
++
++	spec->effects_switch[index] = !enabled;
++	err = ca0132_pe_switch_set(codec);
++	spec->effects_switch[index] = enabled;
++	if (err < 0)
++		return err;
++
++	err = ca0132_pe_switch_set(codec);
++	return err < 0 ? err : 0;
++}
++
+ /*
+  * PCM callbacks
+  */
+@@ -3888,9 +4172,100 @@ static int ca0132_playback_pcm_prepare(struct hda_pcm_stream *hinfo,
+ 			struct snd_pcm_substream *substream)
+ {
+ 	struct ca0132_spec *spec = codec->spec;
++	unsigned int rate = substream->runtime->rate;
++	unsigned int channels = substream->runtime->channels;
++	bool restore_processing = false;
++	int err = 0;
+ 
+ 	snd_hda_codec_setup_stream(codec, spec->dacs[0], stream_tag, 0, format);
+ 
++	if (ca0132_quirk(spec) == QUIRK_AE5) {
++		scoped_guard(mutex, &spec->ae5_direct_mutex) {
++			if (spec->ae5_direct_mode) {
++				guard(mutex)(&spec->chipio_mutex);
++
++				err = ae5_direct_prepare_no_mutex(codec, rate,
++								  channels);
++			} else {
++				restore_processing =
++					spec->ae5_direct_restore_pending;
++			}
++		}
++		if (!err && restore_processing) {
++			err = ae5_direct_mode_restore_processing(codec);
++			if (err >= 0) {
++				snd_hda_codec_cleanup_stream(codec,
++							     spec->dacs[0]);
++				msleep(25);
++				snd_hda_codec_setup_stream(codec, spec->dacs[0],
++							   stream_tag, 0,
++							   format);
++				guard(mutex)(&spec->ae5_direct_mutex);
++
++				spec->ae5_direct_restore_pending = false;
++				err = 0;
++			}
++		}
++		if (err < 0) {
++			snd_hda_codec_cleanup_stream(codec, spec->dacs[0]);
++			return err;
++		}
++	}
++
++	return 0;
++}
++
++static int ca0132_playback_pcm_open(struct hda_pcm_stream *hinfo,
++				    struct hda_codec *codec,
++				    struct snd_pcm_substream *substream)
++{
++	static const unsigned int direct_rates[] = {
++		48000, 96000
++	};
++	static const struct snd_pcm_hw_constraint_list direct_rate_list = {
++		.count = ARRAY_SIZE(direct_rates),
++		.list = direct_rates,
++	};
++	struct ca0132_spec *spec = codec->spec;
++	int err;
++
++	if (ca0132_quirk(spec) != QUIRK_AE5)
++		return 0;
++
++	guard(mutex)(&spec->ae5_direct_mutex);
++
++	if (spec->ae5_playback_open)
++		return -EBUSY;
++
++	if (spec->ae5_direct_mode) {
++		err = snd_pcm_hw_constraint_minmax(substream->runtime,
++						   SNDRV_PCM_HW_PARAM_CHANNELS,
++						   2, 2);
++		if (err < 0)
++			return err;
++		err = snd_pcm_hw_constraint_list(substream->runtime, 0,
++						 SNDRV_PCM_HW_PARAM_RATE,
++						 &direct_rate_list);
++		if (err < 0)
++			return err;
++	}
++
++	spec->ae5_playback_open = true;
++	return 0;
++}
++
++static int ca0132_playback_pcm_close(struct hda_pcm_stream *hinfo,
++				     struct hda_codec *codec,
++				     struct snd_pcm_substream *substream)
++{
++	struct ca0132_spec *spec = codec->spec;
++
++	if (ca0132_quirk(spec) == QUIRK_AE5) {
++		guard(mutex)(&spec->ae5_direct_mutex);
++
++		spec->ae5_playback_open = false;
++	}
++
+ 	return 0;
+ }
+ 
+@@ -3899,18 +4274,47 @@ static int ca0132_playback_pcm_cleanup(struct hda_pcm_stream *hinfo,
+ 			struct snd_pcm_substream *substream)
+ {
+ 	struct ca0132_spec *spec = codec->spec;
++	unsigned int stream_enabled;
++	bool direct_mode = false;
++	int err = 0, restore_err;
+ 
+ 	if (spec->dsp_state == DSP_DOWNLOADING)
+ 		return 0;
+ 
++	if (ca0132_quirk(spec) == QUIRK_AE5) {
++		scoped_guard(mutex, &spec->ae5_direct_mutex) {
++			direct_mode = spec->ae5_direct_mode;
++			if (direct_mode) {
++				guard(mutex)(&spec->chipio_mutex);
++
++				chipio_set_stream_control(codec, 0x14, 0);
++				restore_err =
++					ae5_direct_mode_restore_playback_no_mutex(codec);
++				if (restore_err < 0) {
++					codec_err(codec,
++						  "AE-5 Direct Mode: failed to restore playback router\n");
++					err = restore_err;
++				}
++				chipio_get_stream_control(codec, 0x14,
++							  &stream_enabled);
++				if (stream_enabled) {
++					codec_err(codec,
++						  "AE-5 Direct Mode: stream 0x14 failed to stop\n");
++					err = -EIO;
++				}
++			}
++		}
++	}
++
+ 	/*If Playback effects are on, allow stream some time to flush
+ 	 *effects tail*/
+-	if (spec->effects_switch[PLAY_ENHANCEMENT - EFFECT_START_NID])
++	if (!direct_mode &&
++	    spec->effects_switch[PLAY_ENHANCEMENT - EFFECT_START_NID])
+ 		msleep(50);
+ 
+ 	snd_hda_codec_cleanup_stream(codec, spec->dacs[0]);
+ 
+-	return 0;
++	return err;
+ }
+ 
+ static unsigned int ca0132_playback_pcm_delay(struct hda_pcm_stream *info,
+@@ -3924,6 +4328,9 @@ static unsigned int ca0132_playback_pcm_delay(struct hda_pcm_stream *info,
+ 	if (spec->dsp_state != DSP_DOWNLOADED)
+ 		return 0;
+ 
++	if (spec->ae5_direct_mode)
++		return 0;
++
+ 	/* Add latency if playback enhancement and either effect is enabled. */
+ 	if (spec->effects_switch[PLAY_ENHANCEMENT - EFFECT_START_NID]) {
+ 		if ((spec->effects_switch[SURROUND - EFFECT_START_NID]) ||
+@@ -5932,6 +6339,93 @@ static int ae5_sound_filter_put(struct snd_kcontrol *kcontrol,
+ 	return 1;
+ }
+ 
++/*
++ * Direct Mode bypasses the CA0132 DSP playback path. The AE-5 Windows driver
++ * stops stream 0x18 when enabling it and reconstructs the normal 96 kHz ASI
++ * path when disabling it.
++ */
++static int ae5_direct_mode_set(struct hda_codec *codec, bool enable)
++{
++	struct ca0132_spec *spec = codec->spec;
++	unsigned int stream_enabled;
++	int err;
++
++	guard(mutex)(&spec->chipio_mutex);
++
++	if (enable) {
++		chipio_set_stream_control(codec, 0x18, 0);
++	} else {
++		chipio_set_stream_control(codec, 0x14, 0);
++		err = ae5_direct_mode_restore_playback_no_mutex(codec);
++		if (err < 0)
++			return err;
++		chipio_set_stream_source_dest(codec, 0x18, 0x09, 0xd0);
++		chipio_set_conn_rate_no_mutex(codec, 0xd0, SR_96_000);
++		chipio_set_stream_channels(codec, 0x18, 6);
++		err = ae5_direct_mode_set_rate_no_mutex(codec, 96000);
++		if (err < 0)
++			return err;
++		spec->ae5_direct_rate = 96000;
++		chipio_set_control_param_no_mutex(codec, CONTROL_PARAM_ASI, 7);
++		chipio_set_stream_control(codec, 0x18, 1);
++	}
++
++	chipio_get_stream_control(codec, 0x18, &stream_enabled);
++	if (!!stream_enabled != !enable) {
++		codec_err(codec,
++			  "AE-5 Direct Mode: stream 0x18 transition failed\n");
++		return -EIO;
++	}
++
++	return 0;
++}
++
++static int ae5_direct_mode_get(struct snd_kcontrol *kcontrol,
++			       struct snd_ctl_elem_value *ucontrol)
++{
++	struct hda_codec *codec = snd_kcontrol_chip(kcontrol);
++	struct ca0132_spec *spec = codec->spec;
++
++	guard(mutex)(&spec->ae5_direct_mutex);
++
++	ucontrol->value.integer.value[0] = spec->ae5_direct_mode;
++	return 0;
++}
++
++static int ae5_direct_mode_put(struct snd_kcontrol *kcontrol,
++			       struct snd_ctl_elem_value *ucontrol)
++{
++	struct hda_codec *codec = snd_kcontrol_chip(kcontrol);
++	struct ca0132_spec *spec = codec->spec;
++	bool enable = !!ucontrol->value.integer.value[0];
++	int err;
++
++	scoped_guard(mutex, &spec->ae5_direct_mutex) {
++		if (spec->ae5_playback_open)
++			return -EBUSY;
++		if (spec->ae5_direct_mode == enable)
++			return 0;
++	}
++
++	CLASS(snd_hda_power_pm, pm)(codec);
++	guard(mutex)(&spec->ae5_direct_mutex);
++
++	if (spec->ae5_playback_open)
++		return -EBUSY;
++	if (spec->ae5_direct_mode == enable)
++		return 0;
++	if (spec->dsp_state != DSP_DOWNLOADED)
++		return -EIO;
++
++	err = ae5_direct_mode_set(codec, enable);
++	if (err < 0)
++		return err;
++
++	spec->ae5_direct_mode = enable;
++	spec->ae5_direct_restore_pending = !enable;
++	return 1;
++}
++
+ /*
+  * Input Select Control for alternative ca0132 codecs. This exists because
+  * front microphone has no auto-detect, and we need a way to set the rear
+@@ -6879,6 +7373,19 @@ static int ae5_add_sound_filter_enum(struct hda_codec *codec)
+ 				snd_ctl_new1(&knew, codec));
+ }
+ 
++static int ae5_add_direct_mode_switch(struct hda_codec *codec)
++{
++	static const struct snd_kcontrol_new knew = {
++		.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
++		.name = "AE-5: Direct Mode Playback Switch",
++		.info = snd_ctl_boolean_mono_info,
++		.get = ae5_direct_mode_get,
++		.put = ae5_direct_mode_put,
++	};
++
++	return snd_hda_ctl_add(codec, 0, snd_ctl_new1(&knew, codec));
++}
++
+ static int zxr_add_headphone_gain_switch(struct hda_codec *codec)
+ {
+ 	struct snd_kcontrol_new knew =
+@@ -7148,6 +7655,10 @@ static int ca0132_build_controls(struct hda_codec *codec)
+ 
+ 	switch (ca0132_quirk(spec)) {
+ 	case QUIRK_AE5:
++		err = ae5_add_direct_mode_switch(codec);
++		if (err < 0)
++			return err;
++		fallthrough;
+ 	case QUIRK_AE7:
+ 		err = ae5_add_headphone_gain_enum(codec);
+ 		if (err < 0)
+@@ -7225,6 +7736,8 @@ static const struct hda_pcm_stream ca0132_pcm_analog_playback = {
+ 	.channels_min = 2,
+ 	.channels_max = 6,
+ 	.ops = {
++		.open = ca0132_playback_pcm_open,
++		.close = ca0132_playback_pcm_close,
+ 		.prepare = ca0132_playback_pcm_prepare,
+ 		.cleanup = ca0132_playback_pcm_cleanup,
+ 		.get_delay = ca0132_playback_pcm_delay,
+@@ -8746,6 +9259,7 @@ static void ca0132_init_chip(struct hda_codec *codec)
+ 	unsigned int on;
+ 
+ 	mutex_init(&spec->chipio_mutex);
++	mutex_init(&spec->ae5_direct_mutex);
+ 
+ 	/*
+ 	 * The Windows driver always does this upon startup, which seems to
+@@ -9525,6 +10039,15 @@ static int ca0132_init(struct hda_codec *codec)
+ 		break;
+ 	case QUIRK_AE5:
+ 		ae5_setup_defaults(codec);
++		spec->ae5_direct_rate = 96000;
++		scoped_guard(mutex, &spec->ae5_direct_mutex) {
++			if (spec->ae5_direct_mode &&
++			    ae5_direct_mode_set(codec, true) < 0) {
++				codec_warn(codec,
++					   "failed to restore AE-5 Direct Mode\n");
++				spec->ae5_direct_mode = false;
++			}
++		}
+ 		break;
+ 	case QUIRK_AE7:
+ 		ae7_setup_defaults(codec);

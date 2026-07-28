@@ -1,0 +1,49 @@
+diff --git a/sound/hda/codecs/ca0132.c b/sound/hda/codecs/ca0132.c
+--- a/sound/hda/codecs/ca0132.c
++++ b/sound/hda/codecs/ca0132.c
+@@ -2437,6 +2437,35 @@ static int dspio_set_uint_param(struct hda_codec *codec, int mod_id,
+ 			sizeof(unsigned int));
+ }
+ 
++static void ca0132_query_speaker_eq_address(struct hda_codec *codec)
++{
++	struct ca0132_spec *spec = codec->spec;
++	unsigned int address;
++	unsigned int reply_len = sizeof(address);
++	int err;
++
++	if (ca0132_quirk(spec) != QUIRK_AE5 &&
++	    ca0132_quirk(spec) != QUIRK_AE7)
++		return;
++
++	err = dspio_scp(codec, MASTERCONTROL, 0x20,
++			MASTERCONTROL_QUERY_SPEAKER_EQ_ADDRESS, SCP_GET,
++			NULL, 0, &address, &reply_len);
++	if (err < 0) {
++		codec_dbg(codec, "SpeakerEQ address query failed: %d\n", err);
++		return;
++	}
++
++	if (reply_len != sizeof(address)) {
++		codec_dbg(codec,
++			  "SpeakerEQ address query returned %u bytes\n",
++			  reply_len);
++		return;
++	}
++
++	codec_dbg(codec, "SpeakerEQ address: %#x\n", address);
++}
++
+ /*
+  * Allocate a DSP DMA channel via an SCP message
+  */
+@@ -9499,6 +9528,9 @@ static int ca0132_init(struct hda_codec *codec)
+ 		break;
+ 	}
+ 
++	if (spec->dsp_state == DSP_DOWNLOADED)
++		ca0132_query_speaker_eq_address(codec);
++
+ 	for (i = 0; i < spec->num_outputs; i++)
+ 		init_output(codec, spec->out_pins[i], spec->dacs[0]);
+ 

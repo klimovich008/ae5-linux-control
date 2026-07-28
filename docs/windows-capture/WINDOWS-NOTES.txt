@@ -1,0 +1,29 @@
+Windows version/build:
+AE-5 driver version:
+Sound Blaster Command version:
+AE-5 output:
+Headphones:
+Windows master volume (must be <=20%):
+Player session volume (must be <=20%):
+Creative playback volume(s) (must be <=20%):
+20% cap and mute reverified after final route/profile change:
+Headphone gain (must be Low):
+Channel mode:
+Sample rate:
+DAC filter:
+SBX state:
+Equalizer state:
+Scout Mode state:
+Direct Mode state:
+Windows enhancements state:
+Spatial Sound state:
+Named headphone tuning and exact visible name:
+FiFine model/device name:
+Recording channel count:
+Recording sample rate:
+Recording export format:
+Microphone input gain:
+Headphone/microphone position marks:
+Room/background conditions:
+Capture date/time:
+Notes:

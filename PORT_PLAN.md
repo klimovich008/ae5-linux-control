@@ -27,7 +27,9 @@ This is more promising than starting a driver from scratch:
   line-out, surround, and digital output when it was submitted upstream.
 - RGB, true Direct Mode, some speaker calibration functions, Scout Mode, and
   licensed Dolby/DTS encoding are not equivalent to ordinary ALSA mixer
-  controls and must be treated as separate features.
+  controls and require separate, capability-specific interfaces. The first
+  AE-5 Direct Mode interface is now implemented as a kernel candidate but
+  remains outside the support claim until physical validation.
 
 Therefore the project has two tracks:
 
@@ -65,15 +67,18 @@ tested against a Windows reference and on real Linux hardware.
 - Match the Windows audio path as closely as the hardware, firmware, and
   measurable settings permit; unexplained differences are driver bugs, not GUI
   presets.
+- Control and persist the five onboard RGB LEDs through a constrained kernel
+  LED-class interface, without userspace MMIO.
 - Produce a diagnostics bundle that excludes personal data by default.
 - Run without root privileges during normal use.
 
 ### Investigate after Version 1
 
-- A genuine DSP-bypass Direct Mode and its supported sample formats.
+- Higher Direct Mode rates, but only after the candidate's existing stereo
+  formats are proven on physical Linux hardware.
 - Per-channel speaker level and delay calibration.
 - Reliable desktop echo cancellation.
-- AE-5 card and external-strip RGB control.
+- External-strip RGB control.
 - PipeWire-based substitutes where the hardware DSP has no usable interface.
 
 ### Not part of the first release
@@ -108,12 +113,13 @@ what the installed kernel actually exposes on the user's card.
 | Noise reduction/Mic SVM/VoiceFX | Exposed by driver | Wrap controls and presets |
 | Echo cancellation | Code exists, but is deliberately skipped on desktop cards because it is known to break them | Keep disabled until a driver fix is proven |
 | What U Hear | Exposed as capture PCM/mixer controls | Test and expose if present |
-| True Direct Mode | No clear public ALSA control | Driver research gate |
+| True Direct Mode | AE-5-only ALSA switch candidate with safe open-PCM exclusion and normal-route restoration | Run the physical acceptance matrix before enabling the support claim |
 | Speaker distance calibration | Hardware requests are known internally but not offered as a stable public control | Driver or PipeWire research gate |
-| RGB/Aurora | No current `ca0132` interface | Separate kernel/OpenRGB workstream |
+| Onboard RGB/Aurora | Five-device multicolor LED-class candidate, normal-user backend, and native GTK dialog are validated | Visibly confirm one GUI-selected color on the physical card |
+| External-strip RGB | No current `ca0132` interface | Continue as a separate kernel/OpenRGB workstream |
 | Scout Mode | No current upstream interface | Exclude initially |
 | Dolby/DTS live encoding | No current upstream interface | Exclude |
-| Windows profile migration | Command documents JSON profile export/import, and the AE-5 software release added EQ import/export | Parse verified exports and convert supported fields |
+| Windows profile migration | Command 3.5.10.0 profile/EQ exports are confirmed byte-for-byte equivalent to its stored JSON; the active originals convert and pass physical-card checks | Repeat compatibility checks when Creative changes the schema |
 | Windows/Linux sound mismatch | Likely spans driver initialization, DSP/speaker-EQ state, Direct Mode, and desktop resampling | Measure each layer and fix the first divergent shared path |
 
 ## 4. Minimal architecture
@@ -122,10 +128,10 @@ what the installed kernel actually exposes on the user's card.
 Sound Blaster Command JSON ── migration importer ─┐
                                                  │
 Rust/GTK application ─┐                           │
-                     ├─ shared Rust backend ──────┴─ libasound ── ALSA controls
-CLI / test commands ─┘          │
-                                ├─ wpctl (routing/default-device actions only)
-                                └─ native JSON profiles in the user's XDG config
+                     ├─ shared Rust backend ──────┬─ libasound ── ALSA controls
+CLI / test commands ─┘                           ├─ validated multicolor LED class
+                                                 ├─ wpctl (routing/default-device actions only)
+                                                 └─ JSON profiles and lighting in XDG config
 
 PipeWire/WirePlumber ── ALSA PCM devices ── snd_hda_intel + ca0132 ── AE-5
 ```
@@ -143,6 +149,8 @@ Implementation defaults:
 - Exact ALSA control names and runtime capability discovery, not hard-coded
   `numid` values or card indexes.
 - No daemon, database, web service, Electron runtime, or root helper.
+- One package-owned udev rule grants writes only to `brightness` and
+  `multi_intensity` on the exact five validated onboard LED devices.
 - No custom kernel module unless a missing function first proves that an
   upstreamable `ca0132` change is required.
 
@@ -156,6 +164,8 @@ Optimization is measured rather than assumed:
 - Initial reference targets: effectively zero idle CPU, control readback shown
   within 100 ms, cold start below one second, and resident memory below 100 MiB
   on the agreed reference system.
+- The reproducible five-run baseline and before/after profile are recorded in
+  [`docs/GUI_PERFORMANCE.md`](docs/GUI_PERFORMANCE.md).
 - A slower metric is profiled before adding caches, threads, or unsafe code.
 
 ### 4.1 Windows settings migration
@@ -268,7 +278,8 @@ For every reported ALSA control:
 
 1. Read its type, valid range, enum labels, channel count, and current value.
 2. Save the original value.
-3. Apply safe low/middle values while playing or recording a known fixture.
+3. Run the shared fail-closed playback preflight against the exact fixture,
+   then apply safe low/middle values while playing or recording it.
 4. Read the value back.
 5. Verify the audible or measurable hardware change.
 6. Restore the original value.
@@ -320,6 +331,41 @@ Pass condition: with headphones already connected, ten cold boots and twenty
 suspend/resume cycles produce audio on the correct jack without opening a
 mixer or toggling any control.
 
+Current evidence: the card-scoped ACP route preserves the shared Front DAC,
+and a guarded external-microphone test measured its physical 997 Hz headphone
+output 19.59 dB above a Front-muted negative control. The integrated candidate
+also survived three warm guest reboots and 50 alternating output selections
+with the expected codec-pin state and exact mixer restoration. On the stock
+host, the installed CLI then completed a Speakers-to-Headphone desktop route
+cycle and produced a physical 997 Hz component 10.88 dB above both its quiet
+baseline and Front-muted negative control, with exact persistent mixer and
+route restoration. The paired boot collector now waits for the complete
+root-cause route-control set and will report trailing progress toward ten
+consecutive valid boots; the two incomplete historical pairs remain `0/10`.
+The same collector now has paired, user-driven suspend records and a strict
+20-cycle summary. Its pre-suspend gate refuses to append or proceed when any
+ALSA/PipeWire playback stage exceeds 20%, gain is not Low, a PCM is open, or
+the route/evidence is incomplete; a pair also requires exact mixer
+restoration and no new relevant kernel warning. No physical suspend cycle has
+yet been counted.
+The CLI and GTK diagnostics now compare ALSA `Output Select` and `Input Source`
+with PipeWire's live Route parameters. Physical deliberately split
+Headphone/Line-Out and Microphone/Line-In states were detected with nonzero
+results and repaired through the shared Rust setters with the exact mixer hash
+restored.
+The same shared setter now maps ALSA 2.0, 2.1, 4.0, 4.1, and 5.1 to the exact
+PipeWire analog profile while preserving the duplex input side. A silent
+physical-card matrix validated every profile and the return to Headphone/2.0
+with all PCMs closed. During that matrix, saved PipeWire routes were proven to
+reload hardware gains as high as 98% even from a nominal 20% desktop setting.
+The card-scoped rule now requires PipeWire software volume, and the headphone
+path ignores rather than forces the shared Front DAC volume. Repeated
+post-fix transitions preserved raw Master 19/99, Front 19/99, PCM 51/255,
+zeroed unused channels, Low gain, and a 0% muted test sink. Managed routing
+fails closed until the live PipeWire device reports this policy.
+The remaining gate is the ten-host-cold-boot and twenty-suspend/resume
+lifecycle matrix.
+
 #### Sound does not match Windows
 
 “Performance” is converted into measurements before changing code:
@@ -342,9 +388,9 @@ Isolation order:
    relevant ALSA control and driver default.
 4. Compare DSP-disabled stereo, DSP-enabled flat, each DAC filter, each
    headphone gain, and representative SBX settings separately.
-5. Investigate known upstream gaps as hypotheses: true Direct Mode is not
-   exposed, the driver comments that `ctspeq.bin` speaker/headphone EQ data is
-   unused, and output selection currently clears
+5. Investigate known upstream gaps as hypotheses: the Direct Mode candidate is
+   not yet physically proven, the driver comments that `ctspeq.bin`
+   speaker/headphone EQ data is unused, and output selection currently clears
    `SPEAKER_TUNING_USE_SPEAKER_EQ`.
 6. Reproduce the Windows register/DSP sequence for the first divergent mode,
    implement only the understood missing step in `ca0132`, and rerun the full
@@ -358,6 +404,14 @@ Initial parity targets with processing disabled are: output level within
 sample-rate conversion, and noise/THD results within 3 dB or the repeatability
 limit of the measurement setup. Any larger remaining difference must have an
 identified cause and documented limitation.
+
+Current Linux analog evidence now includes a guarded external headphone
+matrix. Two advertised five-step Master changes measured within `0.66 dB`,
+Master mute reached the acoustic baseline, and Low, Medium, and attenuated High
+gain produced distinct repeatable levels. The same setup could not resolve the
+18 kHz DAC filters above its noise floor, so that comparison moves to a safely
+attenuated electrical capture instead of increasing near-ultrasonic headphone
+level or inventing a compensating map.
 
 Exit criterion: headphone startup is reliable, and the Windows/Linux
 measurement report either meets the parity targets or identifies a specific
@@ -384,7 +438,8 @@ Use sources in this order:
 4. The merged OpenRGB AE-5/AE-5 Plus implementation. Its GPL source documents
    PCI IDs, five internal LEDs, the command packet layout, and the Windows
    driver IOCTL used for lighting. The merged implementation is Windows-only,
-   so Linux RGB still needs a narrow kernel interface.
+   and supplied the public evidence for the narrow onboard Linux kernel
+   interface now carried here.
 5. Creative's public manuals, profile exports, firmware already distributable
    through `linux-firmware`, and hardware measurements.
 6. Targeted static or dynamic analysis of a legally obtained Windows package
@@ -398,10 +453,16 @@ Initial findings:
   upload path. It also notes that `ctspeq.bin` is currently unused and that
   Windows enables `SPEAKER_TUNING_USE_SPEAKER_EQ` after uploading a profile.
   This is a concrete hypothesis for the measured Windows/Linux sound gap.
+- A bounded physical probe sent the documented request `60` both immediately
+  after firmware download and after full AE-5 setup. The distributed desktop
+  firmware returned no reply in either position. This removes the simple
+  timing hypothesis but does not justify guessing undocumented request fields
+  or loading the Chromebook `ctspeq.bin`.
 - The two 2026 upstream headphone-selection commits are direct candidate fixes
   for the first-use toggle symptom and should be tested before new code.
 - OpenRGB merge request !2997 adds an AE-5 command structure and a Creative
-  driver IOCTL for lighting, but not a Linux hardware backend.
+  driver IOCTL for lighting, but not a Linux hardware backend. The repository's
+  five-LED kernel candidate now supplies that backend for onboard LEDs only.
 
 Licensing and clean-room gate:
 
@@ -495,10 +556,13 @@ Goal: expose the proven backend without inventing a second control path.
 Pages:
 
 - Device and diagnostics
-- Playback/output
-- Speakers and bass management
+- Sound Blaster Command compatibility and remaining acceptance gates
+- System audio routing and native rates
+- Onboard lighting
+- Native profiles and Windows migration
+- Playback/output and speaker bass management
 - SBX/output effects
-- Equalizer and profiles
+- Equalizer
 - Recording/input effects
 
 Behavior:
@@ -538,20 +602,52 @@ Each feature is a separate investigation and patch series:
 
 Candidate order:
 
-1. Remaining measured Windows-parity gap from Phase 1A.
-2. True Direct Mode and supported high-resolution formats.
+1. Physically validate the implemented Direct Mode transition and its existing
+   stereo formats.
+2. Add higher Direct Mode rates only if converter and output measurements
+   prove them.
 3. Speaker level/delay calibration.
 4. Desktop echo cancellation, only if it can be made reliable.
-5. RGB through an appropriate kernel LED interface, then reuse it from
-   OpenRGB or AE-5 Control.
+5. External-strip RGB, extending the now-validated onboard kernel LED
+   interface and reusing it from OpenRGB or AE-5 Control.
 
-RGB work must build on the existing OpenRGB investigation, which has Windows
-support but still identifies Linux as needing a kernel-driver interface. It
-must not use `/dev/mem` or unrestricted userspace MMIO.
+RGB work builds on the existing OpenRGB investigation and must not use
+`/dev/mem` or unrestricted userspace MMIO. The onboard five-LED candidate now
+has a physically validated kernel interface and normal-user Rust backend. Its
+unchanged release GUI also passed native GTK unified/per-LED, cancel,
+persistence, and cold-readback checks against a private LED-class fixture in
+a real KDE/Wayland session. Visible physical confirmation and the external
+strip remain separate acceptance gates.
 
 Temporary test kernels remain boot-menu alternatives to the known-good stock
 kernel. Proprietary Creative binaries or firmware are not copied into the
 repository.
+
+Current driver status: four independent audio/DSP fixes apply cleanly to the
+ALSA maintainer tree's verified 2026-07-25 `for-next` head. Together they
+compile with `W=1` and warnings as errors, pass all four DSP-image KUnit cases,
+and have completed guarded physical initialization, playback, loopback
+capture, control, reboot, route-stress, shutdown, and host-recovery checks.
+The complete stack also passed strict builds, KUnit, two no-device boots, and
+one physical/recovery cycle on Linux 6.18.40 LTS. Analog-input behavior,
+suspend/resume, and the contributor's personal DCO sign-off remain before this
+project treats the relevant series as fully accepted and submitted.
+The separately reviewable onboard-RGB candidate passed the same strict build,
+a no-device boot, root LED-class exercise, and a normal-user package cycle on
+the physical card. The native GTK dialog path passed separately in a real
+desktop session with an isolated LED-class fixture; visible color confirmation
+on the card remains open.
+The AE-5 Direct Mode candidate reconstructs the known normal route, excludes
+open-PCM transitions, and passes strict kernel style/object builds, all 78
+Rust/GTK tests, guarded physical bypass/format/routing/stress checks, and three
+warm guest boots. The host-configured side-by-side kernel RPM now also includes
+the Smart Volume resume fix. Its 6,326-module tree passed non-installing
+verification, the exact image passed a no-audio QEMU smoke boot, and a
+one-shot cardless full-root boot loaded matching signed CA0132/RGB modules
+with zero taint, zero failed units, clean relevant logs, and automatic fallback
+to the saved guest kernel. Bare-metal cold boot, suspend/resume, Smart Volume
+capture, and connected line-out gates are tracked in
+`docs/DIRECT_MODE_INVESTIGATION.md` and `docs/HOST_KERNEL_BUILD.md`.
 
 Exit criterion for each feature: the new interface has readback, validation,
 power-management coverage, clean kernel logs, and repeatable hardware results.
@@ -562,6 +658,9 @@ Goal: make the verified application easy to install without expanding the
 support claim prematurely.
 
 - Package first for the user's distribution.
+- Provide a reversible XDG user installation when an authenticated package
+  transaction is unavailable, without pretending it can install kernel or
+  udev components.
 - Add a desktop entry and only the runtime dependencies actually used.
 - Use normal audio-group/session permissions; do not install a setuid helper.
 - Test the current stable kernel and one maintained LTS kernel.
@@ -569,6 +668,17 @@ support claim prematurely.
   reports and smoke-test results.
 - Consider Flatpak/AppImage only if their device-access model works without
   broad permissions; native packages come first.
+
+Current package status: pull-request CI builds a fresh Fedora 44 RPM and runs
+its real install, verification, command smoke tests, removal, file-cleanup,
+and profile/ALSA-state preservation checks in a disposable container. An exact
+RPM payload has also passed physical-card detection and a safe write/readback
+on Linux 6.18.40 LTS. The rootless XDG installer passed an automated isolated
+install/reinstall/remove lifecycle and launched the installed GTK application
+from its desktop entry on the physical-card host with exact mixer and route
+preservation. Authenticated host RPM installation/removal, one approved
+physical write as the desktop user, and visible onboard color confirmation
+remain before this phase is complete.
 
 Exit criterion: a clean machine can install, detect, configure, uninstall, and
 return to standard ALSA behavior without manual cleanup.
@@ -607,9 +717,11 @@ Run through direct ALSA and the normal PipeWire desktop path where applicable:
 | Lifecycle | cold boot, warm reboot, suspend/resume, app restart, driver reload in a controlled test |
 | Concurrency | change settings during playback, recording, and full-duplex use |
 
-Use `speaker-test` for channel identity and known WAV fixtures for playback.
-Use `arecord`/`pw-record` for capture. Tests must restore the starting mixer
-snapshot.
+Use the generated, hash-verified `parity-channel-id-6ch.wav` for channel
+identity; do not use `speaker-test`, whose generated signal cannot be scanned
+first. Use `arecord`/`pw-record` for capture. Tests must restore the starting
+mixer snapshot. Immediately before every non-silent stream, run
+`scripts/audio-parity.sh playback-preflight` against the exact fixture.
 
 ### 6.3 Objective audio comparison
 
@@ -706,6 +818,9 @@ Version 1 is accepted only when:
 13. The stability suite completes with no new kernel error and no app crash.
 14. The feature-parity table names every Sound Blaster Command feature as
     verified, intentionally substituted, deferred, or unsupported.
+15. Every audio-producing development test keeps each hardware and software
+    playback-volume control at or below 20%, uses Low headphone gain, and keeps
+    the headphones unworn or physically clear during unattended playback.
 
 “Works as intended” means these results are saved with command output, logs,
 and measurement artifacts. It does not mean “the UI opened” or “sound was
@@ -744,7 +859,8 @@ heard once.”
 If the stock controls behave as the upstream source indicates, a useful audio
 control MVP should be much smaller than a full driver project. Full
 Sound Blaster Command parity remains an open-ended reverse-engineering project,
-mainly because of Direct Mode, RGB, Scout features, and licensed encoding.
+mainly because Direct Mode still needs physical acceptance, while
+external-strip RGB, Scout features, and licensed encoding remain unresolved.
 
 ## 10. Primary references
 

@@ -1,0 +1,58 @@
+name: Kernel patch compatibility
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/kernel-compatibility.yml"
+      - "kernel/**"
+      - "scripts/apply-kernel-series.sh"
+  pull_request:
+    paths:
+      - ".github/workflows/kernel-compatibility.yml"
+      - "kernel/**"
+      - "scripts/apply-kernel-series.sh"
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  alsa-for-next:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - name: Check the AE-5 queue against current ALSA for-next
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          source_tree=$RUNNER_TEMP/sound-for-next
+          sound_url=https://git.kernel.org/pub/scm/linux/kernel/git/tiwai/sound.git
+          sound_head=$(
+            git ls-remote "$sound_url" refs/heads/for-next |
+              awk 'NR == 1 { print $1 }'
+          )
+          [[ $sound_head =~ ^[0-9a-f]{40}$ ]]
+
+          for path in \
+            Makefile \
+            include/sound/hda_codec.h \
+            sound/hda/common/codec.c \
+            sound/hda/codecs/Kconfig \
+            sound/hda/codecs/Makefile \
+            sound/hda/codecs/ca0132.c
+          do
+            target=$source_tree/$path
+            mkdir -p -- "$(dirname -- "$target")"
+            curl --fail --location --silent --show-error --retry 3 \
+              "$sound_url/plain/$path?id=$sound_head" \
+              --output "$target"
+          done
+
+          printf 'alsa_for_next=%s\n' "$sound_head"
+          bash scripts/apply-kernel-series.sh --check "$source_tree"

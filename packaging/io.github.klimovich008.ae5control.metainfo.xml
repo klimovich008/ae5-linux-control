@@ -9,13 +9,21 @@
     <p>
       AE-5 Control is a native GTK application for the Creative Sound BlasterX
       AE-5. It exposes the card's verified ALSA routing, playback, recording,
-      channel balance, DSP effect, equalizer, and profile controls without a
-      background daemon.
+      channel balance, DSP effect, equalizer, profile, and onboard-lighting
+      controls without a background daemon.
     </p>
     <p>
       Profiles can be saved locally or converted from compatible Sound Blaster
-      Command JSON exports. Hardware writes are range-checked, read back, and
-      rolled back when a multi-control profile cannot be applied completely.
+      Command JSON exports. The application includes 33 converted AE-5 factory
+      Sound Effects profiles with route-aware speaker and headphone variants.
+      Hardware writes are range-checked, read back, and rolled back when a
+      multi-control profile or lighting frame cannot be applied completely.
+    </p>
+    <p>
+      The device page reports live hardware and driver capabilities and can
+      save a privacy-conscious diagnostics report without root privileges.
+      A compatibility page lists evidence-tracked Linux equivalents, pending
+      acceptance work, and unavailable Sound Blaster Command features.
     </p>
   </description>
   <launchable type="desktop-id">io.github.klimovich008.ae5control.desktop</launchable>

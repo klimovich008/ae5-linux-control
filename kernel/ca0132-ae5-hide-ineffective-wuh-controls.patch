@@ -1,0 +1,39 @@
+diff --git a/sound/hda/codecs/ca0132.c b/sound/hda/codecs/ca0132.c
+--- a/sound/hda/codecs/ca0132.c
++++ b/sound/hda/codecs/ca0132.c
+@@ -6967,6 +6967,26 @@ static const struct snd_kcontrol_new desktop_mixer[] = {
+ 	{ } /* end */
+ };
+ 
++/*
++ * The AE-5 DSP loopback bypasses the input amplifier on node 0x0a, so its
++ * standard HDA volume and mute controls have no effect on What U Hear.
++ */
++static const struct snd_kcontrol_new ae5_mixer[] = {
++	CA0132_ALT_CODEC_VOL("Front Playback Volume", 0x02, HDA_OUTPUT),
++	CA0132_CODEC_MUTE("Front Playback Switch", VNID_SPK, HDA_OUTPUT),
++	HDA_CODEC_VOLUME("Surround Playback Volume", 0x04, 0, HDA_OUTPUT),
++	HDA_CODEC_MUTE("Surround Playback Switch", 0x04, 0, HDA_OUTPUT),
++	HDA_CODEC_VOLUME_MONO("Center Playback Volume", 0x03, 1, 0, HDA_OUTPUT),
++	HDA_CODEC_MUTE_MONO("Center Playback Switch", 0x03, 1, 0, HDA_OUTPUT),
++	HDA_CODEC_VOLUME_MONO("LFE Playback Volume", 0x03, 2, 0, HDA_OUTPUT),
++	HDA_CODEC_MUTE_MONO("LFE Playback Switch", 0x03, 2, 0, HDA_OUTPUT),
++	CA0132_ALT_CODEC_VOL("Capture Volume", 0x07, HDA_INPUT),
++	CA0132_CODEC_MUTE("Capture Switch", VNID_MIC, HDA_INPUT),
++	CA0132_CODEC_MUTE_MONO("HP/Speaker Auto Detect Playback Switch",
++			       VNID_HP_ASEL, 1, HDA_OUTPUT),
++	{ } /* end */
++};
++
+ /*
+  * Same as the Sound Blaster Z, except doesn't use the alt volume for capture
+  * because it doesn't set decibel levels for the DSP for capture.
+@@ -9954,7 +9974,7 @@ static int ca0132_codec_probe(struct hda_codec *codec,
+ 		snd_hda_codec_set_name(codec, "Recon3Di");
+ 		break;
+ 	case QUIRK_AE5:
+-		spec->mixers[0] = desktop_mixer;
++		spec->mixers[0] = ae5_mixer;
+ 		snd_hda_codec_set_name(codec, "Sound BlasterX AE-5");
+ 		break;
+ 	case QUIRK_AE7:

@@ -1,0 +1,164 @@
+diff --git a/sound/hda/codecs/ca0132.c b/sound/hda/codecs/ca0132.c
+--- a/sound/hda/codecs/ca0132.c
++++ b/sound/hda/codecs/ca0132.c
+@@ -5620,21 +5620,19 @@ static int ca0132_alt_slider_ctl_set(struct hda_codec *codec, hda_nid_t nid,
+ 			if (ca0132_effects[i].nid == X_BASS)
+ 				break;
+ 
+-		dspio_set_param(codec, ca0132_effects[i].mid, 0x20,
++		return dspio_set_param(codec, ca0132_effects[i].mid, 0x20,
+ 				ca0132_effects[i].reqs[1],
+ 				&(lookup[idx - 1]), sizeof(unsigned int));
+-	} else {
+-		/* Find the actual effect structure */
+-		for (i = 0; i < OUT_EFFECTS_COUNT; i++)
+-			if (nid == ca0132_effects[i].nid)
+-				break;
+-
+-		dspio_set_param(codec, ca0132_effects[i].mid, 0x20,
+-				ca0132_effects[i].reqs[y],
+-				&(lookup[idx]), sizeof(unsigned int));
+ 	}
+ 
+-	return 0;
++	/* Find the actual effect structure */
++	for (i = 0; i < OUT_EFFECTS_COUNT; i++)
++		if (nid == ca0132_effects[i].nid)
++			break;
++
++	return dspio_set_param(codec, ca0132_effects[i].mid, 0x20,
++			ca0132_effects[i].reqs[y],
++			&lookup[idx], sizeof(unsigned int));
+ }
+ 
+ static int ca0132_alt_xbass_xover_slider_ctl_get(struct snd_kcontrol *kcontrol,
+@@ -5733,19 +5731,20 @@ static int ca0132_alt_effect_slider_put(struct snd_kcontrol *kcontrol,
+ 	struct ca0132_spec *spec = codec->spec;
+ 	hda_nid_t nid = get_amp_nid(kcontrol);
+ 	long *valp = ucontrol->value.integer.value;
+-	int idx;
++	int err, idx;
+ 
+ 	idx = nid - EFFECT_START_NID;
+ 	/* any change? */
+ 	if (spec->fx_ctl_val[idx] == *valp)
+ 		return 0;
+ 
+-	spec->fx_ctl_val[idx] = *valp;
+-
+-	idx = *valp;
+-	ca0132_alt_slider_ctl_set(codec, nid, float_zero_to_one_lookup, idx);
++	err = ca0132_alt_slider_ctl_set(codec, nid, float_zero_to_one_lookup,
++					*valp);
++	if (err < 0)
++		return err;
+ 
+-	return 0;
++	spec->fx_ctl_val[idx] = *valp;
++	return 1;
+ }
+ 
+ 
+@@ -6069,6 +6068,19 @@ static int ca0132_alt_speaker_channel_cfg_put(struct snd_kcontrol *kcontrol,
+  */
+ #define NUM_OF_SVM_SETTINGS 3
+ static const char *const out_svm_set_enum_str[3] = {"Normal", "Loud", "Night" };
++static const unsigned int out_svm_set_values[] = {
++	FLOAT_ZERO, FLOAT_ONE, FLOAT_TWO
++};
++
++static int ca0132_alt_svm_setting_set(struct hda_codec *codec,
++				      unsigned int sel)
++{
++	unsigned int idx = SMART_VOLUME - EFFECT_START_NID;
++
++	return dspio_set_uint_param(codec, ca0132_effects[idx].mid,
++			ca0132_effects[idx].reqs[2],
++			out_svm_set_values[sel]);
++}
+ 
+ static int ca0132_alt_svm_setting_info(struct snd_kcontrol *kcontrol,
+ 				 struct snd_ctl_elem_info *uinfo)
+@@ -6100,37 +6112,39 @@ static int ca0132_alt_svm_setting_put(struct snd_kcontrol *kcontrol,
+ 	struct ca0132_spec *spec = codec->spec;
+ 	int sel = ucontrol->value.enumerated.item[0];
+ 	unsigned int items = NUM_OF_SVM_SETTINGS;
+-	unsigned int idx = SMART_VOLUME - EFFECT_START_NID;
+-	unsigned int tmp;
++	int err;
+ 
+ 	if (sel >= items)
+ 		return 0;
++	if (spec->smart_volume_setting == sel)
++		return 0;
+ 
+ 	codec_dbg(codec, "ca0132_alt_svm_setting: sel=%d, preset=%s\n",
+ 		    sel, out_svm_set_enum_str[sel]);
+ 
+-	spec->smart_volume_setting = sel;
++	err = ca0132_alt_svm_setting_set(codec, sel);
++	if (err < 0)
++		return err;
+ 
+-	switch (sel) {
+-	case 0:
+-		tmp = FLOAT_ZERO;
+-		break;
+-	case 1:
+-		tmp = FLOAT_ONE;
+-		break;
+-	case 2:
+-		tmp = FLOAT_TWO;
+-		break;
+-	default:
+-		tmp = FLOAT_ZERO;
+-		break;
+-	}
+-	/* Req 2 is the Smart Volume Setting req. */
+-	dspio_set_uint_param(codec, ca0132_effects[idx].mid,
+-			ca0132_effects[idx].reqs[2], tmp);
++	spec->smart_volume_setting = sel;
+ 	return 1;
+ }
+ 
++static int ca0132_alt_svm_restore(struct hda_codec *codec)
++{
++	struct ca0132_spec *spec = codec->spec;
++	unsigned int idx = SMART_VOLUME - EFFECT_START_NID;
++	int err;
++
++	err = ca0132_alt_slider_ctl_set(codec, SMART_VOLUME,
++					float_zero_to_one_lookup, spec->fx_ctl_val[idx]);
++	if (err < 0)
++		return err;
++
++	return ca0132_alt_svm_setting_set(codec,
++			spec->smart_volume_setting);
++}
++
+ /* Sound Blaster Z EQ preset controls */
+ static int ca0132_alt_eq_preset_info(struct snd_kcontrol *kcontrol,
+ 				 struct snd_ctl_elem_info *uinfo)
+@@ -9445,7 +9459,7 @@ static int ca0132_init(struct hda_codec *codec)
+ {
+ 	struct ca0132_spec *spec = codec->spec;
+ 	struct auto_pin_cfg *cfg = &spec->autocfg;
+-	int i;
++	int err, i;
+ 	bool dsp_loaded;
+ 
+ 	/*
+@@ -9553,7 +9567,12 @@ static int ca0132_init(struct hda_codec *codec)
+ 	 * controls will not be reloaded.
+ 	 */
+ 	if (spec->dsp_reload) {
+-		spec->dsp_reload = false;
++		if (ca0132_use_alt_controls(spec)) {
++			err = ca0132_alt_svm_restore(codec);
++			if (err < 0)
++				return err;
++		}
+ 		ca0132_pe_switch_set(codec);
++		spec->dsp_reload = false;
+ 	}
+ 

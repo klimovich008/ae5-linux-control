@@ -1,0 +1,77 @@
+diff --git a/sound/hda/codecs/ca0132.c b/sound/hda/codecs/ca0132.c
+--- a/sound/hda/codecs/ca0132.c
++++ b/sound/hda/codecs/ca0132.c
+@@ -5403,6 +5403,14 @@ static int ca0132_pe_switch_set(struct hda_codec *codec)
+ 	codec_dbg(codec, "ca0132_pe_switch_set: val=%ld\n",
+ 		    spec->effects_switch[PLAY_ENHANCEMENT - EFFECT_START_NID]);
+ 
++	/*
++	 * AE-5 setup and output selection already program the safe off route.
++	 * Replaying this transition while it is off can corrupt that route.
++	 */
++	if (ca0132_quirk(spec) == QUIRK_AE5 &&
++	    !spec->effects_switch[PLAY_ENHANCEMENT - EFFECT_START_NID])
++		return 0;
++
+ 	if (ca0132_use_alt_functions(spec))
+ 		ca0132_alt_select_out(codec);
+ 
+@@ -6315,6 +6323,18 @@ static int ca0132_switch_put(struct snd_kcontrol *kcontrol,
+ 
+ 	/* PE */
+ 	if (nid == PLAY_ENHANCEMENT) {
++		/*
++		 * The AE-5 Windows stack implements playback effects in its
++		 * software APO.  Enabling the similarly named CA0132 hardware
++		 * path corrupts the playback stream on this card, and switching
++		 * it off does not reliably recover without reinitializing the
++		 * codec.  Keep the safe route selected until that DSP sequence
++		 * is understood.
++		 */
++		if (ca0132_quirk(spec) == QUIRK_AE5 && *valp) {
++			codec_dbg(codec, "AE-5 hardware OutFX enable rejected\n");
++			return -EOPNOTSUPP;
++		}
+ 		spec->effects_switch[nid - EFFECT_START_NID] = *valp;
+ 		return ca0132_pe_switch_set(codec);
+ 	}
+@@ -8320,6 +8340,6 @@ static void ae5_setup_defaults(struct hda_codec *codec)
+ {
+ 	struct ca0132_spec *spec = codec->spec;
+-	unsigned int tmp;
++	unsigned int tmp, val;
+ 	int num_fx;
+ 	int idx, i;
+ 
+@@ -8363,10 +8383,18 @@ static void ae5_setup_defaults(struct hda_codec *codec)
+ 	num_fx = OUT_EFFECTS_COUNT + IN_EFFECTS_COUNT + 1;
+ 	for (idx = 0; idx < num_fx; idx++) {
+ 		for (i = 0; i <= ca0132_effects[idx].params; i++) {
++			val = ca0132_effects[idx].def_vals[i];
++			/*
++			 * Leave every output block inactive.  The master is
++			 * initialized off below, but writing the child defaults
++			 * here would briefly enter the unsafe hardware path.
++			 */
++			if (idx < OUT_EFFECTS_COUNT && i == 0)
++				val = FLOAT_ZERO;
+ 			dspio_set_uint_param(codec,
+ 					ca0132_effects[idx].mid,
+ 					ca0132_effects[idx].reqs[i],
+-					ca0132_effects[idx].def_vals[i]);
++					val);
+ 		}
+ 	}
+ 
+@@ -8803,7 +8831,10 @@ static void ca0132_init_chip(struct hda_codec *codec)
+ 	}
+ 
+ 	spec->voicefx_val = 0;
+-	spec->effects_switch[PLAY_ENHANCEMENT - EFFECT_START_NID] = 1;
++	if (ca0132_quirk(spec) == QUIRK_AE5)
++		spec->effects_switch[PLAY_ENHANCEMENT - EFFECT_START_NID] = 0;
++	else
++		spec->effects_switch[PLAY_ENHANCEMENT - EFFECT_START_NID] = 1;
+ 	spec->effects_switch[CRYSTAL_VOICE - EFFECT_START_NID] = 0;
+ 
+ 	/*

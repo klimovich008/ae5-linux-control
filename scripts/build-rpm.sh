@@ -39,7 +39,7 @@ spec_version=$(awk '$1 == "Version:" { print $2; exit }' \
 	exit 1
 }
 
-output_root="$project_root/dist"
+output_root=${AE5_RPM_OUTPUT_ROOT:-"$project_root/dist"}
 if [[ -d $output_root ]] &&
 	find "$output_root" -maxdepth 1 -type f \
 		-name "$package_name*-$version-*.rpm" -print -quit |

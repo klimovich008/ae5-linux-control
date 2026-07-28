@@ -128,10 +128,44 @@ alone. The
 candidate still needs:
 
 1. a guarded boot with every AE-5 analog output unplugged;
-2. a Linux warm reboot proving `AE-5 DSP reset at shutdown` in the previous
-   boot journal and one fresh DSP download in the new boot;
+2. a Linux warm reboot proving `AE-5 DSP reset at shutdown` in an EFI pstore
+   shutdown dump and one fresh DSP download in the new boot;
 3. the hard-muted first-open/warm/idle/rejected-OutFX playback matrix; and
 4. ultimately a Linux-to-Windows warm handoff with matched settings.
 
 The installed `7.1.4-ae5-stable` kernel does not contain this candidate.
 Continue using it until the candidate passes those runtime gates.
+
+The guarded installer adds
+`efi_pstore.pstore_disable=0 printk.always_kmsg_dump=Y` to the candidate BLS
+entry only. This is necessary because journald stops before kernel device
+shutdown callbacks run. The normal previous-boot journal can prove which
+kernel ran and that its DSP initialized, but it cannot reliably preserve the
+shutdown-reset diagnostic.
+
+In the candidate Linux boot, immediately before the warm handoff, verify that
+the evidence path is ready and empty:
+
+```sh
+bash scripts/check-ae5-warm-handoff.sh \
+    --prepare 7.1.4-ae5-shutdown
+```
+
+Immediately after returning to Linux, capture and check the two-boot boundary
+before reloading a sound module:
+
+```sh
+AE5_WARM_HANDOFF_CONFIRMED=1 \
+    bash scripts/check-ae5-warm-handoff.sh \
+    --check 7.1.4-ae5-shutdown
+```
+
+This read-only checker requires the previous Linux boot to identify the exact
+candidate and at least one previous DSP initialization. It decodes the raw EFI
+pstore record and requires a normal-shutdown dump, exactly one successful
+shutdown reset, and no reset failure. It also requires exactly one fresh DSP
+download in the current boot and an untainted current kernel. Because software
+cannot infer whether motherboard power was physically removed between boots,
+the operator acknowledgement is mandatory. The checker preserves both kernel
+journals, decoded and raw shutdown evidence, and a machine-readable result
+under `~/.cache/ae5-control/warm-handoff-*`.

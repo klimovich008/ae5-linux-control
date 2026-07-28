@@ -307,12 +307,15 @@ sudo scripts/install-ae5-kernel-test.sh --install \
 Before installation it requires a disabled or unavailable Secure Boot path,
 `GRUB_DEFAULT=saved`, an existing stock saved BLS entry and module tree, no
 pending `next_entry`, at least 512 MiB free in `/boot`, an absent candidate
-package, and a successful RPM install-only test. It then installs only the
-verified main RPM, restores the exact original `saved_entry`, identifies the
-new BLS entry by its expected release, schedules that entry with
-`grub2-reboot`, and reads back both GRUB variables. It never reboots. A failed
-post-install check restores the stock saved entry and clears `next_entry`; it
-does not guess whether a partially installed RPM is safe to erase.
+package, no stale AE-5 EFI pstore evidence, and a successful RPM install-only
+test. It then installs only the verified main RPM, restores the exact original
+`saved_entry`, identifies the new BLS entry by its expected release, and adds
+`efi_pstore.pstore_disable=0 printk.always_kmsg_dump=Y` to that candidate
+entry only. Those arguments preserve shutdown-tail evidence after the journal
+has stopped. The helper schedules the candidate with `grub2-reboot` and reads
+back both GRUB variables. It never reboots. A failed post-install check
+restores the stock saved entry and clears `next_entry`; it does not guess
+whether a partially installed RPM is safe to erase.
 
 Do not install the generated `kernel-headers` RPM. Keep at least two stock
 Nobara kernels and the stock saved boot default. A custom kernel should first
@@ -374,6 +377,35 @@ passed a complete shutdown and physical power-removal boot. Keep AE-5
 outputs unplugged, or headphones off the user's head, until the runtime gate
 passes. Once managed playback opens the PCM, do not force it closed merely to
 manufacture a reopen test.
+
+In the candidate Linux boot, immediately before warm-booting into Windows, run:
+
+```sh
+bash scripts/check-ae5-warm-handoff.sh \
+    --prepare 7.1.4-ae5-shutdown
+```
+
+This fails unless the exact candidate is running untainted, EFI pstore and
+normal-shutdown dumping are enabled, the active backend is `efi_pstore`, and
+no stale record could be confused with this test.
+
+After the candidate warm-boots into Windows and the machine returns to Linux,
+run the focused two-boot gate before reloading a sound module:
+
+```sh
+AE5_WARM_HANDOFF_CONFIRMED=1 \
+    bash scripts/check-ae5-warm-handoff.sh \
+    --check 7.1.4-ae5-shutdown
+```
+
+The previous journal proves the exact candidate and its DSP initialization.
+The reset callback runs after journald has stopped, so the checker obtains the
+successful reset and absence of failure from the EFI pstore shutdown tail,
+not from `journalctl -b -1`. The current journal proves one fresh DSP download
+and an untainted return kernel. It stores both journals, the decoded pstore
+tail, the raw EFI records, and a machine-readable result under
+`~/.cache/ae5-control/warm-handoff-*`. Set the acknowledgement only when
+motherboard power remained on throughout the handoff.
 
 Patch failure, compile failure, module signature mismatch, unexpected
 `vermagic`, a kernel warning, or incomplete audio-state recovery blocks

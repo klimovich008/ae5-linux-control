@@ -1,4 +1,4 @@
-//! Structured interaction trace, off by default.
+//! Structured interaction trace, on by default during pre-release validation.
 //!
 //! Every fault class this application has actually hit was invisible in
 //! hindsight: a full-window rebuild storm triggered by its own mixer writes, a
@@ -6,7 +6,8 @@
 //! that preceded it. The journal knew nothing because the application logged
 //! nothing.
 //!
-//! `AE5_TRACE=1` turns on a monotonic, single-line trace on stderr:
+//! The monotonic, single-line trace is written to stderr so the desktop
+//! session journal can retain and rotate it:
 //!
 //! ```text
 //! [ae5 +12.041s mixer] write FX: X-Bass = on -> verified 53 [on]
@@ -14,10 +15,10 @@
 //! [ae5 +14.987s refresh] rebuild: reason=external-event page=effects
 //! ```
 //!
-//! The format is deliberately grep-shaped rather than pretty. Redirect stderr
-//! to a file when reporting a fault and the sequence of cause and effect is in
-//! the report.
+//! The format is deliberately grep-shaped rather than pretty. Set
+//! `AE5_TRACE=0` to opt out.
 
+use std::ffi::OsStr;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
@@ -36,9 +37,13 @@ fn start() -> Instant {
     *START.get_or_init(Instant::now)
 }
 
-/// Whether tracing was requested via `AE5_TRACE`.
+fn enabled_from_env(value: Option<&OsStr>) -> bool {
+    value != Some(OsStr::new("0"))
+}
+
+/// Whether tracing is enabled. `AE5_TRACE=0` is the explicit opt-out.
 pub fn enabled() -> bool {
-    *ENABLED.get_or_init(|| std::env::var_os("AE5_TRACE").is_some_and(|value| value != "0"))
+    *ENABLED.get_or_init(|| enabled_from_env(std::env::var_os("AE5_TRACE").as_deref()))
 }
 
 fn elapsed_ms() -> u64 {
@@ -78,6 +83,13 @@ pub fn self_event_age_ms() -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tracing_defaults_on_and_has_an_explicit_opt_out() {
+        assert!(enabled_from_env(None));
+        assert!(enabled_from_env(Some(OsStr::new("1"))));
+        assert!(!enabled_from_env(Some(OsStr::new("0"))));
+    }
 
     #[test]
     fn self_write_marks_a_bounded_window() {

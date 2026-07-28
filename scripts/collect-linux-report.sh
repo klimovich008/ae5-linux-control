@@ -110,6 +110,7 @@ collect() {
 	section 'Operating system'
 	if [[ -r /etc/os-release ]]; then
 		(
+			# shellcheck disable=SC1091
 			. /etc/os-release
 			printf 'distribution=%s\nversion=%s\n' \
 				"${NAME:-unknown}" "${VERSION_ID:-unknown}"
@@ -135,6 +136,11 @@ collect() {
 		'lsmod | grep -E "^(snd|soundcore)" || true'
 	run 'Failed system units' systemctl --failed --no-legend --plain
 	run 'Failed user units' systemctl --user --failed --no-legend --plain
+	run 'AE-5 Control application trace (current boot, last 500 lines)' sh -c \
+		'journalctl --user -b --no-pager -o cat _COMM=ae5-control 2>/dev/null |
+		 grep -F "[ae5 +" |
+		 tail -n 500 ||
+		 true'
 	run 'Relevant warning-level kernel log' sh -c \
 		'journalctl -k -b -p warning..alert -o cat --no-pager 2>/dev/null |
 		 grep -Ei "ca0132|sound blaster|snd_hda|hdaudio|firmware" ||
@@ -186,6 +192,7 @@ self_test() {
 	grep -q '^## Creative PCI devices$' "$report"
 	grep -q '^## Creative PipeWire objects$' "$report"
 	grep -q '^## AE-5 Control route health$' "$report"
+	grep -q '^## AE-5 Control application trace' "$report"
 	grep -q '^## AE-5 onboard lighting$' "$report"
 	grep -q '^kernel_tainted=' "$report"
 	grep -q '^## Failed system units$' "$report"

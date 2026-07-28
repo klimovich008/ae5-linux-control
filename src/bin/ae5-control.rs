@@ -76,6 +76,14 @@ fn main() -> gtk::glib::ExitCode {
         unsafe { std::env::set_var("GSK_RENDERER", "cairo") };
     }
     let started = Instant::now();
+    ae5_control::gui::tracelog::trace(
+        "app",
+        &format!(
+            "start version={} pid={}",
+            env!("CARGO_PKG_VERSION"),
+            std::process::id()
+        ),
+    );
     let performance_probe = std::env::var_os(PERFORMANCE_PROBE).is_some();
     let mut builder = gtk::Application::builder().application_id(APP_ID);
     if performance_probe {
@@ -85,7 +93,9 @@ fn main() -> gtk::glib::ExitCode {
     application.connect_activate(move |application| {
         build_window(application, started, performance_probe);
     });
-    application.run()
+    let exit = application.run();
+    ae5_control::gui::tracelog::trace("app", "event loop exited");
+    exit
 }
 
 fn build_window(application: &gtk::Application, started: Instant, performance_probe: bool) {
@@ -101,6 +111,10 @@ fn build_window(application: &gtk::Application, started: Instant, performance_pr
     if let Some(card_index) = refresh_window(&window, None)
         && let Err(error) = start_mixer_watch(&window, card_index)
     {
+        ae5_control::gui::tracelog::trace(
+            "watch",
+            &format!("mixer event watch failed to start: {error}"),
+        );
         set_main_status(
             &window,
             false,
@@ -108,6 +122,7 @@ fn build_window(application: &gtk::Application, started: Instant, performance_pr
         );
     }
     window.present();
+    ae5_control::gui::tracelog::trace("app", "main window presented");
     if performance_probe {
         start_performance_probe(&window, started);
     }
@@ -149,6 +164,13 @@ fn refresh_window(window: &gtk::ApplicationWindow, message: Option<&str>) -> Opt
     match load_hardware() {
         Ok((device, controls)) => {
             let card_index = device.card_index;
+            ae5_control::gui::tracelog::trace(
+                "refresh",
+                &format!(
+                    "hardware loaded: card={card_index} controls={}",
+                    controls.len()
+                ),
+            );
             window.set_child(Some(&content(
                 window,
                 &device,
@@ -165,6 +187,7 @@ fn refresh_window(window: &gtk::ApplicationWindow, message: Option<&str>) -> Opt
             Some(card_index)
         }
         Err(error) => {
+            ae5_control::gui::tracelog::trace("refresh", &format!("hardware load FAILED: {error}"));
             window.set_child(Some(&error_view(window, &error)));
             None
         }
@@ -2081,6 +2104,14 @@ async fn install_software_eq_profile(
         return Ok(None);
     };
     let profile = Profile::load(&path).map_err(|error| error.to_string())?;
+    ae5_control::gui::tracelog::trace(
+        "eq",
+        &format!(
+            "profile selected: name={:?} controls={}",
+            profile.name,
+            profile.controls.len()
+        ),
+    );
     let controls = snapshot_controls(card_index).map_err(|error| error.to_string())?;
     let output = ae5_output(card_index)
         .map_err(|error| error.to_string())?
@@ -2091,26 +2122,49 @@ async fn install_software_eq_profile(
 }
 
 fn activate_software_eq(card_index: i32) -> Result<SoftwareEqOutput, String> {
-    let config = eq_chain_config().map_err(|error| error.to_string())?;
-    let controls = snapshot_controls(card_index).map_err(|error| error.to_string())?;
-    let physical = ae5_output(card_index)
-        .map_err(|error| error.to_string())?
-        .ok_or_else(|| "PipeWire has no physical AE-5 output".to_owned())?;
-    validate_eq_chain_activation(&config, &controls, &physical.node_name)
-        .map_err(|error| error.to_string())?;
-    let graph = config
-        .filter_graph()
-        .map_err(|error| error.to_string())?
-        .ok_or_else(|| "the saved software EQ has no graph".to_owned())?;
-    let signature = config
-        .signature()
-        .ok_or_else(|| "the saved software EQ has no signature".to_owned())?;
-    apply_software_eq(card_index, &graph, &signature).map_err(|error| error.to_string())
+    ae5_control::gui::tracelog::trace("eq", "activation requested");
+    let result = (|| {
+        let config = eq_chain_config().map_err(|error| error.to_string())?;
+        let controls = snapshot_controls(card_index).map_err(|error| error.to_string())?;
+        let physical = ae5_output(card_index)
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| "PipeWire has no physical AE-5 output".to_owned())?;
+        validate_eq_chain_activation(&config, &controls, &physical.node_name)
+            .map_err(|error| error.to_string())?;
+        let graph = config
+            .filter_graph()
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| "the saved software EQ has no graph".to_owned())?;
+        let signature = config
+            .signature()
+            .ok_or_else(|| "the saved software EQ has no signature".to_owned())?;
+        apply_software_eq(card_index, &graph, &signature).map_err(|error| error.to_string())
+    })();
+    match &result {
+        Ok(output) => ae5_control::gui::tracelog::trace(
+            "eq",
+            &format!("activation verified: target={}", output.node.description),
+        ),
+        Err(error) => {
+            ae5_control::gui::tracelog::trace("eq", &format!("activation FAILED: {error}"))
+        }
+    }
+    result
 }
 
 fn disable_software_eq_safely(card_index: i32) -> Result<EqChainChange, String> {
-    unload_software_eq(card_index).map_err(|error| error.to_string())?;
-    disable_eq_chain().map_err(|error| error.to_string())
+    ae5_control::gui::tracelog::trace("eq", "disable requested");
+    let result = unload_software_eq(card_index)
+        .map_err(|error| error.to_string())
+        .and_then(|_| disable_eq_chain().map_err(|error| error.to_string()));
+    match &result {
+        Ok(change) => ae5_control::gui::tracelog::trace(
+            "eq",
+            &format!("disable verified: saved_state_changed={}", change.changed),
+        ),
+        Err(error) => ae5_control::gui::tracelog::trace("eq", &format!("disable FAILED: {error}")),
+    }
+    result
 }
 
 fn recording_page(
@@ -3314,6 +3368,14 @@ async fn apply_profile_path(
     path: &Path,
 ) -> Result<Option<String>, String> {
     let profile = Profile::load(path).map_err(|error| error.to_string())?;
+    ae5_control::gui::tracelog::trace(
+        "profile",
+        &format!(
+            "saved profile loaded: name={:?} controls={}",
+            profile.name,
+            profile.controls.len()
+        ),
+    );
     apply_profile(window, card_index, profile).await
 }
 
@@ -3332,6 +3394,13 @@ async fn apply_builtin_profile(
     let output = selected("Output Select")
         .ok_or_else(|| "the live Speakers / Headphones route is unavailable".to_owned())?;
     let layout = selected("Surround Channel Config");
+    ae5_control::gui::tracelog::trace(
+        "profile",
+        &format!(
+            "built-in requested: name={:?} output={output:?} layout={layout:?}",
+            preset.name
+        ),
+    );
     let profile = preset
         .profile_for(output, layout)
         .map_err(|error| error.to_string())?;
@@ -3343,18 +3412,48 @@ async fn apply_profile(
     card_index: i32,
     profile: Profile,
 ) -> Result<Option<String>, String> {
+    ae5_control::gui::tracelog::trace(
+        "profile",
+        &format!(
+            "apply requested: name={:?} controls={}",
+            profile.name,
+            profile.controls.len()
+        ),
+    );
     let mixer = Ae5Mixer::open(card_index).map_err(|error| error.to_string())?;
-    profile
-        .check(&mixer, true)
-        .map_err(|error| error.to_string())?;
+    if let Err(error) = profile.check(&mixer, true) {
+        ae5_control::gui::tracelog::trace(
+            "profile",
+            &format!("preflight FAILED: name={:?} error={error}", profile.name),
+        );
+        return Err(error.to_string());
+    }
 
     let high_gain = profile_requires_high_gain(&profile);
     if !confirm_profile(window, &profile, high_gain, "Apply profile").await? {
+        ae5_control::gui::tracelog::trace(
+            "profile",
+            &format!("apply cancelled: name={:?}", profile.name),
+        );
         return Ok(None);
     }
-    let report = profile
-        .apply(&mixer, high_gain)
-        .map_err(|error| error.to_string())?;
+    let report = match profile.apply(&mixer, high_gain) {
+        Ok(report) => report,
+        Err(error) => {
+            ae5_control::gui::tracelog::trace(
+                "profile",
+                &format!("apply FAILED: name={:?} error={error}", profile.name),
+            );
+            return Err(error.to_string());
+        }
+    };
+    ae5_control::gui::tracelog::trace(
+        "profile",
+        &format!(
+            "apply verified: name={:?} applied={} skipped={}",
+            profile.name, report.controls_applied, report.controls_skipped
+        ),
+    );
     Ok(Some(format!(
         "Applied “{}”; {} safe controls were verified against the hardware. {} unsafe playback \
          controls remain saved and were not written to CA0132.",

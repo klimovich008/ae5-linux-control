@@ -2,6 +2,8 @@ name: CI
 
 on:
   push:
+    branches:
+      - main
   pull_request:
 
 permissions:
@@ -24,9 +26,10 @@ jobs:
       - run: bash scripts/hda-position-trace.sh --self-test
       - run: bash scripts/track-transition-stress.sh --self-test
       - run: bash scripts/check-software-eq-performance.sh --self-test
+      - run: bash scripts/check-software-eq-response.sh --self-test
       - run: bash scripts/build-transition-helper.sh
       - run: target/diagnostics/ae5-pw-renegotiate --help
-      - run: shellcheck scripts/audio-parity.sh scripts/build-transition-helper.sh scripts/check-software-eq-performance.sh scripts/hda-position-trace.sh scripts/track-transition-stress.sh
+      - run: shellcheck scripts/audio-parity.sh scripts/build-transition-helper.sh scripts/check-software-eq-performance.sh scripts/check-software-eq-response.sh scripts/hda-position-trace.sh scripts/track-transition-stress.sh
       - run: python3 .claude/hooks/volume-guard.py --self-test
       - run: bash scripts/collect-linux-report.sh --self-test
       - run: bash scripts/collect-routing-state.sh --self-test

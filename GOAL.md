@@ -1,8 +1,9 @@
-# AE-5 Linux Control — active goal
+# AE-5 Linux Control — development history
 
-Forward-looking objective and execution plan. Complements
-[HANDOVER.md](HANDOVER.md) (which records *current state*) and supersedes
-the phase sequencing in [PORT_PLAN.md](PORT_PLAN.md) (the *original* scope).
+This records the investigation and implementation history. The authoritative
+forward execution order and completion criteria are now in
+[ROADMAP.md](ROADMAP.md). [HANDOVER.md](HANDOVER.md) records current machine
+state, while [PORT_PLAN.md](PORT_PLAN.md) preserves the original scope.
 
 Created: 2026-07-27 · Owner: maks · Branch: `agent/refine-gtk-ui`
 
@@ -47,7 +48,7 @@ on the stable S16 path and clean PCM closure. The current headphones are
 connected to the motherboard line-out, so the present lack of an AE-5 listener
 is a physical topology choice rather than a recurrence of that route fault.
 
-## Phase 2 — Root-cause the loud-buzz fault · **release blocker**
+## Phase 2 — Root-cause the loud-buzz fault · **resolved by later checkpoints**
 
 The single most important item. A real music track change under S32
 produced a loud buzz that desktop mute could not stop, ending only when

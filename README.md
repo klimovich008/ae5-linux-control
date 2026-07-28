@@ -424,7 +424,12 @@ hardware. The
 **Device** page shows the exact detected hardware, live capability counts, and
 driver values outside their advertised ranges. It can save the same
 privacy-conscious diagnostics report as `ae5-collect-report` without invoking a
-shell or requiring root. The **System audio** page can make the AE-5 the default
+shell or requiring root. During pre-release validation, the application writes
+a structured operation trace to the bounded user journal by default. It records
+startup, route/profile requests, checked mixer writes, software-EQ lifecycle,
+refreshes, and errors without audio or profile contents; set `AE5_TRACE=0` to
+opt out. The diagnostics report includes at most the latest 500 current-boot
+trace lines. The **System audio** page can make the AE-5 the default
 PipeWire playback or recording device and opt into native-rate switching
 without changing its ALSA mixer controls.
 The **Equalizer** page separates the saved CA0132 hardware EQ state from the

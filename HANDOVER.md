@@ -10,24 +10,26 @@ Snapshot date: **2026-07-28**
 ## Start from the correct revision
 
 - Public repository: <https://github.com/klimovich008/ae5-linux-control>
-- Active integration branch: `agent/refine-gtk-ui`
+- Integration branch: `main`
+- Consolidation merge: `f08b3536dc5a0860d93349ffa197d334fab5d9ed`
 - Minimum pre-fix checkpoint: `4d22771` (`Qualify fail-closed S16 transition baseline`)
-- Use the active branch head for the guarded PipeWire software-EQ Phase A
-  implementation described below.
-- Active review: [draft PR #75](https://github.com/klimovich008/ae5-linux-control/pull/75)
-- PR #75 is stacked on `agent/import-windows-settings`.
-- The default `main` branch is more than 140 commits behind the active
-  integration branch. Do not start new work from `main` or retarget/rebase the
-  stacked PR without first understanding that history.
+- [PR #75](https://github.com/klimovich008/ae5-linux-control/pull/75) merged
+  the historical integration stack into `main`; PRs #1 through #74 were closed
+  as superseded without deleting their branches or review history.
+- Start each remaining roadmap milestone from current `main`, use one
+  short-lived branch, and keep at most one integration PR open.
 
 Use:
 
 ```sh
 git clone https://github.com/klimovich008/ae5-linux-control.git
 cd ae5-linux-control
-git switch agent/refine-gtk-ui
+git switch main
 git log -1 --oneline
 ```
+
+Use [ROADMAP.md](ROADMAP.md) for the ordered remaining milestones and test
+rerun policy.
 
 ## What this project is
 
@@ -282,7 +284,8 @@ Playback PCMs:     closed
 Audio services:    PipeWire, PipeWire Pulse, and WirePlumber active
 Session Windows VM: running, logged in; no physical AE-5 hostdev
 System VMs:        both powered off
-GUI test:          current debug build opened natively on Wayland
+GUI test:          installed release build opened natively on Wayland
+Diagnostics:       default-on structured trace verified in the user journal/report
 ```
 
 The latest silent route qualification ended on the exact Headphone route with
@@ -291,7 +294,9 @@ and muted, Low gain selected, and both playback PCMs closed. The managed EQ
 state and runtime marker were absent. Re-read live state before relying on this
 snapshot.
 
-The installed GUI and CLI are from the reversible per-user installation. The
+The installed GUI and CLI are the release build from the reversible per-user
+installation. Their payload hashes matched the local release artifacts after
+the 2026-07-28 upgrade. The
 WirePlumber configuration is linked to
 [`packaging/wireplumber/90-ae5-control.conf`](packaging/wireplumber/90-ae5-control.conf).
 
@@ -458,20 +463,12 @@ interoperability data. Keep that legal and privacy boundary intact.
 
 ## Recommended next work
 
-Priority order:
+Follow [ROADMAP.md](ROADMAP.md), one milestone at a time. M0 repository
+consolidation and M1 persistent diagnostics are complete. The next milestone is
+M2: install the already verified shutdown-reset kernel side by side and run its
+guarded Linux-to-Windows warm-handoff acceptance.
 
-1. Keep S16 and `session.suspend-timeout-seconds = 0` as the managed defaults.
-2. Install the verified shutdown-reset candidate side by side for its guarded
-   Linux warm-reboot acceptance.
-3. Run the bounded bare-metal suspend/resume campaign with connected-headphone
-   routing preflight and preserve the kernel journal and route evidence.
-4. Broaden software-EQ rate/preset coverage and obtain a valid Windows post-EQ
-   comparison in
-   [`docs/SOFTWARE_EFFECTS_PLAN.md`](docs/SOFTWARE_EFFECTS_PLAN.md).
-5. When an AE-5 output is physically available again, run matched, safely
-   attenuated Windows/Linux analog measurements.
-6. Finish physical speaker, line-out, optical, and analog-input acceptance.
-
-Do not spend the next session redesigning the GUI or adding another abstraction
-before the loud-buzz path is understood. Safety and reproducibility are the
-release blockers.
+Keep S16 and `session.suspend-timeout-seconds = 0` as the managed defaults.
+Do not rerun broad hardware matrices unless a related implementation,
+dependency, kernel path, or test assumption changes; use the focused gate
+listed for the active milestone.

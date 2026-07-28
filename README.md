@@ -6,8 +6,10 @@ BlasterX AE-5, developed from public source and reproducible hardware evidence.
 **New maintainer or reviewer:** start with
 [`HANDOVER.md`](HANDOVER.md). It identifies the authoritative development
 branch, current host state, non-negotiable audio-safety rules, known blockers,
-and the shortest validation path. This README retains cumulative milestone
-history and should not be read as a single current-state report.
+and the shortest validation path. Then use [`ROADMAP.md`](ROADMAP.md) for the
+single active milestone, completion criteria, and bounded test-rerun policy.
+This README retains cumulative milestone history and should not be read as a
+single current-state report.
 
 ## Current sound-safety status
 

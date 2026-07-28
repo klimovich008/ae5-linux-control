@@ -25,10 +25,10 @@ It is not a finished release. The current compatibility ledger has 54 rows:
 or physical acceptance, and 10 unsupported. Unsupported proprietary or absent
 features do not block Version 1 when the UI identifies them honestly.
 
-The repository process also needs consolidation. At this audit, `main` is 188
-commits behind the integration branch and GitHub has 75 stacked draft pull
-requests. Seventy-four PR heads are ancestors of the integration head; PR #1's
-older Wedge Angle work is superseded by the current patch queue and validation.
+The repository history was consolidated on 2026-07-28. Pull request #75 merged
+the 188-commit integration history into `main`; the 74 superseded stacked
+drafts were closed with their branches and review history retained. CI now
+runs once per PR update and once after a merge to `main`.
 
 ## Definition of done
 
@@ -79,21 +79,26 @@ Only the first unfinished milestone is active.
 
 ### M0 — Consolidate repository and evidence
 
-Status: **in progress**
+Status: **complete**
 
 - Create this roadmap and correct stale current-state claims.
 - Retarget the integration PR to `main`.
 - Close superseded stacked PRs with a pointer to the integration PR.
 - Merge the validated integration history, then use one short-lived branch and
   one PR per milestone.
-- Stop duplicate push/PR CI runs.
+- Stop duplicate push/PR CI runs and skip the full build/RPM matrix for
+  Markdown-only changes.
 
 Exit: `main` contains the current implementation, GitHub has no historical
 stack left open, and the next change starts from `main`.
 
+Evidence: PR #75 merged as `f08b3536dc5a0860d93349ffa197d334fab5d9ed`;
+all Rust, RPM, and current ALSA `for-next` checks passed; open PR count became
+zero before the next milestone branch was created.
+
 ### M1 — Persistent diagnostic trail
 
-Status: **implemented and locally verified; merge/install pending**
+Status: **complete**
 
 - Enable the existing structured GUI trace by default, with `AE5_TRACE=0` as
   an opt-out.
@@ -111,6 +116,12 @@ sessions covering a cold boot, resume, profile switch, and EQ switch.
 
 Exit: one reproduction report reconstructs the operation sequence without
 asking the user to remember it.
+
+Evidence: the rootless installed GUI is byte-identical to the release build;
+a native Wayland launch recorded application start, exact-card discovery,
+window presentation, and refresh events in the user journal; the installed
+diagnostics command included those bounded trace lines. The launch preserved
+the matched route, 5% muted sink, OutFX-off state, and closed playback PCMs.
 
 ### M2 — Warm-handoff kernel acceptance
 

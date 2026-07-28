@@ -161,6 +161,13 @@ Status: **pending**
   switching, output selector, restart persistence, keyboard access, and the
   diagnostics action.
 - Keep unsupported controls disabled and explained.
+- Limit current-GUI work to functional and safety acceptance. Do not optimize
+  its performance or start the Qt/QML visual redesign before the user confirms
+  that the core audio behavior works as intended.
+- Keep hardware, profiles, state transitions, readback, rollback, and
+  diagnostics outside toolkit-specific UI code so the backend can be reused by
+  the future `ae5d`/CXX-Qt/QML architecture documented in
+  `docs/FUTURE_QT_QML_REDESIGN_PROMPT.md`.
 
 Exit: the user can tell what applied without opening a terminal, and a failed
 apply leaves the prior state intact.

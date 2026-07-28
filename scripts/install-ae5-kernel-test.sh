@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -eEuo pipefail
 
+readonly pstore_guid=cfc8fc79-be2e-4ddc-97f0-9f98bfe298a0
+readonly pstore_arguments='efi_pstore.pstore_disable=0 printk.always_kmsg_dump=Y'
+
 usage() {
 	cat >&2 <<EOF
 usage:
@@ -10,7 +13,8 @@ usage:
 
 Without --install, verify the candidate without changing the system.
 --install installs it side by side, restores the current stock saved entry,
-and selects the candidate for the next boot only. It never reboots.
+adds shutdown-evidence arguments to the candidate entry only, and selects the
+candidate for the next boot only. It never reboots.
 EOF
 }
 
@@ -39,6 +43,30 @@ grub_value() {
 				printf "%s", value
 		}
 	'
+}
+
+pstore_file_count() {
+	local root=$1
+
+	find "$root" -maxdepth 1 -type f \
+		-name "dump-type0-*-$pstore_guid" -printf x |
+		wc -c
+}
+
+bls_has_option() {
+	local file=$1 option=$2
+
+	awk -v option="$option" '
+		$1 == "options" {
+			for (field = 2; field <= NF; field++) {
+				if ($field == option)
+					found = 1
+			}
+		}
+		END {
+			exit !found
+		}
+	' "$file"
 }
 
 restore_boot_selection() {
@@ -71,7 +99,8 @@ install_candidate() {
 	local rpm_path=$1 release=$2 package_nevra=$3
 	local boot_free_kib current_env current_saved current_next
 	local running_release secure_boot stock_kernel stock_release
-	local candidate_id stock_saved installation_started=no
+	local candidate_entry candidate_id candidate_kernel
+	local pstore_records stock_saved installation_started=no
 	local -a candidate_entries
 
 	[[ $EUID -eq 0 || ${self_test_mode:-no} == yes ]] ||
@@ -114,6 +143,10 @@ install_candidate() {
 	if rpm -q "$package_nevra" >/dev/null 2>&1; then
 		fail "candidate package is already installed: $package_nevra"
 	fi
+	[[ -d $efi_var_root ]] || fail 'EFI variable filesystem is unavailable'
+	pstore_records=$(pstore_file_count "$efi_var_root")
+	((pstore_records == 0)) ||
+		fail "EFI pstore already contains $pstore_records record parts"
 
 	boot_free_kib=$(df -Pk "$boot_dir" |
 		awk 'NR == 2 && $4 ~ /^[0-9]+$/ { print $4 }')
@@ -134,9 +167,19 @@ install_candidate() {
 	(( ${#candidate_entries[@]} == 1 )) ||
 		abort_after_install \
 			"expected one candidate BLS entry, found ${#candidate_entries[@]}"
-	grep -qxF "version $release" "${candidate_entries[0]}" ||
+	candidate_entry=${candidate_entries[0]}
+	grep -qxF "version $release" "$candidate_entry" ||
 		abort_after_install 'candidate BLS entry has the wrong version'
-	candidate_id=${candidate_entries[0]##*/}
+	candidate_kernel=$boot_dir/vmlinuz-$release
+	[[ -f $candidate_kernel ]] ||
+		abort_after_install "candidate kernel image is missing: $candidate_kernel"
+	grubby --update-kernel="$candidate_kernel" --args="$pstore_arguments"
+	bls_has_option "$candidate_entry" 'efi_pstore.pstore_disable=0' ||
+		abort_after_install 'candidate BLS entry did not enable EFI pstore'
+	bls_has_option "$candidate_entry" 'printk.always_kmsg_dump=Y' ||
+		abort_after_install \
+			'candidate BLS entry did not enable normal-shutdown log dumping'
+	candidate_id=${candidate_entry##*/}
 	candidate_id=${candidate_id%.conf}
 
 	current_env=$(grub2-editenv - list)
@@ -165,6 +208,8 @@ install_candidate() {
 	printf 'stock_release=%s\n' "$stock_release"
 	printf 'stock_saved_entry=%s\n' "$stock_saved"
 	printf 'candidate_next_entry=%s\n' "$candidate_id"
+	printf 'candidate_kernel_arguments=%s\n' "$pstore_arguments"
+	printf 'existing_pstore_records=0\n'
 	printf 'install_performed=yes\n'
 	printf 'reboot_performed=no\n'
 }
@@ -183,7 +228,8 @@ self_test() {
 	bls_dir=$boot_dir/loader/entries
 	modules_dir=$self_test_root/lib/modules
 	grub_defaults=$self_test_root/default-grub
-	mkdir -p -- "$bls_dir" "$modules_dir/stock-kernel"
+	efi_var_root=$self_test_root/efivars
+	mkdir -p -- "$bls_dir" "$modules_dir/stock-kernel" "$efi_var_root"
 	printf "GRUB_DEFAULT='saved'\n" > "$grub_defaults"
 	printf 'version stock-kernel\n' > "$bls_dir/$test_saved.conf"
 
@@ -208,8 +254,21 @@ self_test() {
 		test_next=$1
 	}
 	grubby() {
-		[[ $1 == --default-kernel ]] || return 1
-		printf '/boot/vmlinuz-stock-kernel\n'
+		case $1 in
+		--default-kernel)
+			printf '/boot/vmlinuz-stock-kernel\n'
+			;;
+		--update-kernel=*)
+			[[ $1 == "--update-kernel=$boot_dir/vmlinuz-$test_release" ]]
+			[[ ${2:-} == "--args=$pstore_arguments" ]]
+			printf 'version %s\noptions quiet %s\n' \
+				"$test_release" "$pstore_arguments" \
+				> "$bls_dir/machine-$test_release.conf"
+			;;
+		*)
+			return 1
+			;;
+		esac
 	}
 	uname() {
 		[[ $1 == -r ]] || return 1
@@ -230,6 +289,7 @@ self_test() {
 			fi
 			printf 'version %s\n' "$test_release" \
 				> "$bls_dir/machine-$test_release.conf"
+			: > "$boot_dir/vmlinuz-$test_release"
 			test_saved=machine-"$test_release"
 			;;
 		*)
@@ -248,6 +308,25 @@ self_test() {
 		fail 'self-test did not schedule the candidate once'
 	grep -Fq 'install_performed=yes' <<< "$output" ||
 		fail 'self-test did not report installation'
+	bls_has_option "$bls_dir/machine-$test_release.conf" \
+		'efi_pstore.pstore_disable=0' ||
+		fail 'self-test did not enable EFI pstore for the candidate'
+	bls_has_option "$bls_dir/machine-$test_release.conf" \
+		'printk.always_kmsg_dump=Y' ||
+		fail 'self-test did not enable normal-shutdown log dumping'
+	if bls_has_option "$bls_dir/$test_saved.conf" \
+		'efi_pstore.pstore_disable=0'; then
+		fail 'self-test changed the stock BLS entry'
+	fi
+
+	test_next=
+	printf 'stale\n' \
+		> "$efi_var_root/dump-type0-1-1-1780000000-D-$pstore_guid"
+	if (install_candidate /tmp/candidate.rpm "$test_release" \
+		kernel-test.x86_64) >/dev/null 2>&1; then
+		fail 'self-test accepted stale EFI pstore records'
+	fi
+	find "$efi_var_root" -type f -delete
 
 	test_next=already-pending
 	if (install_candidate /tmp/candidate.rpm "$test_release" \
@@ -313,11 +392,12 @@ if [[ $mode == check ]]; then
 fi
 
 for tool in df find grep grub2-editenv grub2-reboot grub2-set-default grubby \
-	mokutil rpm uname; do
+	mokutil rpm uname wc; do
 	need_tool "$tool"
 done
 boot_dir=/boot
 bls_dir=$boot_dir/loader/entries
 modules_dir=/lib/modules
 grub_defaults=/etc/default/grub
+efi_var_root=/sys/firmware/efi/efivars
 install_candidate "$rpm_path" "$release" "$package_nevra"

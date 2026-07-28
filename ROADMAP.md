@@ -130,6 +130,10 @@ Status: **pending**
 - Install the already package-verified `7.1.4-ae5-shutdown` kernel side by side.
 - Run its guarded Linux boot and shutdown evidence gate.
 - Warm-boot into Windows and compare against a full power-removal baseline.
+- Before the handoff, require the candidate-only EFI pstore preparation gate.
+  On return to Linux, run the explicitly acknowledged `--check` gate before
+  any sound module reload so the shutdown reset and current DSP download
+  remain unambiguous.
 - Keep stock and `7.1.4-ae5-stable` as recoverable boot choices until accepted.
 
 Exit: the ninth patch either passes and replaces the eight-patch build, or is

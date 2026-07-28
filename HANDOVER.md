@@ -466,7 +466,14 @@ interoperability data. Keep that legal and privacy boundary intact.
 Follow [ROADMAP.md](ROADMAP.md), one milestone at a time. M0 repository
 consolidation and M1 persistent diagnostics are complete. The next milestone is
 M2: install the already verified shutdown-reset kernel side by side and run its
-guarded Linux-to-Windows warm-handoff acceptance.
+guarded Linux-to-Windows warm-handoff acceptance. In the candidate Linux boot,
+run `bash scripts/check-ae5-warm-handoff.sh --prepare
+7.1.4-ae5-shutdown` immediately before the handoff. Immediately after returning
+to Linux, run
+`AE5_WARM_HANDOFF_CONFIRMED=1 bash scripts/check-ae5-warm-handoff.sh
+--check 7.1.4-ae5-shutdown`; it fails closed on missing or ambiguous EFI
+pstore shutdown evidence, requires the operator to confirm that power was not
+removed, and preserves both boot journals plus raw and decoded pstore records.
 
 Keep S16 and `session.suspend-timeout-seconds = 0` as the managed defaults.
 Do not rerun broad hardware matrices unless a related implementation,

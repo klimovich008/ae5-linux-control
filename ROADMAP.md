@@ -86,7 +86,8 @@ Status: **complete**
 - Close superseded stacked PRs with a pointer to the integration PR.
 - Merge the validated integration history, then use one short-lived branch and
   one PR per milestone.
-- Stop duplicate push/PR CI runs.
+- Stop duplicate push/PR CI runs and skip the full build/RPM matrix for
+  Markdown-only changes.
 
 Exit: `main` contains the current implementation, GitHub has no historical
 stack left open, and the next change starts from `main`.

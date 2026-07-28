@@ -5,7 +5,8 @@ forward execution order and completion criteria are now in
 [ROADMAP.md](ROADMAP.md). [HANDOVER.md](HANDOVER.md) records current machine
 state, while [PORT_PLAN.md](PORT_PLAN.md) preserves the original scope.
 
-Created: 2026-07-27 · Owner: maks · Branch: `agent/refine-gtk-ui`
+Created: 2026-07-27 · Owner: maks · Historical work branch:
+`agent/refine-gtk-ui` · Integrated into `main` by PR #75
 
 ---
 

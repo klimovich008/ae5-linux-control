@@ -1,8 +1,8 @@
 # AE-5 warm-reboot DSP reset
 
 Status on 2026-07-28: **source-compatible, warnings-as-errors object-build,
-and non-installing RPM-package accepted; not installed or bare-metal accepted
-yet**.
+non-installing RPM-package accepted, and installed side by side for one
+guarded boot; not booted or bare-metal accepted yet**.
 
 ## Observed boundary
 
@@ -86,7 +86,7 @@ patch aggregate  0228b88a7a75742a886fc6acfa4e3560e911f8b835e4458b0d184a44c2e2c63
 
 ## Package validation
 
-The exact host-configured build produced a separate, uninstalled candidate:
+The exact host-configured build produced a separate candidate:
 
 ```text
 release:              7.1.4-ae5-shutdown
@@ -120,6 +120,23 @@ shell resumed at a shifted file offset after RPM creation and exited nonzero.
 The package was not accepted from that wrapper status: it was accepted only
 after `scripts/check-host-kernel-rpm.sh` independently returned
 `verification=passed`. The current wrapper passes `bash -n` and ShellCheck.
+
+## Installation state
+
+On 2026-07-28 the guarded installer added the exact package side by side. RPM
+needed its `--oldpackage` allowance because the `ae5-shutdown` suffix sorts
+below the already installed `ae5-stable` suffix; install mode remained `-i`,
+so no stable or stock package was replaced. Independent post-install checks
+confirmed:
+
+- the candidate BLS entry, kernel image, initramfs, and module tree exist;
+- only the candidate entry contains
+  `efi_pstore.pstore_disable=0 printk.always_kmsg_dump=Y`;
+- the stock Nobara kernel remains the saved/default entry;
+- the candidate is selected through `next_entry` for one boot only;
+- `7.1.4-ae5-stable` remains the running, untainted kernel;
+- EFI pstore contains no stale record; and
+- installation did not reboot the machine.
 
 ## Remaining acceptance
 

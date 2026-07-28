@@ -70,10 +70,11 @@ The current nine-patch queue applies cleanly to ALSA `for-next`, excludes
 Direct Mode, and includes the OutFX guard, stable-playback fix, and the
 source-, object-, and package-validated warm-shutdown reset candidate. Its
 separate `7.1.4-ae5-shutdown` RPM passed non-installing package verification
-but is not installed. The verified `7.1.4-ae5-stable` RPM contains the first
-eight patches and is installed side by side and running for the accepted
-one-shot boot; the stock Nobara kernel remains the saved default. Use the
-ninth-patch package only for its documented guarded runtime gate.
+and is installed side by side for a guarded one-shot boot, but has not been
+booted or physically accepted. The verified `7.1.4-ae5-stable` RPM contains
+the first eight patches and remains the running kernel; the stock Nobara
+kernel remains the saved default. Use the ninth-patch package only for its
+documented guarded runtime gate.
 The previously installed `7.1.4-ae5-guarded` artifact predates the
 stable-playback patch and is historical. Reproducible hashes, validation
 evidence, and the physical acceptance sequence are in

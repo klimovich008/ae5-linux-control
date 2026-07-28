@@ -308,7 +308,10 @@ Before installation it requires a disabled or unavailable Secure Boot path,
 `GRUB_DEFAULT=saved`, an existing stock saved BLS entry and module tree, no
 pending `next_entry`, at least 512 MiB free in `/boot`, an absent candidate
 package, no stale AE-5 EFI pstore evidence, and a successful RPM install-only
-test. It then installs only the verified main RPM, restores the exact original
+test. The test and installation use RPM's `--oldpackage` allowance because a
+candidate suffix may sort below an already installed custom-kernel suffix;
+the install operation remains `-i`, so it adds the verified candidate instead
+of replacing the stable or stock kernel. It then restores the exact original
 `saved_entry`, identifies the new BLS entry by its expected release, and adds
 `efi_pstore.pstore_disable=0 printk.always_kmsg_dump=Y` to that candidate
 entry only. Those arguments preserve shutdown-tail evidence after the journal

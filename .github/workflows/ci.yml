@@ -23,7 +23,20 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Install native headers
-        run: sudo apt-get update && sudo apt-get install --yes appstream desktop-file-utils jq libasound2-dev libgtk-4-dev libpipewire-0.3-dev shellcheck sox udev
+        run: >-
+          sudo apt-get update &&
+          sudo apt-get install --yes
+          appstream
+          desktop-file-utils
+          jq
+          libasound2-dev
+          libgtk-4-dev
+          libpipewire-0.3-dev
+          qt6-base-dev
+          qt6-declarative-dev
+          shellcheck
+          sox
+          udev
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt

@@ -286,7 +286,7 @@ case $1 in
 esac
 [[ $# -eq 1 ]] || usage
 
-for tool in awk chmod cp date find grep journalctl mkdir mktemp python3 tee \
+for tool in awk chmod date find grep journalctl mkdir mktemp python3 tee \
 	uname wc; do
 	command -v "$tool" >/dev/null 2>&1 ||
 		fail "required tool is unavailable: $tool"
@@ -325,7 +325,7 @@ journalctl -k -b 0 --no-pager -o cat > "$current_log" ||
 	fail 'unable to read the current boot kernel journal'
 decode_pstore "$efivar_root" > "$shutdown_log"
 while IFS= read -r file; do
-	cp -- "$file" "$evidence_root/${file##*/}"
+	tee "$evidence_root/${file##*/}" < "$file" >/dev/null
 done < <(
 	find "$efivar_root" -maxdepth 1 -type f \
 		-name "dump-type0-*-$pstore_guid" -print

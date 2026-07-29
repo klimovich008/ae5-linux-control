@@ -1,8 +1,8 @@
 # AE-5 warm-reboot DSP reset
 
-Status on 2026-07-28: **source-compatible, warnings-as-errors object-build,
-non-installing RPM-package accepted, and installed side by side for one
-guarded boot; not booted or bare-metal accepted yet**.
+Status on 2026-07-29: **source-, object-, and RPM-package accepted; installed
+side by side; and bare-metal Linux shutdown-reset accepted. The
+Linux-to-Windows handoff remains pending**.
 
 ## Observed boundary
 
@@ -133,25 +133,56 @@ confirmed:
 - only the candidate entry contains
   `efi_pstore.pstore_disable=0 printk.always_kmsg_dump=Y`;
 - the stock Nobara kernel remains the saved/default entry;
-- the candidate is selected through `next_entry` for one boot only;
-- `7.1.4-ae5-stable` remains the running, untainted kernel;
+- the candidate was selected through `next_entry` for one boot only;
+- the initial `7.1.4-ae5-stable` kernel remained running and untainted until
+  that deliberate transition;
 - EFI pstore contains no stale record; and
 - installation did not reboot the machine.
 
+## Bare-metal Linux handoff result
+
+On 2026-07-29 the exact `7.1.4-ae5-shutdown` package booted bare metal with
+the candidate-only pstore arguments, zero taint, its matching signed CA0132
+module, one DSP download, OutFX off, and no audio-specific kernel warning. The
+pre-shutdown `--prepare` gate passed with an empty EFI pstore.
+
+Without removing motherboard power, the host warm-rebooted into the accepted
+`7.1.4-ae5-stable` kernel. The acknowledged `--check` gate decoded 17
+compressed raw efivarfs parts and returned:
+
+```text
+previous_kernel=7.1.4-ae5-shutdown
+previous_dsp_downloads=1
+shutdown_evidence=efi-pstore
+previous_shutdown_resets=1
+previous_shutdown_failures=0
+current_kernel=7.1.4-ae5-stable
+current_dsp_downloads=1
+current_kernel_taint=0
+linux_handoff_evidence=pass
+warm_handoff_result=pass
+```
+
+The raw records, decoded shutdown tail, both kernel journals, and
+machine-readable result remain in the private local evidence directory. The
+collector archives efivarfs records with a sequential stream copy because
+these kernel-backed files reject the seek attempted by GNU `cp`.
+
 ## Remaining acceptance
 
-Do not call the warm-state issue fixed from source or package inspection
-alone. The
-candidate still needs:
+Do not call the cross-operating-system warm-state issue fixed from the Linux
+handoff alone. The candidate still needs a Linux-to-Windows warm handoff with
+matched settings and comparison against a full power-removal baseline.
 
-1. a guarded boot with every AE-5 analog output unplugged;
-2. a Linux warm reboot proving `AE-5 DSP reset at shutdown` in an EFI pstore
-   shutdown dump and one fresh DSP download in the new boot;
-3. the hard-muted first-open/warm/idle/rejected-OutFX playback matrix; and
-4. ultimately a Linux-to-Windows warm handoff with matched settings.
+The ninth patch changes only the device-shutdown path. The accepted
+stable-playback first-open, warm, idle, rate, channel, and rejected-OutFX
+matrices therefore remain valid under the roadmap's focused-rerun policy.
+During the candidate boot, the managed persistent playback path had already
+opened the PCM; closing it solely to manufacture another first-open test would
+not exercise the changed shutdown path and would add avoidable audio risk.
 
 The installed `7.1.4-ae5-stable` kernel does not contain this candidate.
-Continue using it until the candidate passes those runtime gates.
+Continue using it until the candidate passes the Windows handoff gate.
 
 The guarded installer adds
 `efi_pstore.pstore_disable=0 printk.always_kmsg_dump=Y` to the candidate BLS

@@ -5,7 +5,7 @@ original scope in [PORT_PLAN.md](PORT_PLAN.md), the incident history in
 [GOAL.md](GOAL.md), and the current-state snapshot in
 [HANDOVER.md](HANDOVER.md) into one sequence with explicit exit criteria.
 
-Last audited: **2026-07-28**
+Last audited: **2026-07-29**
 
 ## Current state
 
@@ -129,7 +129,10 @@ Status: **in progress**
 
 - Completed: install the package-verified `7.1.4-ae5-shutdown` kernel side by
   side for one boot while retaining the stock saved/default entry.
-- Run its guarded Linux boot and shutdown evidence gate.
+- Completed: the exact candidate passed its guarded bare-metal runtime and
+  EFI-pstore preparation gates, then a no-power-removal warm reboot into
+  `7.1.4-ae5-stable` proved exactly one successful shutdown reset, no reset
+  failure, one DSP initialization in each boot, and zero kernel taint.
 - Warm-boot into Windows and compare against a full power-removal baseline.
 - Before the handoff, require the candidate-only EFI pstore preparation gate.
   On return to Linux, run the explicitly acknowledged `--check` gate before

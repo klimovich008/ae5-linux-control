@@ -77,7 +77,7 @@ for path in root.iterdir():
 
 if not records:
     raise SystemExit("no EFI pstore shutdown record found")
-if len({(count, timestamp) for _, count, timestamp, _ in records}) != 1:
+if len({count for _, count, _, _ in records}) != 1:
     raise SystemExit("EFI pstore contains more than one dump")
 records.sort()
 if [part for part, _, _, _ in records] != list(range(1, len(records) + 1)):
@@ -232,10 +232,11 @@ import sys
 import zlib
 
 root, guid, source = pathlib.Path(sys.argv[1]), sys.argv[2], pathlib.Path(sys.argv[3])
-compressor = zlib.compressobj(wbits=-zlib.MAX_WBITS)
-payload = compressor.compress(source.read_bytes()) + compressor.flush()
-path = root / f"dump-type0-1-1-1780000000-C-{guid}"
-path.write_bytes((7).to_bytes(4, "little") + payload)
+for part, chunk in enumerate(source.read_bytes().splitlines(keepends=True), 1):
+    compressor = zlib.compressobj(wbits=-zlib.MAX_WBITS)
+    payload = compressor.compress(chunk) + compressor.flush()
+    path = root / f"dump-type0-{part}-1-{1780000000 + part - 1}-C-{guid}"
+    path.write_bytes((7).to_bytes(4, "little") + payload)
 PY
 	[[ $(decode_pstore "$efivars") == "$(<"$shutdown_log")" ]] ||
 		fail 'self-test did not decode compressed EFI pstore evidence'

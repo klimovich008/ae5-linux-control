@@ -133,11 +133,13 @@ Status: **in progress**
   EFI-pstore preparation gates, then a no-power-removal warm reboot into
   `7.1.4-ae5-stable` proved exactly one successful shutdown reset, no reset
   failure, one DSP initialization in each boot, and zero kernel taint.
-- Warm-boot into Windows and compare against a full power-removal baseline.
-- Before the handoff, require the candidate-only EFI pstore preparation gate.
-  On return to Linux, run the explicitly acknowledged `--check` gate before
-  any sound module reload so the shutdown reset and current DSP download
-  remain unambiguous.
+- Completed: a second exact-candidate boot passed the preparation gate and
+  warm-booted into bare-metal Windows without motherboard power removal. The
+  user confirmed normal Windows playback, then the acknowledged Linux return
+  gate proved one successful candidate shutdown reset, no failure, one DSP
+  initialization after return, and zero kernel taint.
+- Promote the accepted ninth patch into the daily stable package without the
+  candidate-only EFI-pstore arguments.
 - Keep stock and `7.1.4-ae5-stable` as recoverable boot choices until accepted.
 
 Exit: the ninth patch either passes and replaces the eight-patch build, or is

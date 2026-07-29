@@ -15,7 +15,7 @@ Versions examined: `ctxhda.inf` 6.0.105.0065 (2022-11-24),
 `CtxRFX64.dll` (2022-12-20), and `Creative.SBCommand.exe` (2023-10-06,
 .NET Framework 4.6.1, x86).
 
-The mounted Windows installation was rechecked on 2026-07-27. All four live
+The mounted Windows installation was rechecked on 2026-07-29. All seven live
 binary hashes still match this table. The installed 0065 INF still registers
 the same render APO, and the machine-local Ghidra reports still show the
 master/child registration, endpoint-property write path, APO module chain and
@@ -46,6 +46,9 @@ before using that endpoint for any same-settings comparison.
 | `CtxRFX64.dll` | `07de141f54a6a128747cc76d69a5eb42963107ea89f05fdb09ce8bb1a3977770` |
 | `CtxHdC64.dll` | `ac4ab46eebd8cba2577f47567eb6d83a4d0a2b9d7d1eeea829a2d4a37fd02761` |
 | `Creative.SBCommand.exe` | `32c71d5ad40f5d3cc1bb35f756038e3de5c08e3291550f26ac9fa1cb1cabff58` |
+| `Creative.Platform.Mixer.dll` | `4efad39e5ea495b3a5175cc4d0eaedc42adee6013ffa7f929fb4c73784ae2731` |
+| `MalLgcy.dll` | `feb040c20e549bffc4426088093736ea4eec13ebd6fd0058d89d4db46be0dcbd` |
+| `CTAudEp.dll` | `c090b3cd08727e59119da513ee2d4374bbe9ea1e1aca251058025bfd8a9f9e64` |
 
 ## The finding
 
@@ -120,6 +123,56 @@ handlers. No scalar reference implementing `0x60000001` was found. The driver
 does manage DSP firmware, playback routing and unmute state, so absence of
 that master ID is not proof that no individual endpoint property is ever
 mirrored into hardware.
+
+## Exact master-volume trace
+
+Sound Blaster Command does not define a separate Creative percentage curve for
+master volume. Its bottom-bar setter reaches
+`Creative.Platform.Mixer.MixerLine.SetLevel`, which:
+
+1. clamps the displayed value to the range 0 through 100;
+2. divides it by 100; and
+3. calls the native `CSCTSetMasterVolume` entry point with scalar mode enabled.
+
+The corresponding getter requests scalar mode and multiplies the result by
+100 for display. Headphone gain/load selection uses a separate feature write
+and does not compensate or transform master volume in this path.
+
+`MalLgcy.dll` forwards this operation to `CTAudEp.dll`. Static disassembly of
+the exact installed `CTSetMasterVolume` export shows it activating the
+endpoint's `IAudioEndpointVolume` interface. With scalar mode enabled it
+passes the input float unchanged to `SetMasterVolumeLevelScalar`; with scalar
+mode disabled it passes the float unchanged to `SetMasterVolumeLevel`. There
+is no arithmetic or private Creative property write between the exported
+function argument and the COM call. The neighboring volume-range export calls
+`IAudioEndpointVolume::GetVolumeRange`.
+
+Consequently, Command's displayed 5% and 30% values mean scalar 0.05 and 0.30
+respectively. Windows then maps that normalized scalar through its endpoint
+volume curve. Microsoft documents this scalar curve as nonlinear and
+audio-tapered; it is not encoded in the Creative binaries and must not be
+treated as a stable formula:
+[`SetMasterVolumeLevelScalar`](https://learn.microsoft.com/windows/win32/api/endpointvolume/nf-endpointvolume-iaudioendpointvolume-setmastervolumelevelscalar).
+
+The installed 0065 INF supplies 0 dB maximum-volume values for the generic
+line-out, extended line-out, and direct-out paths. The AE-5 subsystem has
+minus-1 dB maxima for additional extended channels, but no static
+percentage-to-decibel table and no AE-5 `HPVolume_*` default block. This does
+not reveal whether the live endpoint volume is implemented in hardware or
+software.
+
+This resolves the application's role but not the exact AE-5 curve. A final,
+silent Windows runtime query must record:
+
+- `GetVolumeRange`;
+- `GetVolumeStepInfo`;
+- `QueryHardwareSupport`; and
+- `GetMasterVolumeLevel` after setting known scalar values while muted.
+
+The query must preserve and restore the original endpoint scalar and mute
+state. It requires no audio playback. Those measured scalar-to-decibel points,
+not equal-looking percentages, are the appropriate reference for Linux volume
+parity.
 
 ## Normal playback transport comparison
 

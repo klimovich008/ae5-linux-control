@@ -97,6 +97,15 @@ systems:
 3. Linux normal PipeWire playback.
 4. Digital silence through the same three paths.
 
+Do not assume that the same displayed Windows and Linux percentage represents
+the same attenuation. Binary tracing establishes that Sound Blaster Command
+sends its percentage divided by 100 directly to Windows
+`IAudioEndpointVolume::SetMasterVolumeLevelScalar`. Windows applies a
+nonlinear audio-tapered endpoint curve, while the Linux PipeWire control uses
+its own volume semantics. Match the measured endpoint decibel value for level
+parity, then keep that value fixed for the response comparison. See
+[`WINDOWS_STACK_ARCHITECTURE.md`](WINDOWS_STACK_ARCHITECTURE.md#exact-master-volume-trace).
+
 Immediately before a playback command, run the non-mutating preflight for the
 chosen path and exact fixture:
 

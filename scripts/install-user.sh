@@ -274,7 +274,7 @@ if [[ $mode == install ]]; then
 	}
 	(
 		cd -- "$project_root"
-		cargo build --locked --release --all-features
+		bash scripts/build-release-binaries.sh --locked
 	)
 fi
 

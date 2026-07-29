@@ -596,7 +596,7 @@ The release GUI has reproducible startup, hardware-refresh, idle CPU, and
 resident-memory budgets. Run the read-only measurement with:
 
 ```sh
-cargo build --locked --release --all-features
+bash scripts/build-release-binaries.sh --locked
 bash scripts/measure-gui-performance.sh
 ```
 

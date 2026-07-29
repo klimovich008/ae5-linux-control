@@ -3,6 +3,10 @@ use cxx_qt_lib::{QGuiApplication, QQmlApplicationEngine, QQmlEngine, QQuickStyle
 use std::pin::Pin;
 
 fn main() {
+    // Make the generated C++ initializer a direct executable dependency.
+    // CXX-Qt's automatic initializer archive otherwise appears after this
+    // crate's archive, which GNU gold cannot resolve in a single pass.
+    cxx_qt::init_crate!(ae5_control);
     ae5_control::qml_app_state::initialize();
     QQuickStyle::set_style(&QString::from("Basic"));
 

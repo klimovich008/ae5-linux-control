@@ -52,7 +52,7 @@ export CARGO_NET_OFFLINE=true
 export CFLAGS="${CFLAGS:-} -ffile-prefix-map=$PWD=."
 export CXXFLAGS="${CXXFLAGS:-} -ffile-prefix-map=$PWD=."
 export RUSTFLAGS="%{build_rustflags} --remap-path-prefix=$PWD=."
-cargo build --frozen --offline --release --all-features
+bash scripts/build-release-binaries.sh --frozen --offline
 
 %install
 install -Dm0755 target/release/ae5-control \
@@ -99,7 +99,9 @@ export CARGO_NET_OFFLINE=true
 export CFLAGS="${CFLAGS:-} -ffile-prefix-map=$PWD=."
 export CXXFLAGS="${CXXFLAGS:-} -ffile-prefix-map=$PWD=."
 export RUSTFLAGS="%{build_rustflags} --remap-path-prefix=$PWD=."
-cargo test --frozen --offline --release --all-features
+cargo test --frozen --offline --release \
+  --no-default-features \
+  --features gui,daemon,outfx-lab
 bash scripts/check-ae5-acp-profile.sh
 bash scripts/collect-linux-report.sh --self-test
 desktop-file-validate packaging/io.github.klimovich008.ae5control.desktop

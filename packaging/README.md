@@ -7,7 +7,7 @@ runs Cargo in offline/frozen mode.
 Install the build tools:
 
 ```sh
-sudo dnf install rpm-build cargo rust alsa-lib-devel gtk4-devel \
+sudo dnf install rpm-build cargo rust gcc-c++ alsa-lib-devel gtk4-devel \
   qt6-qtbase-devel qt6-qtdeclarative-devel \
   desktop-file-utils appstream systemd-udev
 ```

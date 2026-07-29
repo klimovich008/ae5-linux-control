@@ -62,10 +62,28 @@ jobs:
       - run: udevadm verify --resolve-names=never packaging/udev/*.rules
       - run: appstreamcli validate --no-net --strict packaging/io.github.klimovich008.ae5control.metainfo.xml
       - run: systemd-analyze --user verify systemd/user/*
-      - run: cargo build --locked --release --all-features && bash scripts/check-user-install.sh
+      - run: bash scripts/build-release-binaries.sh --locked
+      - run: bash scripts/check-user-install.sh
       - run: cargo fmt --check
-      - run: cargo clippy --all-targets --all-features -- -D warnings
-      - run: cargo test --all-features
+      - name: Clippy (core, GTK, daemon, and CLI)
+        run: >-
+          cargo clippy
+          --all-targets
+          --no-default-features
+          --features gui,daemon,outfx-lab
+          -- -D warnings
+      - name: Clippy (Qt/QML frontend)
+        run: >-
+          cargo clippy
+          --no-default-features
+          --features qml-gui,outfx-lab
+          --bin ae5-control-qml
+          -- -D warnings
+      - name: Test shared backend and non-QML targets
+        run: >-
+          cargo test
+          --no-default-features
+          --features gui,daemon,outfx-lab
 
   rpm:
     if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'

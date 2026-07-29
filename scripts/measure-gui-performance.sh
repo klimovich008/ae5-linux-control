@@ -12,7 +12,7 @@ readonly idle_interval_seconds=0.1
 binary=${1:-target/release/ae5-control}
 [[ -x $binary ]] || {
 	printf 'error: executable not found: %s\n' "$binary" >&2
-	printf 'build it with: cargo build --locked --release --all-features\n' >&2
+	printf 'build it with: bash scripts/build-release-binaries.sh --locked\n' >&2
 	exit 1
 }
 

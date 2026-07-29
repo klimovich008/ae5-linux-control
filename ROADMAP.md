@@ -11,7 +11,8 @@ Last audited: **2026-07-29**
 
 The project already provides a guarded, hardware-specific MVP:
 
-- a Rust CLI and native GTK 4/Wayland application;
+- a Rust CLI, the temporary native GTK 4 fallback, and the selected Qt 6/QML
+  Sound screen backed by the `ae5d` user service;
 - exact AE-5 discovery and checked ALSA/PipeWire controls;
 - native profiles, 33 embedded Command profile pairs, and personal Windows
   settings migration;
@@ -168,7 +169,7 @@ PipeWire policy, kernel audio-path, or rate-negotiation changes.
 
 ### M4 — Profile and Qt/QML GUI daily-use acceptance
 
-Status: **in progress — Phase 7 accessibility/scaling slice complete**
+Status: **in progress — packaged Qt runtime slice complete**
 
 - Reproduce and fix the reported profile-card fallback to Adventure and Action.
 - Make profile application state explicit: selected profile, route variant,
@@ -225,9 +226,18 @@ Status: **in progress — Phase 7 accessibility/scaling slice complete**
   Effects/EQ ownership; and AT-SPI exposes meaningful roles, names,
   descriptions, values, and live status. Native Wayland checks passed at
   1024 × 680, 1280 × 800, and 1600 × 1000 without horizontal overflow, and an
-  X11 smoke launch produced no QML error. Close-with-unsaved handling,
-  fractional-scale acceptance, and complete injected failure-state tests
-  remain open.
+  X11 smoke launch produced no QML error. Object-scoped close-with-unsaved
+  choices and 125%, 150%, and 200% Wayland scale smokes also pass. Automated
+  focus-order assertions and complete injected failure-state tests remain
+  open.
+- Completed the first Phase 8 packaging slice: both the RPM and transactional
+  rootless installer now ship `ae5-control-qml`, `ae5d`, D-Bus activation, and
+  the systemd user unit while retaining GTK as a fallback. The installed
+  desktop entry launches Qt. An already-running session bus reloads the new
+  activation metadata immediately. The isolated rootless lifecycle, a clean
+  Fedora 44 RPM install/remove transaction, native Wayland and X11 startup,
+  and a live daemon stop/reactivation cycle passed without an audio write;
+  the physical sink remained at 20%.
 - Active next step: with the user present and OutFX deliberately off, run one
   guarded apply/change/disable/restart cycle at no more than 20% and record
   cross-rate response and persistence evidence. Effects, OutFX, output, gain,

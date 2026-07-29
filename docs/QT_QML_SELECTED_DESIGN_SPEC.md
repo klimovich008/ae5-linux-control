@@ -576,8 +576,8 @@ is unavailable.
 
 ### Phase 7 — failure states, accessibility, and scaling
 
-Status: **in progress — first accessibility and responsive-layout slice
-complete**
+Status: **in progress — accessibility, responsive layout, and close handling
+complete; exhaustive failure injection remains**
 
 - [ ] implement and test disconnected, partial, busy, permission, firmware,
   daemon, and write-failure states as reusable component states;
@@ -593,21 +593,25 @@ complete**
   normal text and status colors pass the intended contrast checks;
 - [x] verify native Wayland layouts at 1024 × 680, 1280 × 800, and
   1600 × 1000 with no horizontal overflow, plus an X11 startup smoke test;
-- [ ] implement close-with-unsaved choices and automated focus-order
-  assertions;
-- [ ] verify 125%, 150%, and 200% display scaling and complete screen-reader
-  reading-order acceptance. The explicit `--light` palette is available now;
-  automatic system-theme following remains later polish.
+- [x] implement object-scoped close-with-unsaved choices without introducing a
+  combined save;
+- [ ] add automated focus-order assertions and complete screen-reader
+  reading-order acceptance;
+- [x] verify 125%, 150%, and 200% display scaling. The explicit `--light`
+  palette is available now; automatic system-theme following remains later
+  polish.
 
 Exit: no state requires a terminal or application restart to understand.
 
 ### Phase 8 — remaining pages and release
 
-- port Playback, Recording, Mixer, Lighting, Device, and Settings using the
+- [ ] port Playback, Recording, Mixer, Lighting, Device, and Settings using the
   same shell and state model;
-- package the Qt/QML app and user daemon;
-- run RPM install/upgrade/rollback and hardware acceptance;
-- retire GTK only after accepted parity.
+- [x] package the Qt/QML app and user daemon in both the RPM and transactional
+  rootless installer, with D-Bus activation and immediate session-bus reload;
+- [ ] run the authenticated host RPM install/upgrade/rollback and remaining
+  hardware acceptance;
+- [ ] retire GTK only after accepted parity.
 
 Exit: packaged daily-use candidate satisfies the roadmap and preserves audio
 safety.

@@ -41,10 +41,16 @@ state_before=$(sha256sum "$profile_state" "$alsa_state")
 dnf --quiet --assumeyes --setopt=install_weak_deps=False install "$rpm_path"
 rpm -V ae5-control
 
-for command in ae5-control ae5ctl ae5-collect-report; do
+for command in ae5-control ae5-control-qml ae5ctl ae5d ae5-collect-report; do
 	command -v "$command" >/dev/null 2>&1 ||
 		fail "installed command is unavailable: $command"
 done
+grep -Fxq 'Exec=ae5-control-qml' \
+	/usr/share/applications/io.github.klimovich008.ae5control.desktop
+grep -Fxq 'Exec=/usr/bin/ae5d' \
+	/usr/share/dbus-1/services/io.github.klimovich008.Ae5Control.service
+grep -Fxq 'ExecStart=/usr/bin/ae5d' \
+	/usr/lib/systemd/user/ae5d.service
 ae5ctl help | grep -Fq 'sbcommand-import-active'
 ae5ctl help | grep -Fq 'lighting-restore'
 ae5ctl help | grep -Fq 'route-repair'

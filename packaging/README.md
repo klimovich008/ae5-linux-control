@@ -8,6 +8,7 @@ Install the build tools:
 
 ```sh
 sudo dnf install rpm-build cargo rust alsa-lib-devel gtk4-devel \
+  qt6-qtbase-devel qt6-qtdeclarative-devel \
   desktop-file-utils appstream systemd-udev
 ```
 
@@ -18,8 +19,9 @@ bash scripts/build-rpm.sh
 ```
 
 The binary RPM and source RPM are written to `dist/`. The binary package
-contains the GTK application, CLI, desktop integration, the privacy-conscious
-`ae5-collect-report` diagnostics command, and a card-scoped PipeWire ACP
+contains the Qt 6/QML application, the on-demand `ae5d` user service, the GTK
+fallback, CLI, desktop integration, the privacy-conscious `ae5-collect-report`
+diagnostics command, and a card-scoped PipeWire ACP
 profile that prevents the generic headphone route from muting the AE-5's
 shared Front DAC. The same profile exposes exact Microphone, Front Microphone,
 and Line In routes for the card's `Input Source` enum. It also installs the
@@ -37,7 +39,9 @@ The RPM license expression accounts for the statically linked Rust dependency
 set. Those crates can be distributed under MIT terms, with `unicode-ident`
 additionally requiring the Unicode-3.0 license shipped in the package.
 
-Normal use does not require root, a project daemon, or a setuid helper.
+Normal use does not require root or a setuid helper. The desktop application
+activates the unprivileged `ae5d` user service over the session D-Bus; QML
+does not access ALSA or PipeWire directly.
 WirePlumber reads the packaged profile on its next start; log out and back in,
 or restart the user WirePlumber service when no audio stream is active.
 
@@ -52,8 +56,9 @@ bash scripts/install-user.sh
 
 The installer builds with Cargo, copies a private payload under
 `~/.local/share/ae5-control/user-install`, and creates only the required
-per-user binary, self-contained uninstaller, desktop, AppStream, icon,
-autostart, WirePlumber, and ACP links. Existing byte-identical routing files
+per-user binaries, user-service activation metadata, self-contained
+uninstaller, desktop, AppStream, icon, autostart, WirePlumber, and ACP links.
+Existing byte-identical routing files
 are retained, any conflicting path aborts the operation before installation,
 and missing system ACP includes are rejected instead of producing dangling
 links. Rerunning the installer stages and verifies a complete payload before

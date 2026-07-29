@@ -1,0 +1,13 @@
+[Unit]
+Description=AE-5 Control user hardware service
+After=pipewire.service wireplumber.service
+
+[Service]
+Type=dbus
+BusName=io.github.klimovich008.Ae5Control
+ExecStart="@AE5D_EXEC@"
+Restart=on-failure
+RestartSec=1s
+
+[Install]
+WantedBy=default.target

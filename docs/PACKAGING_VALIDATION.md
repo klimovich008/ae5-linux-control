@@ -823,6 +823,44 @@ the simple-mixer SHA-256 is
 Kernel `7.1.4-ae5-current` remained untainted, every AE-5 PCM closed, and no
 relevant kernel warning appeared.
 
+## Qt/QML application and user-daemon package slice
+
+On 2026-07-29 the package was extended to make the selected Qt 6/QML Sound
+screen the desktop launcher while retaining the GTK application as a fallback.
+Both the RPM and rootless installer now include `ae5-control-qml`, `ae5d`, the
+typed session D-Bus activation file, and the systemd user unit. QML remains
+isolated from ALSA and PipeWire; it reaches the existing guarded Rust backend
+through `ae5d`.
+
+The transactional rootless lifecycle now checks all four binaries, generated
+per-user activation paths, immediate activation inside an already-running
+session bus, idempotent upgrade, rollback after staged failures, complete
+uninstall, and preservation of profile and lighting state. The installer
+reloads both the user service manager and session-bus configuration when they
+are available, so the first launch does not depend on a new login.
+
+The reproducible Fedora 44 RPM build passed 155 library tests, 28 GTK tests,
+two CLI tests, metadata/udev/ACP/report checks, and the private-build-path
+gate for all four Rust/CXX-Qt binaries. A first build exposed an absolute path
+from generated C++ metadata; adding the corresponding C and C++ file-prefix
+map closed that privacy and reproducibility failure before an artifact was
+accepted.
+
+A fresh rootless Fedora 44 container then resolved the full dependency set,
+installed the exact binary RPM, verified the Qt and GTK applications, CLI,
+daemon, desktop launcher, D-Bus service, and systemd user unit, removed all 25
+package-owned files, and preserved the profile and ALSA-state sentinels.
+
+The real rootless installation was upgraded transactionally without restarting
+WirePlumber. Native Wayland and X11 startup smokes kept the installed Qt
+application open without a QML error. The live D-Bus state reported the exact
+AE-5 as ready, Headphones, Medium gain, S16LE at 96 kHz, 20%, and unmuted.
+Stopping `ae5d` while the Wayland application remained open changed the
+service from PID 2075511 to PID 2077267 on the next five-second refresh,
+proving automatic reactivation without restarting the application. The
+default AE-5 sink remained at 20% throughout; these packaging and recovery
+checks made no audio writes.
+
 ## Remaining release gate
 
 This proves clean Fedora dependency resolution and package ownership/removal,

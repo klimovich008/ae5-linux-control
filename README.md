@@ -606,9 +606,11 @@ evidence, and results are recorded in
 [docs/GUI_PERFORMANCE.md](docs/GUI_PERFORMANCE.md).
 
 Nobara/Fedora RPM build and install instructions are in
-[packaging/README.md](packaging/README.md). The package installs the GTK app,
-CLI, desktop entry, AppStream metadata, icon, scoped onboard-LED device rule,
-and login-time color restore without a privileged helper.
+[packaging/README.md](packaging/README.md). The package installs the Qt 6/QML
+app, unprivileged Rust `ae5d` user service, temporary GTK fallback, CLI,
+desktop entry, AppStream metadata, icon, scoped onboard-LED device rule, and
+login-time color restore without a privileged helper. The desktop entry
+launches Qt and activates `ae5d` over the session D-Bus.
 A clean Fedora 44 build/install/verify/remove transaction is now enforced in
 pull-request CI, and a read-only run of an exact RPM payload on the physical
 AE-5 passed.
@@ -622,17 +624,19 @@ bash scripts/install-user.sh
 ae5-control-user-install --uninstall
 ```
 
-This rootless path installs the binaries, application-menu metadata,
-login-time lighting restore, and card-scoped WirePlumber/ACP configuration
-under the normal XDG user directories. It refuses conflicting files and stages
-a complete verified payload before replacing an earlier user installation.
-Rerun the same command to upgrade; profiles and lighting settings are
-preserved by upgrades and removal. It cannot install a kernel patch or udev
-permissions, so onboard-lighting writes still require the system package's
-exact rule. The isolated lifecycle check runs in CI, and the reference host has
-launched the installed application from its desktop entry with an unchanged
-mixer and route state. Full evidence and the remaining authenticated-RPM gate
-are in
+This rootless path installs the Qt and GTK binaries, `ae5d`, per-user D-Bus
+and systemd activation metadata, application-menu metadata, login-time
+lighting restore, and card-scoped WirePlumber/ACP configuration under the
+normal XDG user directories. It refuses conflicting files and stages a
+complete verified payload before replacing an earlier user installation. An
+already-running session bus is reloaded so the first Qt launch can activate
+`ae5d` without logging out. Rerun the same command to upgrade; profiles and
+lighting settings are preserved by upgrades and removal. It cannot install a
+kernel patch or udev permissions, so onboard-lighting writes still require the
+system package's exact rule. The isolated lifecycle check runs in CI, and the
+reference host has launched the installed Qt application under Wayland and
+X11, including daemon restart recovery, with an unchanged 20% mixer and route
+state. Full evidence and the remaining authenticated-RPM gate are in
 [docs/PACKAGING_VALIDATION.md](docs/PACKAGING_VALIDATION.md).
 
 The **Profiles** page can:

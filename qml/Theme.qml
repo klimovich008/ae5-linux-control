@@ -3,7 +3,7 @@ pragma Singleton
 import QtQuick
 
 QtObject {
-    readonly property bool light: Qt.application.arguments.indexOf("--light") >= 0
+    property bool light: Qt.application.arguments.indexOf("--light") >= 0
 
     // Surfaces
     readonly property color background: light ? "#F4F8FA" : "#071725"

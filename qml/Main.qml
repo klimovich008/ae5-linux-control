@@ -22,6 +22,35 @@ ApplicationWindow {
         return fallback
     }
 
+    function initialPage() {
+        const validPages = ["overview", "sound", "equalizer", "playback",
+                            "recording", "mixer", "lighting", "device",
+                            "settings"]
+        for (let index = 0; index < Qt.application.arguments.length; ++index) {
+            const argument = Qt.application.arguments[index]
+            if (!argument.startsWith("--qa-page="))
+                continue
+            const requested = argument.substring(10)
+            return validPages.indexOf(requested) >= 0 ? requested : "sound"
+        }
+        return "sound"
+    }
+
+    function pageIndex(key) {
+        switch (key) {
+        case "overview": return 0
+        case "sound": return 1
+        case "equalizer": return 2
+        case "playback": return 3
+        case "recording": return 4
+        case "mixer": return 5
+        case "lighting": return 6
+        case "device": return 7
+        case "settings": return 8
+        default: return 1
+        }
+    }
+
     width: qaWindowDimension(0, 1280)
     height: qaWindowDimension(1, 800)
     minimumWidth: 1024
@@ -56,6 +85,7 @@ ApplicationWindow {
         Qt.application.arguments.indexOf("--qa-focus-audit") >= 0
     readonly property bool qaStateSmokeRequested:
         Qt.application.arguments.indexOf("--qa-state-smoke") >= 0
+    property string activePage: initialPage()
     property bool closeConfirmed: false
     property var closeReturnFocusItem: null
 
@@ -84,6 +114,7 @@ ApplicationWindow {
         if (readOnly) {
             closeReturnFocusItem = null
             unsavedDialog.close()
+            root.activePage = "sound"
             soundPage.reviewObject(objectName, true)
             return
         }
@@ -113,7 +144,11 @@ ApplicationWindow {
     }
 
     function expectedQaFocusOrder() {
-        let order = ["nav-sound"]
+        let order = [
+            "nav-overview", "nav-sound", "nav-equalizer", "nav-playback",
+            "nav-recording", "nav-mixer", "nav-lighting", "nav-device",
+            "nav-settings"
+        ]
         if (appState.qaScenario === "both-modified")
             order.push("eq-revert", "eq-save", "eq-actions")
         else
@@ -245,7 +280,8 @@ ApplicationWindow {
                 Qt.exit(2)
             } else {
                 console.log("AE5_QML_STATE_SMOKE result=rendered state="
-                            + appState.qaScenario + " status=" + appState.statusCode)
+                            + appState.qaScenario + " status=" + appState.statusCode
+                            + " page=" + root.activePage)
                 Qt.exit(0)
             }
         }
@@ -267,15 +303,65 @@ ApplicationWindow {
                                                    : Theme.sidebarWidth
                 Layout.fillHeight: true
                 compact: root.compact
+                currentKey: root.activePage
+                onPageRequested: key => root.activePage = key
             }
 
-            SoundPage {
-                id: soundPage
-
+            StackLayout {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                appState: appState
-                compact: root.compact
+                currentIndex: root.pageIndex(root.activePage)
+
+                OverviewPage {
+                    appState: appState
+                    compact: root.compact
+                    onNavigateRequested: page => root.activePage = page
+                }
+
+                SoundPage {
+                    id: soundPage
+
+                    appState: appState
+                    compact: root.compact
+                }
+
+                EqualizerPage {
+                    id: equalizerPage
+
+                    appState: appState
+                    compact: root.compact
+                }
+
+                PlaybackPage {
+                    appState: appState
+                    compact: root.compact
+                    onNavigateRequested: page => root.activePage = page
+                }
+
+                RecordingPage {
+                    appState: appState
+                    compact: root.compact
+                }
+
+                MixerPage {
+                    appState: appState
+                    compact: root.compact
+                }
+
+                LightingPage {
+                    appState: appState
+                    compact: root.compact
+                }
+
+                DevicePage {
+                    appState: appState
+                    compact: root.compact
+                }
+
+                SettingsPage {
+                    appState: appState
+                    compact: root.compact
+                }
             }
         }
 
@@ -287,18 +373,31 @@ ApplicationWindow {
             appState: appState
             compact: root.compact
             wide: root.wide
-            onReviewRequested: soundPage.reviewUnsaved()
+            onReviewRequested: {
+                root.activePage = "sound"
+                Qt.callLater(soundPage.reviewUnsaved)
+            }
         }
     }
 
     Shortcut {
         sequence: StandardKey.Save
-        onActivated: soundPage.saveFocusedObject(false)
+        onActivated: {
+            if (root.activePage === "equalizer")
+                equalizerPage.saveCurrent(false)
+            else
+                soundPage.saveFocusedObject(false)
+        }
     }
 
     Shortcut {
         sequence: "Ctrl+Shift+S"
-        onActivated: soundPage.saveFocusedObject(true)
+        onActivated: {
+            if (root.activePage === "equalizer")
+                equalizerPage.saveCurrent(true)
+            else
+                soundPage.saveFocusedObject(true)
+        }
     }
 
     Dialog {

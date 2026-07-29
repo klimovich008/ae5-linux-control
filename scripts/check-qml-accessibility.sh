@@ -40,6 +40,18 @@ states=(
     both-modified
 )
 
+pages=(
+    overview
+    sound
+    equalizer
+    playback
+    recording
+    mixer
+    lighting
+    device
+    settings
+)
+
 for state in "${states[@]}"; do
     if ! state_output=$(run_qml_check "--qa-state=$state" --qa-state-smoke); then
         printf '%s\n' "$state_output" >&2
@@ -48,5 +60,14 @@ for state in "${states[@]}"; do
     fi
 done
 
+for page in "${pages[@]}"; do
+    if ! page_output=$(run_qml_check --qa-state=ready "--qa-page=$page" --qa-state-smoke); then
+        printf '%s\n' "$page_output" >&2
+        echo "QML page smoke failed for $page." >&2
+        exit 1
+    fi
+done
+
 echo "QML focus-order audit passed."
 echo "QML accessibility and state smoke passed for ${#states[@]} scenarios."
+echo "QML page smoke passed for ${#pages[@]} destinations."

@@ -168,4 +168,53 @@ The remaining project-wide work is physical hardware acceptance, remaining
 pages, and the authenticated host system-RPM lifecycle. Those items do not
 block the Sound-screen visual/state goal.
 
+## Multi-page shell addendum
+
+The remaining navigation destinations were implemented after the Sound-screen
+acceptance. Evidence and findings are recorded in
+`docs/design/audit-2026-07-30-all-tabs/README.md`.
+
+### Source and implementation comparison
+
+- selected source:
+  `docs/design/ae5-control-sound-selected-v2.png`;
+- implementation fixture:
+  `--qa-state=both-modified --qa-page=sound --qa-window=1280x800`;
+- same-canvas comparison:
+  `docs/design/audit-2026-07-30-all-tabs/design-qa-sound-full.png`;
+- focused sidebar comparison:
+  `docs/design/audit-2026-07-30-all-tabs/design-qa-sidebar-focus.png`;
+- all nine 1280×800 destinations:
+  `docs/design/audit-2026-07-30-all-tabs/page-*-1280x800.png`;
+- representative minimum-window captures:
+  `docs/design/audit-2026-07-30-all-tabs/compact-*-1024x680.png`;
+- semantic light-theme capture:
+  `docs/design/audit-2026-07-30-all-tabs/page-sound-light-1280x800.png`.
+
+The pre-fix screenshot showed each sidebar icon/label pair shifted below the
+center of its 44 px row. The cause was inherited `ItemDelegate` top and bottom
+padding. Both navigation delegate groups now set zero vertical padding; AT-SPI
+reports matching row and label bounds, and the focused comparison confirms
+optical centering and consistent icon sizing.
+
+Overview, Equalizer, Playback, Recording, Mixer, Lighting, Device, and
+Settings now use functional keyboard/pointer navigation and the same semantic
+components. The footer remains the single owner of output, gain, mute, and
+master volume. Equalizer edits the same Rust-owned preset as Sound.
+Unavailable typed writes remain visibly read-only, deferred, or guarded.
+
+The multi-page pass added nine destination smokes to the existing ten-state
+and focus-order test. A native Wayland release launch emitted no QML error.
+Representative 1024×680 pages use the compact icon rail and vertical scrolling
+without overlap or horizontal overflow.
+
+The release build, strict Qt/QML-target Clippy check, ShellCheck, formatting,
+and diff checks passed. The workspace test run passed 147 tests. All visual
+captures used deterministic no-write fixtures; the separate live startup smoke
+performed no control action.
+
+The addendum does not replace the earlier installed-host acceptance. It closes
+the navigation and visual shell slice; deferred backend integration and
+physical hardware acceptance remain roadmap work.
+
 final result: passed

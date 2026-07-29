@@ -1,0 +1,117 @@
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+import io.github.klimovich008.ae5control
+import "../components"
+
+PageScaffold {
+    id: root
+
+    signal navigateRequested(string page)
+
+    pageTitle: qsTr("Playback")
+    pageDescription: qsTr("Inspect the active analog path, format and speaker capabilities. Output, gain and volume remain in the persistent hardware footer.")
+    onRetryRequested: root.appState.refreshFromDaemon()
+
+    SectionPanel {
+        Layout.fillWidth: true
+        title: qsTr("Active playback path")
+        detail: qsTr("One authoritative global control strip prevents route and volume controls from being duplicated across pages.")
+        statusText: root.appState.outputAvailable ? qsTr("Ready") : qsTr("Unavailable")
+        statusKind: root.appState.outputAvailable ? "ready" : "unavailable"
+
+        StatusRow {
+            Layout.fillWidth: true
+            title: qsTr("Current output")
+            detail: qsTr("Switch Speakers, Headphones or Digital from the footer.")
+            value: root.appState.output
+            statusText: root.appState.outputAvailable ? qsTr("Active") : qsTr("Unknown")
+            statusKind: root.appState.outputAvailable ? "ready" : "unavailable"
+        }
+
+        StatusRow {
+            Layout.fillWidth: true
+            title: qsTr("Headphone gain")
+            detail: root.appState.output === "Headphones"
+                    ? qsTr("Gain is reported by the AE-5 hardware state.")
+                    : qsTr("Available when the headphone output is selected.")
+            value: root.appState.headphoneGain
+            statusText: root.appState.headphoneGainAvailable ? qsTr("Detected") : qsTr("Unavailable")
+            statusKind: root.appState.headphoneGainAvailable ? "ready" : "unavailable"
+        }
+
+        StatusRow {
+            Layout.fillWidth: true
+            title: qsTr("Transport format")
+            detail: qsTr("PipeWire negotiates stream format independently from Creative's Windows quality label.")
+            value: root.appState.audioFormat
+            statusText: root.appState.audioFormatAvailable ? qsTr("Current") : qsTr("Unknown")
+            statusKind: root.appState.audioFormatAvailable ? "ready" : "partial"
+            showSeparator: false
+        }
+    }
+
+    SectionPanel {
+        Layout.fillWidth: true
+        title: qsTr("Speaker configuration")
+        detail: qsTr("The Rust backend already validates these controls; the typed QML write contract remains intentionally gated.")
+        statusText: qsTr("Partial")
+        statusKind: "partial"
+
+        StatusRow {
+            Layout.fillWidth: true
+            title: qsTr("Speaker layout")
+            detail: qsTr("2.0, 2.1, 4.0, 4.1 and 5.1 are supported by ALSA and PipeWire.")
+            value: qsTr("2.0 stereo")
+            statusText: qsTr("Read only")
+            statusKind: "partial"
+        }
+
+        StatusRow {
+            Layout.fillWidth: true
+            title: qsTr("Bass redirection")
+            detail: qsTr("Available only for compatible LFE layouts and still awaiting physical acceptance.")
+            value: qsTr("Off")
+            statusText: qsTr("Deferred")
+            statusKind: "partial"
+        }
+
+        StatusRow {
+            Layout.fillWidth: true
+            title: qsTr("PCM roll-off filter")
+            detail: qsTr("Slow Roll Off, Minimum Phase and Fast Roll Off exist in the driver; response verification is still open.")
+            value: qsTr("Driver control")
+            statusText: qsTr("Deferred")
+            statusKind: "partial"
+        }
+
+        StatusRow {
+            Layout.fillWidth: true
+            title: qsTr("Direct Mode")
+            detail: root.appState.directModeAvailable
+                    ? root.appState.hardwareWriteBlockReason
+                    : qsTr("The production driver does not expose a verified safe Direct Mode transition.")
+            value: root.appState.directMode ? qsTr("Active") : qsTr("Off")
+            statusText: root.appState.directModeAvailable ? qsTr("Guarded") : qsTr("Unsupported")
+            statusKind: root.appState.directModeAvailable ? "partial" : "unavailable"
+            showSeparator: false
+        }
+    }
+
+    RowLayout {
+        Layout.fillWidth: true
+
+        Label {
+            Layout.fillWidth: true
+            text: qsTr("Sound effects and Direct Mode conflicts are explained on the Sound page.")
+            color: Theme.textSecondary
+            font.pixelSize: Theme.fontCaption
+            wrapMode: Text.Wrap
+        }
+
+        AppButton {
+            text: qsTr("Open Sound")
+            onClicked: root.navigateRequested("sound")
+        }
+    }
+}

@@ -5,7 +5,7 @@ original scope in [PORT_PLAN.md](PORT_PLAN.md), the incident history in
 [GOAL.md](GOAL.md), and the current-state snapshot in
 [HANDOVER.md](HANDOVER.md) into one sequence with explicit exit criteria.
 
-Last audited: **2026-07-29**
+Last audited: **2026-07-30**
 
 ## Current state
 
@@ -248,6 +248,15 @@ Status: **in progress — packaged Qt runtime slice complete**
   logged no write, and no writable ALSA control changed. The exact green RPM
   is retained under `dist/qt-qml-b068ff9/`; authenticated host system-RPM
   installation remains a distinct M5 gate.
+- Completed the Phase 8 multi-page shell slice: Overview, Equalizer, Playback,
+  Recording, Mixer, Lighting, Device, and Settings now share functional
+  navigation, semantic components, the Rust-owned EQ object, and the single
+  persistent hardware faceplate. Unsupported typed writes are visible as
+  read-only, deferred, or guarded. Native Wayland visual checks passed for all
+  nine destinations at 1280 × 800, representative dense pages at 1024 × 680,
+  and the Sound page in both dark and light themes. This closes navigation and
+  layout only; typed backend integration and physical acceptance for deferred
+  controls remain open.
 - Active next step: with the user present and OutFX deliberately off, run one
   guarded apply/change/disable/restart cycle at no more than 20% and record
   cross-rate response and persistence evidence. Effects, OutFX, output, gain,

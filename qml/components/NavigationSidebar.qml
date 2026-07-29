@@ -8,6 +8,7 @@ Rectangle {
 
     property bool compact: false
     property string currentKey: "sound"
+    signal pageRequested(string key)
 
     // Phosphor icons share a 256 px canvas, but their drawn bounds vary enough
     // to look inconsistent when every icon is given the same source size.
@@ -71,12 +72,15 @@ Rectangle {
                 Layout.preferredHeight: Theme.navItemHeight
                 leftPadding: root.compact ? 0 : Theme.space2
                 rightPadding: root.compact ? 0 : Theme.space2
+                topPadding: 0
+                bottomPadding: 0
                 hoverEnabled: true
-                focusPolicy: selected ? Qt.TabFocus : Qt.NoFocus
+                focusPolicy: Qt.TabFocus
                 Accessible.name: modelData.label
                 Accessible.description: selected
                                         ? qsTr("Current page")
-                                        : qsTr("Coming in a later milestone")
+                                        : qsTr("Open %1").arg(modelData.label)
+                onClicked: root.pageRequested(modelData.key)
 
                 background: Rectangle {
                     radius: Theme.radiusSmall
@@ -111,6 +115,8 @@ Rectangle {
                         icon.height: root.opticalIconSize(navItem.modelData.icon)
                         icon.color: navItem.selected ? Theme.accent : Theme.textDisabled
                         background: Item {}
+                        enabled: false
+                        opacity: 1
                         focusPolicy: Qt.NoFocus
                         hoverEnabled: false
                         Accessible.ignored: true
@@ -130,12 +136,10 @@ Rectangle {
                 }
 
                 ToolTip.visible: root.compact && (hovered || activeFocus)
-                ToolTip.text: selected
-                              ? modelData.label
-                              : qsTr("%1 — coming in a later milestone").arg(modelData.label)
+                ToolTip.text: modelData.label
 
                 HoverHandler {
-                    enabled: navItem.selected
+                    enabled: true
                     cursorShape: Qt.PointingHandCursor
                 }
             }
@@ -156,30 +160,49 @@ Rectangle {
 
         Repeater {
             model: [
-                { label: qsTr("Lighting"), icon: "lightbulb" },
-                { label: qsTr("Device"), icon: "circuitry" },
-                { label: qsTr("Settings"), icon: "gear" }
+                { key: "lighting", label: qsTr("Lighting"), icon: "lightbulb" },
+                { key: "device", label: qsTr("Device"), icon: "circuitry" },
+                { key: "settings", label: qsTr("Settings"), icon: "gear" }
             ]
 
             delegate: ItemDelegate {
                 id: utilityItem
 
                 required property var modelData
+                readonly property bool selected: modelData.key === root.currentKey
 
+                objectName: "nav-" + modelData.key
                 Layout.fillWidth: true
                 Layout.leftMargin: root.compact ? 0 : Theme.space2
                 Layout.rightMargin: root.compact ? 0 : Theme.space2
                 Layout.preferredHeight: Theme.navItemHeight
                 leftPadding: root.compact ? 0 : Theme.space2
                 rightPadding: root.compact ? 0 : Theme.space2
+                topPadding: 0
+                bottomPadding: 0
                 hoverEnabled: true
-                focusPolicy: Qt.NoFocus
+                focusPolicy: Qt.TabFocus
                 Accessible.name: modelData.label
-                Accessible.description: qsTr("Coming in a later milestone")
+                Accessible.description: selected
+                                        ? qsTr("Current page")
+                                        : qsTr("Open %1").arg(modelData.label)
+                onClicked: root.pageRequested(modelData.key)
 
                 background: Rectangle {
-                    color: utilityItem.hovered ? Theme.surface : "transparent"
                     radius: Theme.radiusSmall
+                    color: utilityItem.selected
+                           ? Theme.accentSubtle
+                           : utilityItem.hovered ? Theme.surface : "transparent"
+                    border.width: utilityItem.visualFocus ? 2 : 0
+                    border.color: Theme.focus
+                    clip: true
+
+                    Rectangle {
+                        visible: utilityItem.selected
+                        width: 3
+                        height: parent.height
+                        color: Theme.accent
+                    }
                 }
 
                 contentItem: RowLayout {
@@ -196,8 +219,10 @@ Rectangle {
                         icon.source: Theme.iconSource(utilityItem.modelData.icon)
                         icon.width: root.opticalIconSize(utilityItem.modelData.icon)
                         icon.height: root.opticalIconSize(utilityItem.modelData.icon)
-                        icon.color: Theme.textDisabled
+                        icon.color: utilityItem.selected ? Theme.accent : Theme.textDisabled
                         background: Item {}
+                        enabled: false
+                        opacity: 1
                         focusPolicy: Qt.NoFocus
                         hoverEnabled: false
                         Accessible.ignored: true
@@ -209,14 +234,20 @@ Rectangle {
                         Layout.preferredHeight: Theme.navItemHeight
                         Layout.alignment: Qt.AlignVCenter
                         text: utilityItem.modelData.label
-                        color: Theme.textDisabled
+                        color: utilityItem.selected ? Theme.textPrimary : Theme.textDisabled
                         font.pixelSize: Theme.fontBody
+                        font.weight: utilityItem.selected ? Font.DemiBold : Font.Normal
                         verticalAlignment: Text.AlignVCenter
                     }
                 }
 
                 ToolTip.visible: root.compact && (hovered || activeFocus)
-                ToolTip.text: qsTr("%1 — coming in a later milestone").arg(modelData.label)
+                ToolTip.text: modelData.label
+
+                HoverHandler {
+                    enabled: true
+                    cursorShape: Qt.PointingHandCursor
+                }
             }
         }
     }

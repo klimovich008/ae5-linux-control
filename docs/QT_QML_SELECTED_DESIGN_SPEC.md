@@ -1,6 +1,6 @@
 # AE5 Control Qt/QML selected design specification
 
-Status: **selected; Sound-screen visual/state QA accepted**
+Status: **selected; Sound-screen and multi-page shell visual/state QA accepted**
 
 Selected direction: **Section-Owned Profiles with Hardware Faceplate**
 
@@ -609,8 +609,12 @@ Exit: no state requires a terminal or application restart to understand.
 
 ### Phase 8 — remaining pages and release
 
-- [ ] port Playback, Recording, Mixer, Lighting, Device, and Settings using the
-  same shell and state model;
+- [x] port Overview, Equalizer, Playback, Recording, Mixer, Lighting, Device,
+  and Settings into the same shell and state model, with functional
+  navigation, responsive scrolling, and honest capability states;
+- [ ] connect the currently read-only Recording, extra Mixer, Lighting,
+  speaker-configuration, and maintenance actions to narrowly scoped typed
+  `ae5d` methods, then complete their physical acceptance;
 - [x] package the Qt/QML app and user daemon in both the RPM and transactional
   rootless installer, with D-Bus activation and immediate session-bus reload;
 - [ ] run the authenticated host RPM install/upgrade/rollback and remaining

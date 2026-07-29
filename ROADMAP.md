@@ -149,6 +149,11 @@ rejected with captured evidence and a narrower follow-up task.
 
 Status: **pending**
 
+- Record the live Windows AE-5 endpoint volume range, hardware-support flags,
+  and scalar-to-decibel points while muted. Binary analysis proves that
+  Command forwards its displayed percentage as a Windows endpoint scalar, so
+  parity must match measured attenuation rather than equal-looking
+  percentages.
 - Prove the active PipeWire graph and ALSA PCM rates at 44.1, 48, and 96 kHz.
 - Measure neutral repeatability and three curves: the personal headphone
   profile plus two materially different factory profiles.

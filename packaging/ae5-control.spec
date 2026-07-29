@@ -12,6 +12,7 @@ Source0:        %{name}-%{version}.tar.gz
 BuildRequires:  appstream
 BuildRequires:  cargo
 BuildRequires:  desktop-file-utils
+BuildRequires:  gcc-c++
 BuildRequires:  pkgconfig(alsa)
 BuildRequires:  pkgconfig(gtk4) >= 4.10
 BuildRequires:  pkgconfig(Qt6Core)

@@ -457,6 +457,49 @@ documented in [`kernel/README.md`](kernel/README.md).
 
 ## Native desktop application
 
+The selected Qt 6/QML redesign is being built incrementally beside the release
+GTK application. Its current `ae5-control-qml` binary reads authoritative
+device state from the separate Rust `ae5d` user service over a typed session
+D-Bus contract. The native CXX-Qt bridge now displays the detected device,
+active format, output, headphone gain, PipeWire volume/mute state, capability
+limits, and precise daemon or write-block errors. EQ presets and Effects
+profiles now come from the real independent catalog: all 33 embedded Command
+defaults and route-compatible personal imports are split into section-owned
+objects. When available, the UI initially selects `My profile` for Effects and
+`SHP Last` for EQ, then shows the imported enhancement values and ten-band
+curve. Selection remains explicitly labelled `Preview` and does not change
+audio; profile editing, application, and persistence are still disabled.
+Master volume and mute are the first enabled controls: each uses a narrowly
+scoped typed D-Bus method, exact AE-5 PipeWire targeting, checked readback,
+rollback on mismatch, and a structured `ae5d` journal event. Output, gain,
+Direct Mode, EQ, Effects, and OutFX writes remain unavailable, so the GUI
+cannot reach the card-suspend or DSP paths associated with earlier
+corruption.
+
+On Fedora/Nobara, install the Qt development packages. Until the user-service
+files are included in the RPM, launch `ae5d` in one terminal:
+
+```sh
+sudo dnf install qt6-qtbase-devel qt6-qtdeclarative-devel
+cargo run --features daemon --bin ae5d
+```
+
+Then launch the Wayland UI in another terminal:
+
+```sh
+QT_QPA_PLATFORM=wayland cargo run --features qml-gui --bin ae5-control-qml
+```
+
+Stopping `ae5d` deliberately puts the UI into its daemon-unavailable state.
+Starting it again restores the live faceplate on the next five-second refresh;
+the GUI does not need to restart.
+
+The selected reference, state model, component map, responsive rules, and
+ordered implementation/verification plan are in
+[docs/QT_QML_SELECTED_DESIGN_SPEC.md](docs/QT_QML_SELECTED_DESIGN_SPEC.md).
+The GTK application remains the functional fallback until the roadmap's
+backend-parity and hardware-acceptance gates pass.
+
 The GTK 4 application groups device diagnostics, Command compatibility, system
 audio, onboard lighting, profiles, playback, effects, equalizer, and recording
 into dedicated pages. The **Compatibility** page summarizes verified,

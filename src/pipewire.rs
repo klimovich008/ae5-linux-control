@@ -210,13 +210,22 @@ impl RuntimeSampleRate {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct ActivePcmFormat {
-    sample_format: String,
-    sample_rate: u32,
+pub struct AudioFormat {
+    pub sample_format: String,
+    pub sample_rate: u32,
 }
 
 pub fn ae5_output(card_index: i32) -> io::Result<Option<PipeWireNode>> {
     ae5_node(card_index, "sinks")
+}
+
+/// Reads the active PipeWire transport format without opening or changing the
+/// AE-5 playback device.
+pub fn ae5_audio_format(card_index: i32) -> io::Result<Option<AudioFormat>> {
+    let Some(node) = ae5_output(card_index)? else {
+        return Ok(None);
+    };
+    active_pcm_format(node.id).map(Some)
 }
 
 pub fn ae5_input(card_index: i32) -> io::Result<Option<PipeWireNode>> {
@@ -258,6 +267,20 @@ pub fn set_ae5_software_volume(card_index: i32, percent: f64) -> io::Result<Soft
         node,
         applied_percent,
     })
+}
+
+pub fn set_ae5_software_mute(card_index: i32, muted: bool) -> io::Result<PipeWireNode> {
+    let mut node = ae5_output(card_index)?.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("PipeWire has no playback output for ALSA card {card_index}"),
+        )
+    })?;
+    require_ae5_profile(node.id)?;
+    let (applied_percent, applied_mute) = set_software_mute_with(&node, muted, run_wpctl)?;
+    node.volume_percent = Some(applied_percent.round() as u16);
+    node.muted = Some(applied_mute);
+    Ok(node)
 }
 
 /// Reads the live PipeWire graph-rate override.
@@ -433,7 +456,7 @@ fn verify_runtime_sample_rate_with<Q, P>(
     mut prime: P,
 ) -> io::Result<()>
 where
-    Q: FnMut() -> io::Result<ActivePcmFormat>,
+    Q: FnMut() -> io::Result<AudioFormat>,
     P: FnMut(u32) -> io::Result<()>,
 {
     let mut last = None;
@@ -517,7 +540,7 @@ fn prime_ae5_output(node_name: &str, sample_rate: u32) -> io::Result<()> {
     Ok(())
 }
 
-fn active_pcm_format(node_id: u32) -> io::Result<ActivePcmFormat> {
+fn active_pcm_format(node_id: u32) -> io::Result<AudioFormat> {
     parse_active_pcm_format(&run_pw_cli(&[
         "enum-params",
         &node_id.to_string(),
@@ -750,6 +773,77 @@ where
             return Err(io::Error::other(
                 "PipeWire changed the AE-5 mute state while setting volume",
             ));
+        }
+        Ok((after.0 * 100.0, after.1))
+    })();
+    match result {
+        Ok(applied) => Ok(applied),
+        Err(error) => {
+            let restore_volume = format_volume_percent(before.0 * 100.0);
+            let volume_restore = run(&["set-volume", &node_id, &restore_volume]);
+            let mute_restore = run(&["set-mute", &node_id, if before.1 { "1" } else { "0" }]);
+            Err(match (volume_restore, mute_restore) {
+                (Ok(_), Ok(_)) => match run(&["get-volume", &node_id])
+                    .and_then(|output| parse_wpctl_volume(&output))
+                {
+                    Ok(restored)
+                        if (restored.0 - before.0).abs() <= 0.001 && restored.1 == before.1 =>
+                    {
+                        error
+                    }
+                    Ok(restored) => io::Error::other(format!(
+                        "{error}; rollback read back {:.3}% and mute={}, expected {:.3}% and mute={}",
+                        restored.0 * 100.0,
+                        restored.1,
+                        before.0 * 100.0,
+                        before.1
+                    )),
+                    Err(rollback) => io::Error::other(format!(
+                        "{error}; rollback verification failed: {rollback}"
+                    )),
+                },
+                (volume, mute) => io::Error::other(format!(
+                    "{error}; rollback failed (volume: {}; mute: {})",
+                    volume
+                        .err()
+                        .map_or_else(|| "restored".to_owned(), |error| error.to_string()),
+                    mute.err()
+                        .map_or_else(|| "restored".to_owned(), |error| error.to_string())
+                )),
+            })
+        }
+    }
+}
+
+fn set_software_mute_with<F>(
+    node: &PipeWireNode,
+    muted: bool,
+    mut run: F,
+) -> io::Result<(f64, bool)>
+where
+    F: FnMut(&[&str]) -> io::Result<String>,
+{
+    let node_id = node.id.to_string();
+    let before = parse_wpctl_volume(&run(&["get-volume", &node_id])?)?;
+    if before.1 == muted {
+        return Ok((before.0 * 100.0, before.1));
+    }
+
+    run(&["set-mute", &node_id, if muted { "1" } else { "0" }])?;
+    let result = (|| {
+        let after = parse_wpctl_volume(&run(&["get-volume", &node_id])?)?;
+        if (after.0 - before.0).abs() > 0.001 {
+            return Err(io::Error::other(format!(
+                "PipeWire changed AE-5 volume from {:.3}% to {:.3}% while setting mute",
+                before.0 * 100.0,
+                after.0 * 100.0
+            )));
+        }
+        if after.1 != muted {
+            return Err(io::Error::other(format!(
+                "PipeWire read back mute={} after requesting mute={muted}",
+                after.1
+            )));
         }
         Ok((after.0 * 100.0, after.1))
     })();
@@ -1424,7 +1518,7 @@ fn parse_runtime_sample_rate(output: &str) -> io::Result<RuntimeSampleRate> {
     }
 }
 
-fn parse_active_pcm_format(output: &str) -> io::Result<ActivePcmFormat> {
+fn parse_active_pcm_format(output: &str) -> io::Result<AudioFormat> {
     let mut sample_format = None;
     let mut sample_rate = None;
     let mut lines = output.lines();
@@ -1444,7 +1538,7 @@ fn parse_active_pcm_format(output: &str) -> io::Result<ActivePcmFormat> {
                 .and_then(|value| value.parse().ok());
         }
     }
-    Ok(ActivePcmFormat {
+    Ok(AudioFormat {
         sample_format: sample_format.ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -2548,10 +2642,101 @@ update: id:0 key:'clock.force-rate' value:'96000' type:''
 
         assert_eq!(
             parse_active_pcm_format(format).unwrap(),
-            ActivePcmFormat {
+            AudioFormat {
                 sample_format: "S16LE".to_owned(),
                 sample_rate: 96_000,
             }
+        );
+    }
+
+    #[test]
+    fn software_mute_updates_the_existing_sink_and_preserves_volume() {
+        let node = PipeWireNode {
+            id: 62,
+            node_name: "alsa_output.pci-ae5.analog-stereo".to_owned(),
+            description: "AE-5".to_owned(),
+            is_default: true,
+            volume_percent: Some(20),
+            muted: Some(false),
+        };
+        let mut commands = Vec::new();
+        let mut reads = 0;
+
+        let applied = set_software_mute_with(&node, true, |arguments| {
+            commands.push(
+                arguments
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>(),
+            );
+            Ok(if arguments.first() == Some(&"get-volume") {
+                reads += 1;
+                if reads == 1 {
+                    "Volume: 0.200\n".to_owned()
+                } else {
+                    "Volume: 0.200 [MUTED]\n".to_owned()
+                }
+            } else {
+                String::new()
+            })
+        })
+        .unwrap();
+
+        assert_eq!(applied, (20.0, true));
+        assert_eq!(
+            commands,
+            vec![
+                vec!["get-volume".to_owned(), "62".to_owned()],
+                vec!["set-mute".to_owned(), "62".to_owned(), "1".to_owned()],
+                vec!["get-volume".to_owned(), "62".to_owned()],
+            ]
+        );
+    }
+
+    #[test]
+    fn software_mute_rolls_back_an_unexpected_volume_change() {
+        let node = PipeWireNode {
+            id: 62,
+            node_name: "alsa_output.pci-ae5.analog-stereo".to_owned(),
+            description: "AE-5".to_owned(),
+            is_default: true,
+            volume_percent: Some(20),
+            muted: Some(false),
+        };
+        let mut commands = Vec::new();
+        let mut reads = 0;
+
+        let error = set_software_mute_with(&node, true, |arguments| {
+            commands.push(
+                arguments
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>(),
+            );
+            Ok(if arguments.first() == Some(&"get-volume") {
+                reads += 1;
+                match reads {
+                    1 => "Volume: 0.200\n".to_owned(),
+                    2 => "Volume: 0.150 [MUTED]\n".to_owned(),
+                    _ => "Volume: 0.200\n".to_owned(),
+                }
+            } else {
+                String::new()
+            })
+        })
+        .unwrap_err();
+
+        assert!(error.to_string().contains("volume"));
+        assert_eq!(
+            commands,
+            vec![
+                vec!["get-volume".to_owned(), "62".to_owned()],
+                vec!["set-mute".to_owned(), "62".to_owned(), "1".to_owned()],
+                vec!["get-volume".to_owned(), "62".to_owned()],
+                vec!["set-volume".to_owned(), "62".to_owned(), "20%".to_owned()],
+                vec!["set-mute".to_owned(), "62".to_owned(), "0".to_owned()],
+                vec!["get-volume".to_owned(), "62".to_owned()],
+            ]
         );
     }
 
@@ -2714,7 +2899,7 @@ update: id:0 key:'clock.force-rate' value:'96000' type:''
                         "the sink is closed",
                     ))
                 } else {
-                    Ok(ActivePcmFormat {
+                    Ok(AudioFormat {
                         sample_format: "S16LE".to_owned(),
                         sample_rate: 48_000,
                     })

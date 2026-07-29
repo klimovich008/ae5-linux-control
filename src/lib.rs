@@ -1,13 +1,19 @@
 pub mod builtin_profiles;
 pub mod controls;
 pub mod device;
+#[cfg(feature = "daemon")]
+pub mod device_service;
+pub mod device_state;
 pub mod eq_chain;
 pub mod feature_parity;
 pub mod lighting;
 pub mod pipewire;
 pub mod profile;
 pub mod profile_library;
+#[cfg(feature = "qml-gui")]
+pub mod qml_app_state;
 pub mod sbcommand;
+pub mod sound_objects;
 pub mod volume_curve;
 
 pub use builtin_profiles::{BuiltinProfile, COMMAND_DEFAULT_PROFILE_COUNT, builtin_profiles};
@@ -19,6 +25,7 @@ pub use controls::{
     snapshot_controls, unsafe_playback_control_block_reason,
 };
 pub use device::Ae5Device;
+pub use device_state::DeviceOutputState;
 pub use eq_chain::{
     EQ_FREQUENCIES, EqBand, EqChainChange, EqChainConfig, EqChainError, bands_from_profile,
     disable_eq_chain, enable_eq_chain, eq_chain_config, validate_eq_chain_activation,
@@ -29,10 +36,11 @@ pub use lighting::{
     restore_saved_lighting, saved_lighting, set_saved_led, set_saved_lighting,
 };
 pub use pipewire::{
-    NativeRatesConfig, PipeWireNode, PipeWireRouteState, RuntimeSampleRate, SoftwareEqOutput,
-    SoftwareVolumeOutput, ae5_input, ae5_output, ae5_route_state, ae5_windows_volume_curve_active,
-    apply_software_eq, native_rates_config, runtime_sample_rate, set_ae5_default_input,
-    set_ae5_default_output, set_ae5_runtime_sample_rate, set_ae5_software_volume,
+    AudioFormat, NativeRatesConfig, PipeWireNode, PipeWireRouteState, RuntimeSampleRate,
+    SoftwareEqOutput, SoftwareVolumeOutput, ae5_audio_format, ae5_input, ae5_output,
+    ae5_route_state, ae5_windows_volume_curve_active, apply_software_eq, native_rates_config,
+    runtime_sample_rate, set_ae5_default_input, set_ae5_default_output,
+    set_ae5_runtime_sample_rate, set_ae5_software_mute, set_ae5_software_volume,
     set_native_rates_enabled, software_eq_output, unload_software_eq,
 };
 pub use profile::{
@@ -51,6 +59,9 @@ pub use sbcommand::{
     import_installation_profile_with_report as import_discovered_sbcommand_profile_with_report,
     import_profile as import_sbcommand_profile,
     import_profile_with_report as import_sbcommand_profile_with_report,
+};
+pub use sound_objects::{
+    EffectsProfileEntry, EqPresetEntry, SoundObjectCatalog, sound_object_catalog,
 };
 pub use volume_curve::{
     VolumeCurveError, WindowsVolumeCurve, WindowsVolumePoint, windows_ae5_decibels,

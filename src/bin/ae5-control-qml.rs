@@ -1,0 +1,25 @@
+use cxx_qt::casting::Upcast;
+use cxx_qt_lib::{QGuiApplication, QQmlApplicationEngine, QQmlEngine, QUrl};
+use std::pin::Pin;
+
+fn main() {
+    ae5_control::qml_app_state::initialize();
+
+    let mut app = QGuiApplication::new();
+    let mut engine = QQmlApplicationEngine::new();
+
+    if let Some(engine) = engine.as_mut() {
+        engine.load(&QUrl::from(
+            "qrc:/qt/qml/io/github/klimovich008/ae5control/qml/Main.qml",
+        ));
+    }
+
+    if let Some(engine) = engine.as_mut() {
+        let engine: Pin<&mut QQmlEngine> = engine.upcast_pin();
+        engine.on_quit(|_| {}).release();
+    }
+
+    if let Some(app) = app.as_mut() {
+        app.exec();
+    }
+}

@@ -11,6 +11,11 @@ continuous roughly 61–65 Hz buzz that can survive software mute, an OutFX
 toggle, a warm reboot, and an operating-system change. Complete motherboard
 power removal has recovered every persistent case observed so far.
 
+The first cold-boot physical-card matrix completed without reproducing the
+fault. See
+[`OUTFX_HARDWARE_LAB_RESULTS_2026-07-29.md`](OUTFX_HARDWARE_LAB_RESULTS_2026-07-29.md)
+for the exact transitions, evidence boundary, and remaining audible test.
+
 ## Safety boundary
 
 Before booting the lab kernel:

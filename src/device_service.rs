@@ -1,6 +1,7 @@
 use crate::{
-    Ae5Device, DeviceOutputState, SoundObjectCatalog, set_ae5_software_mute,
-    set_ae5_software_volume, sound_object_catalog,
+    Ae5Device, DeviceOutputState, EffectsProfileEntry, EqPresetEntry, SoundObjectCatalog,
+    save_effects_profile, save_effects_profile_as, save_eq_preset, save_eq_preset_as,
+    set_ae5_software_mute, set_ae5_software_volume, sound_object_catalog,
 };
 
 pub const SERVICE_NAME: &str = "io.github.klimovich008.Ae5Control";
@@ -19,6 +20,57 @@ impl Ae5DeviceService {
         let state = capture_state()?;
         sound_object_catalog(&state.output, None)
             .map_err(|error| zbus::fdo::Error::Failed(error.to_string()))
+    }
+
+    fn save_effects_profile(
+        &self,
+        draft: EffectsProfileEntry,
+    ) -> zbus::fdo::Result<EffectsProfileEntry> {
+        let output = capture_state()?.output;
+        log_profile_write(
+            "effects-save",
+            &draft.name,
+            save_effects_profile(&draft, &output)
+                .map_err(|error| zbus::fdo::Error::Failed(error.to_string())),
+        )
+    }
+
+    fn save_effects_profile_as(
+        &self,
+        draft: EffectsProfileEntry,
+        name: String,
+    ) -> zbus::fdo::Result<EffectsProfileEntry> {
+        let output = capture_state()?.output;
+        log_profile_write(
+            "effects-save-as",
+            &name,
+            save_effects_profile_as(&draft, &name, &output)
+                .map_err(|error| zbus::fdo::Error::Failed(error.to_string())),
+        )
+    }
+
+    fn save_eq_preset(&self, draft: EqPresetEntry) -> zbus::fdo::Result<EqPresetEntry> {
+        let output = capture_state()?.output;
+        log_profile_write(
+            "eq-save",
+            &draft.name,
+            save_eq_preset(&draft, &output)
+                .map_err(|error| zbus::fdo::Error::Failed(error.to_string())),
+        )
+    }
+
+    fn save_eq_preset_as(
+        &self,
+        draft: EqPresetEntry,
+        name: String,
+    ) -> zbus::fdo::Result<EqPresetEntry> {
+        let output = capture_state()?.output;
+        log_profile_write(
+            "eq-save-as",
+            &name,
+            save_eq_preset_as(&draft, &name, &output)
+                .map_err(|error| zbus::fdo::Error::Failed(error.to_string())),
+        )
     }
 
     fn set_master_volume(&self, percent: u16) -> zbus::fdo::Result<DeviceOutputState> {
@@ -83,6 +135,22 @@ fn log_write<T>(
     result
 }
 
+fn log_profile_write<T>(
+    operation: &str,
+    object: &str,
+    result: zbus::fdo::Result<T>,
+) -> zbus::fdo::Result<T> {
+    match &result {
+        Ok(_) => eprintln!(
+            "ae5d event=profile-write-complete operation={operation} object={object:?} result=verified"
+        ),
+        Err(error) => eprintln!(
+            "ae5d event=profile-write-failed operation={operation} object={object:?} error={error}"
+        ),
+    }
+    result
+}
+
 fn capture_state() -> zbus::fdo::Result<DeviceOutputState> {
     DeviceOutputState::capture().map_err(|error| zbus::fdo::Error::Failed(error.to_string()))
 }
@@ -106,6 +174,15 @@ fn live_card_index() -> zbus::fdo::Result<i32> {
 trait Ae5Device {
     fn get_device_state(&self) -> zbus::Result<DeviceOutputState>;
     fn get_sound_object_catalog(&self) -> zbus::Result<SoundObjectCatalog>;
+    fn save_effects_profile(&self, draft: EffectsProfileEntry)
+    -> zbus::Result<EffectsProfileEntry>;
+    fn save_effects_profile_as(
+        &self,
+        draft: EffectsProfileEntry,
+        name: &str,
+    ) -> zbus::Result<EffectsProfileEntry>;
+    fn save_eq_preset(&self, draft: EqPresetEntry) -> zbus::Result<EqPresetEntry>;
+    fn save_eq_preset_as(&self, draft: EqPresetEntry, name: &str) -> zbus::Result<EqPresetEntry>;
     fn set_master_volume(&self, percent: u16) -> zbus::Result<DeviceOutputState>;
     fn set_muted(&self, muted: bool) -> zbus::Result<DeviceOutputState>;
 }
@@ -125,6 +202,29 @@ pub fn read_device_state() -> zbus::Result<DeviceOutputState> {
 pub fn read_sound_object_catalog() -> zbus::Result<SoundObjectCatalog> {
     let connection = zbus::blocking::Connection::session()?;
     Ae5DeviceProxy::new(&connection)?.get_sound_object_catalog()
+}
+
+pub fn write_effects_profile(draft: &EffectsProfileEntry) -> zbus::Result<EffectsProfileEntry> {
+    let connection = zbus::blocking::Connection::session()?;
+    Ae5DeviceProxy::new(&connection)?.save_effects_profile(draft.clone())
+}
+
+pub fn write_effects_profile_as(
+    draft: &EffectsProfileEntry,
+    name: &str,
+) -> zbus::Result<EffectsProfileEntry> {
+    let connection = zbus::blocking::Connection::session()?;
+    Ae5DeviceProxy::new(&connection)?.save_effects_profile_as(draft.clone(), name)
+}
+
+pub fn write_eq_preset(draft: &EqPresetEntry) -> zbus::Result<EqPresetEntry> {
+    let connection = zbus::blocking::Connection::session()?;
+    Ae5DeviceProxy::new(&connection)?.save_eq_preset(draft.clone())
+}
+
+pub fn write_eq_preset_as(draft: &EqPresetEntry, name: &str) -> zbus::Result<EqPresetEntry> {
+    let connection = zbus::blocking::Connection::session()?;
+    Ae5DeviceProxy::new(&connection)?.save_eq_preset_as(draft.clone(), name)
 }
 
 pub fn write_master_volume(percent: u16) -> zbus::Result<DeviceOutputState> {

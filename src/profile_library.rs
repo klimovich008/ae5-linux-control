@@ -107,7 +107,10 @@ fn scan_library_at(directory: &Path) -> io::Result<ProfileLibrary> {
     })
 }
 
-fn load_library_profile_at(directory: &Path, path: &Path) -> Result<StoredProfile, ProfileError> {
+pub(crate) fn load_library_profile_at(
+    directory: &Path,
+    path: &Path,
+) -> Result<StoredProfile, ProfileError> {
     let path = direct_regular_profile_path(directory, path)?;
     let profile = Profile::load(&path)?;
     Ok(StoredProfile { path, profile })

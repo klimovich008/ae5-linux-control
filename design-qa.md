@@ -111,7 +111,7 @@ last-confirmed display state. Starting the matching daemon binary restored the
 exact live values and re-enabled only volume and mute on the periodic refresh
 without restarting the GUI.
 
-## Phase 4 catalog addendum
+## Phase 4 profile-object addendum
 
 The mock selector arrays have been replaced by a typed `ae5d` sound-object
 catalog. Software tests verify that every one of the 33 embedded Command
@@ -122,13 +122,20 @@ Effects object.
 
 An isolated D-Bus integration smoke returned the personal `My profile` and
 `SHP Last` objects plus representative factory entries such as `Gaming`, then
-ran the Qt application for eight seconds without a QML type, binding, or load
-error. Native Wayland accessibility inspection confirmed that the selected
-personal objects populate the real enhancement values and ten-band curve.
-Selectors and values are labelled `Preview`; profile editors are disabled
-with an explanation until checked apply/save transactions exist. The footer
-separates `Device live` from `profiles preview`, and hidden Save/Review actions
-are removed from keyboard interaction.
+ran the Qt application without a QML type, binding, or load error. Native
+Wayland accessibility inspection confirmed that the selected personal objects
+populate the real enhancement values and ten-band curve.
+
+The completed persistence pass verified independent Rust-owned Effects and EQ
+drafts, object-scoped Modified state, selector locking while modified, Revert,
+Save, Save as, and independent unsaved counts. A native Wayland Save as from
+the combined `My profile` created an Effects-only JSON file through typed D-Bus,
+preserved the hidden X-Bass crossover value, omitted every EQ control, changed
+the catalog from 35 to 36 Effects profiles, and remained discoverable after
+restarting the QML process. The daemon logged a verified
+`effects-save-as` completion. Tests also cover atomic replacement, strict value
+validation, duplicate-name refusal, route isolation, and preservation of
+unrelated files.
 
 This check performed no hardware write. The final physical state remained
 Headphones, Medium gain, S16LE at 96 kHz, 20%, and unmuted.

@@ -30,9 +30,9 @@ Rectangle {
 
     function setGain(index, value) {
         const updated = gains.slice()
-        updated[index] = Math.round(value * 10) / 10
+        updated[index] = Math.round(value)
         gains = updated
-        appState.markEqModified()
+        appState.updateEqBand(index, updated[index] * 10)
     }
 
     function loadSelectedPreset() {
@@ -133,7 +133,7 @@ Rectangle {
             height: root.graphBottom - root.graphTop
             from: -12
             to: 12
-            stepSize: 0.5
+            stepSize: 1
             value: root.gains[index]
             orientation: Qt.Vertical
             enabled: root.editingEnabled && root.appState.eqEnabled
@@ -141,8 +141,8 @@ Rectangle {
             focusPolicy: Qt.StrongFocus
             Accessible.name: qsTr("%1 hertz equalizer band").arg(root.frequencies[index])
             Accessible.description: enabled
-                                    ? qsTr("%1 decibels; arrow keys adjust by 0.5 dB").arg(value.toFixed(1))
-                                    : qsTr("Preset preview only; equalizer editing is not connected yet.")
+                                    ? qsTr("%1 decibels; arrow keys adjust by 1 dB").arg(value.toFixed(0))
+                                    : qsTr("Equalizer editing is unavailable while Direct Mode is active.")
             ToolTip.visible: hovered && !enabled
             ToolTip.text: Accessible.description
 
@@ -163,7 +163,7 @@ Rectangle {
                     anchors.horizontalCenter: parent.horizontalCenter
                     anchors.bottom: parent.top
                     anchors.bottomMargin: 5
-                    text: (band.value > 0 ? "+" : "") + band.value.toFixed(1) + " dB"
+                    text: (band.value > 0 ? "+" : "") + band.value.toFixed(0) + " dB"
                     color: Theme.textPrimary
                     font.pixelSize: 10
                     padding: 4

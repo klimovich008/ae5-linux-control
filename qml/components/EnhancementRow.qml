@@ -7,14 +7,15 @@ Item {
     id: root
 
     property var appState
+    property string controlKey
     property string title
     property string unit: "%"
     property int initialValue
     property bool initiallyEnabled: true
     property bool controlsEnabled: true
     property bool available: true
-    property bool editingEnabled: false
-    property string unavailableReason: qsTr("Editing this Effects profile is not connected yet.")
+    property bool editingEnabled: true
+    property string unavailableReason: qsTr("This control is unavailable in the selected Effects profile.")
     property string leftPole
     property string rightPole
     readonly property bool interactive: available && controlsEnabled && editingEnabled
@@ -56,7 +57,8 @@ Item {
                                             : root.unavailableReason
             ToolTip.visible: hovered && !enabled
             ToolTip.text: Accessible.description
-            onToggled: root.appState.markEffectsModified()
+            onClicked: root.appState.updateEffectsDraft(
+                           root.controlKey, checked, Math.round(level.value))
         }
 
         Label {
@@ -81,7 +83,8 @@ Item {
                                     : root.unavailableReason
             ToolTip.visible: hovered && !enabled
             ToolTip.text: Accessible.description
-            onMoved: root.appState.markEffectsModified()
+            onMoved: root.appState.updateEffectsDraft(
+                         root.controlKey, enabledSwitch.checked, Math.round(value))
         }
 
         Label {

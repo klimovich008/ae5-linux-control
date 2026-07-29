@@ -10,25 +10,33 @@ Item {
     property string selectorLabel
     property string currentName
     property string stateText
-    property string cleanSubtitle
-    property string modifiedSubtitle
+    property string statusDetail
+    property bool readOnly: true
     property var options: []
     readonly property bool modified: stateText === "Modified"
 
     signal saveRequested
+    signal saveAsRequested(string name)
+    signal revertRequested
     signal selectionRequested(string name)
 
     implicitHeight: headerLayout.implicitHeight
+
+    function openSaveAs() {
+        saveAsName.text = currentName
+        saveAsDialog.open()
+    }
 
     RowLayout {
         id: headerLayout
 
         anchors.left: parent.left
         anchors.right: parent.right
-        spacing: 16
+        spacing: 12
 
         ColumnLayout {
             Layout.fillWidth: true
+            Layout.minimumWidth: 170
             spacing: 3
 
             Label {
@@ -39,11 +47,19 @@ Item {
             }
 
             Label {
+                id: detailLabel
+
                 Layout.fillWidth: true
-                text: root.modified ? root.modifiedSubtitle : root.cleanSubtitle
+                text: root.statusDetail
                 color: Theme.textSecondary
                 font.pixelSize: 12
                 elide: Text.ElideRight
+                ToolTip.visible: truncated && detailHover.hovered
+                ToolTip.text: text
+
+                HoverHandler {
+                    id: detailHover
+                }
             }
         }
 
@@ -67,9 +83,13 @@ Item {
                     }
                     return -1
                 }
-                enabled: root.options.length > 0
+                enabled: root.options.length > 0 && !root.modified
                 Accessible.name: root.selectorLabel
-                Accessible.description: qsTr("Selects an object for preview; it does not change live audio.")
+                Accessible.description: root.modified
+                                        ? qsTr("Save or revert this draft before selecting another object.")
+                                        : qsTr("Selects an object for editing; live audio is unchanged.")
+                ToolTip.visible: hovered && !enabled
+                ToolTip.text: Accessible.description
                 onActivated: index => root.selectionRequested(textAt(index))
             }
         }
@@ -99,15 +119,27 @@ Item {
         }
 
         Button {
+            visible: root.modified
+            enabled: visible
+            Accessible.ignored: !visible
+            Layout.alignment: Qt.AlignBottom
+            text: qsTr("Revert")
+            Accessible.name: qsTr("Revert %1 draft").arg(root.objectTitle)
+            onClicked: root.revertRequested()
+        }
+
+        Button {
             id: saveButton
 
             visible: root.modified
             enabled: visible
-            Layout.alignment: Qt.AlignBottom
-            text: qsTr("Save")
-            Accessible.name: qsTr("Save %1").arg(root.objectTitle)
             Accessible.ignored: !visible
-            onClicked: root.saveRequested()
+            Layout.alignment: Qt.AlignBottom
+            text: root.readOnly ? qsTr("Save as") : qsTr("Save")
+            Accessible.name: root.readOnly
+                             ? qsTr("Save %1 as a new object").arg(root.objectTitle)
+                             : qsTr("Save %1").arg(root.objectTitle)
+            onClicked: root.readOnly ? root.openSaveAs() : root.saveRequested()
 
             background: Rectangle {
                 radius: Theme.radiusSmall
@@ -133,6 +165,63 @@ Item {
             Accessible.name: qsTr("%1 actions").arg(root.objectTitle)
             ToolTip.visible: hovered
             ToolTip.text: Accessible.name
+            onClicked: actionsMenu.open()
+
+            Menu {
+                id: actionsMenu
+
+                MenuItem {
+                    text: qsTr("Save as…")
+                    enabled: root.options.length > 0
+                    onTriggered: root.openSaveAs()
+                }
+
+                MenuItem {
+                    text: qsTr("Revert draft")
+                    enabled: root.modified
+                    onTriggered: root.revertRequested()
+                }
+            }
+        }
+    }
+
+    Dialog {
+        id: saveAsDialog
+
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: 360
+        modal: true
+        title: qsTr("Save %1 as").arg(root.objectTitle)
+        standardButtons: Dialog.Save | Dialog.Cancel
+        onOpened: {
+            saveAsName.forceActiveFocus()
+            saveAsName.selectAll()
+        }
+        onAccepted: root.saveAsRequested(saveAsName.text.trim())
+
+        contentItem: ColumnLayout {
+            spacing: 8
+
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("This creates an independent user object for the current output.")
+                color: Theme.textSecondary
+                wrapMode: Text.WordWrap
+            }
+
+            TextField {
+                id: saveAsName
+
+                Layout.fillWidth: true
+                placeholderText: qsTr("Name")
+                Accessible.name: qsTr("%1 name").arg(root.objectTitle)
+                onTextChanged: {
+                    const button = saveAsDialog.standardButton(Dialog.Save)
+                    if (button)
+                        button.enabled = text.trim().length > 0
+                }
+            }
         }
     }
 }

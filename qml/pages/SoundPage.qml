@@ -51,11 +51,11 @@ Rectangle {
                 Layout.rightMargin: root.compact ? 22 : 32
                 statusCode: root.appState.statusCode
                 title: root.appState.statusCode === "ready"
-                       ? qsTr("Volume and mute are live; profile selection is a safe preview")
+                       ? qsTr("Volume, mute and profile saving are live; audio apply remains a safe preview")
                        : root.appState.deviceStatus
                 detail: root.appState.statusCode === "ready"
                         ? root.appState.profileCatalogDetail + " "
-                          + qsTr("Selecting EQ or Effects changes this view only; applying and saving audio changes are not connected yet.")
+                          + qsTr("Editing changes a draft; saving writes only that section, while live audio remains unchanged.")
                         : root.appState.statusDetail
                 onRetryRequested: root.appState.refreshFromDaemon()
             }
@@ -72,12 +72,13 @@ Rectangle {
                     selectorLabel: qsTr("EQ preset")
                     currentName: root.appState.eqPreset
                     stateText: root.appState.eqState
-                    cleanSubtitle: qsTr("%1 preset loaded for preview; live audio is unchanged.")
-                                   .arg(root.appState.eqSource)
-                    modifiedSubtitle: qsTr("Applied in preview. Not yet saved to \"%1\".").arg(root.appState.eqPreset)
+                    statusDetail: root.appState.eqDetail
+                    readOnly: root.appState.eqReadOnly
                     options: root.appState.eqPresetNames
                     onSelectionRequested: name => root.appState.selectEqPreset(name)
-                    onSaveRequested: root.appState.saveEqPreview()
+                    onSaveRequested: root.appState.saveEqDraft()
+                    onSaveAsRequested: name => root.appState.saveEqDraftAs(name)
+                    onRevertRequested: root.appState.revertEqDraft()
                 }
 
                 EqualizerGraph {
@@ -85,7 +86,7 @@ Rectangle {
                     Layout.minimumHeight: 180
                     Layout.preferredHeight: root.compact ? 190 : 214
                     appState: root.appState
-                    editingEnabled: false
+                    editingEnabled: root.appState.profileCatalogStatus === "ready"
                 }
             }
 
@@ -110,12 +111,13 @@ Rectangle {
                     selectorLabel: qsTr("Effects profile")
                     currentName: root.appState.effectsProfile
                     stateText: root.appState.effectsState
-                    cleanSubtitle: qsTr("%1 profile loaded for preview; live audio is unchanged.")
-                                   .arg(root.appState.effectsSource)
-                    modifiedSubtitle: qsTr("Applied in preview. Not yet saved to \"%1\".").arg(root.appState.effectsProfile)
+                    statusDetail: root.appState.effectsDetail
+                    readOnly: root.appState.effectsReadOnly
                     options: root.appState.effectsProfileNames
                     onSelectionRequested: name => root.appState.selectEffectsProfile(name)
-                    onSaveRequested: root.appState.saveEffectsPreview()
+                    onSaveRequested: root.appState.saveEffectsDraft()
+                    onSaveAsRequested: name => root.appState.saveEffectsDraftAs(name)
+                    onRevertRequested: root.appState.revertEffectsDraft()
                 }
 
                 Rectangle {
@@ -181,44 +183,48 @@ Rectangle {
                     EnhancementRow {
                         Layout.fillWidth: true
                         appState: root.appState
+                        controlKey: "surround"
                         title: qsTr("Surround")
                         initialValue: root.appState.surroundLevel
                         initiallyEnabled: root.appState.surroundEnabled
                         available: root.appState.surroundAvailable
-                        editingEnabled: false
+                        editingEnabled: root.appState.profileCatalogStatus === "ready"
                         controlsEnabled: !root.appState.directMode
                     }
 
                     EnhancementRow {
                         Layout.fillWidth: true
                         appState: root.appState
+                        controlKey: "crystalizer"
                         title: qsTr("Crystalizer")
                         initialValue: root.appState.crystalizerLevel
                         initiallyEnabled: root.appState.crystalizerEnabled
                         available: root.appState.crystalizerAvailable
-                        editingEnabled: false
+                        editingEnabled: root.appState.profileCatalogStatus === "ready"
                         controlsEnabled: !root.appState.directMode
                     }
 
                     EnhancementRow {
                         Layout.fillWidth: true
                         appState: root.appState
+                        controlKey: "bass"
                         title: qsTr("Bass")
                         initialValue: root.appState.bassLevel
                         initiallyEnabled: root.appState.bassEnabled
                         available: root.appState.bassAvailable
-                        editingEnabled: false
+                        editingEnabled: root.appState.profileCatalogStatus === "ready"
                         controlsEnabled: !root.appState.directMode
                     }
 
                     EnhancementRow {
                         Layout.fillWidth: true
                         appState: root.appState
+                        controlKey: "smart-volume"
                         title: qsTr("Smart Volume")
                         initialValue: root.appState.smartVolumeLevel
                         initiallyEnabled: root.appState.smartVolumeEnabled
                         available: root.appState.smartVolumeAvailable
-                        editingEnabled: false
+                        editingEnabled: root.appState.profileCatalogStatus === "ready"
                         leftPole: qsTr("Night")
                         rightPole: qsTr("Loud")
                         controlsEnabled: !root.appState.directMode
@@ -227,11 +233,12 @@ Rectangle {
                     EnhancementRow {
                         Layout.fillWidth: true
                         appState: root.appState
+                        controlKey: "dialog"
                         title: qsTr("Dialog+")
                         initialValue: root.appState.dialogLevel
                         initiallyEnabled: root.appState.dialogEnabled
                         available: root.appState.dialogAvailable
-                        editingEnabled: false
+                        editingEnabled: root.appState.profileCatalogStatus === "ready"
                         controlsEnabled: !root.appState.directMode
                     }
                 }

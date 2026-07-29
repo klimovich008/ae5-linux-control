@@ -467,8 +467,13 @@ profiles now come from the real independent catalog: all 33 embedded Command
 defaults and route-compatible personal imports are split into section-owned
 objects. When available, the UI initially selects `My profile` for Effects and
 `SHP Last` for EQ, then shows the imported enhancement values and ten-band
-curve. Selection remains explicitly labelled `Preview` and does not change
-audio; profile editing, application, and persistence are still disabled.
+curve. Each section now owns a Rust draft with independent Modified, Revert,
+Save, and Save as behavior. Persistence uses typed `ae5d` D-Bus methods and
+atomic JSON writes; combined imports and factory objects are saved as new
+section-only files, while unrepresented section controls such as X-Bass
+crossover are retained. Restart discovery and isolated-library writes are
+verified. Editing and saving still do not apply audio: EQ, Effects, and OutFX
+remain explicit previews until their checked apply transactions are connected.
 Master volume and mute are the first enabled controls: each uses a narrowly
 scoped typed D-Bus method, exact AE-5 PipeWire targeting, checked readback,
 rollback on mismatch, and a structured `ae5d` journal event. Output, gain,

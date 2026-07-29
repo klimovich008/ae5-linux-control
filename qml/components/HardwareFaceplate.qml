@@ -269,8 +269,8 @@ Rectangle {
                 text: root.appState.profileStateLive
                       ? qsTr("Live state; save in each section")
                       : root.appState.hardwareBacked && root.appState.connected
-                        ? qsTr("Device live · profiles preview")
-                        : qsTr("Device unavailable · profiles preview")
+                        ? qsTr("Device live · drafts save by section")
+                        : qsTr("Device unavailable · profiles read-only")
                 color: Theme.textSecondary
                 font.pixelSize: 10
             }

@@ -524,7 +524,7 @@ Exit: the faceplate shows one authoritative live hardware state.
 
 ### Phase 4 — independent profile objects
 
-Status: **in progress — real catalog and safe preview selection complete**
+Status: **core complete — independent persistence verified**
 
 - [x] expose separate Effects-profile and EQ-preset libraries through typed
   Rust and D-Bus models;
@@ -532,9 +532,13 @@ Status: **in progress — real catalog and safe preview selection complete**
   filter personal profiles by the live output;
 - [x] load real selectors, Effects values, and ten-band EQ curves in QML
   without applying audio;
-- [ ] implement search, grouping, draft ownership, Save, Save as, and Revert;
-- implement Current setup and multi-object Review without a combined file;
-- preserve Windows import links as optional EQ suggestions.
+- [x] implement independent Rust-owned drafts, Save, Save as, and Revert;
+- [x] preserve hidden section controls, refuse duplicate Save as names, update
+  the local catalog, and discover saved objects after restart;
+- [x] keep Current setup and independent unsaved counts without a combined
+  profile transaction;
+- [ ] add search/grouping and optional Windows-import EQ suggestions during
+  later GUI polish.
 
 Exit: modifying or saving one object cannot alter the other's state.
 

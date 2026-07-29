@@ -61,7 +61,8 @@ pub use sbcommand::{
     import_profile_with_report as import_sbcommand_profile_with_report,
 };
 pub use sound_objects::{
-    EffectsProfileEntry, EqPresetEntry, SoundObjectCatalog, sound_object_catalog,
+    EffectsProfileEntry, EqPresetEntry, SoundObjectCatalog, save_effects_profile,
+    save_effects_profile_as, save_eq_preset, save_eq_preset_as, sound_object_catalog,
 };
 pub use volume_curve::{
     VolumeCurveError, WindowsVolumeCurve, WindowsVolumePoint, windows_ae5_decibels,

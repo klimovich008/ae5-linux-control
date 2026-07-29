@@ -168,7 +168,7 @@ PipeWire policy, kernel audio-path, or rate-negotiation changes.
 
 ### M4 — Profile and Qt/QML GUI daily-use acceptance
 
-Status: **in progress — Phase 4 independent profile catalog connected**
+Status: **in progress — Phase 4 independent profile persistence complete**
 
 - Reproduce and fix the reported profile-card fallback to Adventure and Action.
 - Make profile application state explicit: selected profile, route variant,
@@ -198,19 +198,21 @@ Status: **in progress — Phase 4 independent profile catalog connected**
   typed D-Bus methods, exact AE-5 PipeWire targeting, readback, rollback, and
   structured daemon-journal events. Native Wayland tests passed 20% → 19% →
   20% and mute → unmute through the actual QML controls.
-- Completed Phase 4 catalog slice: `ae5d` exposes the 33 embedded Command
+- Completed Phase 4 profile-object slice: `ae5d` exposes the 33 embedded Command
   profiles and route-compatible personal imports as separate typed Effects
   profiles and EQ presets. The QML selectors load the real independent
   objects, default to `My profile` and `SHP Last` when present, and update the
-  Effects values or ten-band curve without changing live audio. The UI labels
-  this state `Preview`; editing, applying, and saving remain disabled until
-  their checked transactions exist.
-- Active next step: add independent Effects/EQ draft ownership, persistence,
-  Save as, and Revert without creating a combined profile transaction. The
-  remaining faceplate operations stay gated: output switching requires the
-  qualified-kernel path, while gain and Direct Mode remain disabled. No
-  redesign work may relax those guards or exceed the 20% hardware-test
-  ceiling.
+  Effects values or ten-band curve without changing live audio. Independent
+  Rust-owned drafts now support editing, Revert, Save, and Save as through
+  typed D-Bus methods. Combined imports and factory objects remain read-only
+  and are copied into section-only files on Save as. Atomic persistence,
+  strict validation, duplicate-name refusal, hidden section-control
+  preservation, catalog refresh, restart discovery, and independent unsaved
+  counts were verified against an isolated copy of the personal library.
+- Active next step: connect the ten-band EQ to its checked software/hardware
+  apply lifecycle with readback, rollback, logging, and visible runtime state.
+  Effects, OutFX, output, gain, and Direct Mode writes remain gated. No GUI
+  work may relax those guards or exceed the 20% hardware-test ceiling.
 - Keep hardware, profiles, state transitions, readback, rollback, and
   diagnostics outside toolkit-specific UI code so the backend can be reused by
   the future `ae5d`/CXX-Qt/QML architecture documented in

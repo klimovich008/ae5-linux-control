@@ -31,6 +31,8 @@ pub mod qobject {
         #[qproperty(QString, eq_preset, cxx_name = "eqPreset")]
         #[qproperty(QString, eq_state, cxx_name = "eqState")]
         #[qproperty(QString, eq_source, cxx_name = "eqSource")]
+        #[qproperty(QString, eq_detail, cxx_name = "eqDetail")]
+        #[qproperty(bool, eq_read_only, cxx_name = "eqReadOnly")]
         #[qproperty(QStringList, eq_preset_names, cxx_name = "eqPresetNames")]
         #[qproperty(QStringList, eq_band_gains_tenths_db, cxx_name = "eqBandGainsTenthsDb")]
         #[qproperty(bool, eq_enabled, cxx_name = "eqEnabled")]
@@ -38,6 +40,8 @@ pub mod qobject {
         #[qproperty(QString, effects_profile, cxx_name = "effectsProfile")]
         #[qproperty(QString, effects_state, cxx_name = "effectsState")]
         #[qproperty(QString, effects_source, cxx_name = "effectsSource")]
+        #[qproperty(QString, effects_detail, cxx_name = "effectsDetail")]
+        #[qproperty(bool, effects_read_only, cxx_name = "effectsReadOnly")]
         #[qproperty(QStringList, effects_profile_names, cxx_name = "effectsProfileNames")]
         #[qproperty(bool, effects_outfx_enabled, cxx_name = "effectsOutfxEnabled")]
         #[qproperty(bool, surround_available, cxx_name = "surroundAvailable")]
@@ -115,28 +119,44 @@ pub mod qobject {
         fn set_preview_direct_mode(self: Pin<&mut Self>, enabled: bool);
 
         #[qinvokable]
-        #[cxx_name = "markEqModified"]
-        fn mark_eq_modified(self: Pin<&mut Self>);
+        #[cxx_name = "updateEqBand"]
+        fn update_eq_band(self: Pin<&mut Self>, index: i32, gain_tenths_db: i32);
 
         #[qinvokable]
         #[cxx_name = "selectEqPreset"]
         fn select_eq_preset(self: Pin<&mut Self>, name: &QString);
 
         #[qinvokable]
-        #[cxx_name = "markEffectsModified"]
-        fn mark_effects_modified(self: Pin<&mut Self>);
+        #[cxx_name = "updateEffectsDraft"]
+        fn update_effects_draft(self: Pin<&mut Self>, control: &QString, enabled: bool, level: i32);
 
         #[qinvokable]
         #[cxx_name = "selectEffectsProfile"]
         fn select_effects_profile(self: Pin<&mut Self>, name: &QString);
 
         #[qinvokable]
-        #[cxx_name = "saveEqPreview"]
-        fn save_eq_preview(self: Pin<&mut Self>);
+        #[cxx_name = "revertEqDraft"]
+        fn revert_eq_draft(self: Pin<&mut Self>);
 
         #[qinvokable]
-        #[cxx_name = "saveEffectsPreview"]
-        fn save_effects_preview(self: Pin<&mut Self>);
+        #[cxx_name = "revertEffectsDraft"]
+        fn revert_effects_draft(self: Pin<&mut Self>);
+
+        #[qinvokable]
+        #[cxx_name = "saveEqDraft"]
+        fn save_eq_draft(self: Pin<&mut Self>);
+
+        #[qinvokable]
+        #[cxx_name = "saveEqDraftAs"]
+        fn save_eq_draft_as(self: Pin<&mut Self>, name: &QString);
+
+        #[qinvokable]
+        #[cxx_name = "saveEffectsDraft"]
+        fn save_effects_draft(self: Pin<&mut Self>);
+
+        #[qinvokable]
+        #[cxx_name = "saveEffectsDraftAs"]
+        fn save_effects_draft_as(self: Pin<&mut Self>, name: &QString);
     }
 }
 
@@ -168,6 +188,8 @@ pub struct AppStateRust {
     eq_preset: QString,
     eq_state: QString,
     eq_source: QString,
+    eq_detail: QString,
+    eq_read_only: bool,
     eq_preset_names: QStringList,
     eq_band_gains_tenths_db: QStringList,
     eq_enabled: bool,
@@ -175,6 +197,8 @@ pub struct AppStateRust {
     effects_profile: QString,
     effects_state: QString,
     effects_source: QString,
+    effects_detail: QString,
+    effects_read_only: bool,
     effects_profile_names: QStringList,
     effects_outfx_enabled: bool,
     surround_available: bool,
@@ -211,9 +235,12 @@ pub struct AppStateRust {
     controls_count: i32,
     effects_entries: Vec<crate::EffectsProfileEntry>,
     eq_entries: Vec<crate::EqPresetEntry>,
+    effects_draft: Option<crate::EffectsProfileEntry>,
+    eq_draft: Option<crate::EqPresetEntry>,
     effects_id: String,
     eq_id: String,
     catalog_output: String,
+    catalog_warning_count: usize,
 }
 
 impl Default for AppStateRust {
@@ -240,6 +267,8 @@ impl Default for AppStateRust {
             eq_preset: QString::from("Loading…"),
             eq_state: QString::from("Loading"),
             eq_source: QString::default(),
+            eq_detail: QString::from("Loading EQ presets from ae5d…"),
+            eq_read_only: true,
             eq_preset_names: QStringList::default(),
             eq_band_gains_tenths_db: QStringList::default(),
             eq_enabled: false,
@@ -247,6 +276,8 @@ impl Default for AppStateRust {
             effects_profile: QString::from("Loading…"),
             effects_state: QString::from("Loading"),
             effects_source: QString::default(),
+            effects_detail: QString::from("Loading Effects profiles from ae5d…"),
+            effects_read_only: true,
             effects_profile_names: QStringList::default(),
             effects_outfx_enabled: false,
             surround_available: false,
@@ -287,9 +318,12 @@ impl Default for AppStateRust {
             controls_count: 0,
             effects_entries: Vec::new(),
             eq_entries: Vec::new(),
+            effects_draft: None,
+            eq_draft: None,
             effects_id: String::new(),
             eq_id: String::new(),
             catalog_output: String::new(),
+            catalog_warning_count: 0,
         }
     }
 }
@@ -431,6 +465,7 @@ impl qobject::AppState {
     ) {
         let current_effects_id = self.as_ref().rust().effects_id.clone();
         let current_eq_id = self.as_ref().rust().eq_id.clone();
+        let warning_count = catalog.warnings.len();
         let selected_effects =
             preferred_effects_entry(&catalog.effects_profiles, &current_effects_id).cloned();
         let selected_eq = preferred_eq_entry(&catalog.eq_presets, &current_eq_id).cloned();
@@ -468,6 +503,7 @@ impl qobject::AppState {
             rust.effects_entries = catalog.effects_profiles;
             rust.eq_entries = catalog.eq_presets;
             rust.catalog_output = output.to_owned();
+            rust.catalog_warning_count = warning_count;
         }
 
         if let Some(entry) = selected_effects {
@@ -484,6 +520,16 @@ impl qobject::AppState {
         self.as_mut().set_effects_state(QString::from("Preview"));
         self.as_mut()
             .set_effects_source(QString::from(&entry.source));
+        self.as_mut().set_effects_read_only(entry.read_only);
+        self.as_mut().set_effects_detail(QString::from(
+            if entry.read_only && entry.source == "Factory" {
+                "Factory profile loaded. Edit a draft, then use Save as to create your own profile."
+            } else if entry.read_only {
+                "Combined imported profile loaded. Use Save as to keep Effects independent from EQ."
+            } else {
+                "User Effects profile loaded. Live audio is unchanged until Effects apply is connected."
+            },
+        ));
         self.as_mut().set_effects_outfx_enabled(entry.outfx_enabled);
         self.as_mut()
             .set_surround_available(entry.surround_available);
@@ -514,13 +560,27 @@ impl qobject::AppState {
         let revision = *self.as_ref().effects_selection_revision();
         self.as_mut()
             .set_effects_selection_revision(revision.saturating_add(1));
-        self.as_mut().rust_mut().effects_id = entry.id.clone();
+        {
+            let mut rust = self.as_mut().rust_mut();
+            rust.effects_id = entry.id.clone();
+            rust.effects_draft = Some(entry.clone());
+        }
     }
 
     fn apply_eq_entry(mut self: Pin<&mut Self>, entry: &crate::EqPresetEntry) {
         self.as_mut().set_eq_preset(QString::from(&entry.name));
         self.as_mut().set_eq_state(QString::from("Preview"));
         self.as_mut().set_eq_source(QString::from(&entry.source));
+        self.as_mut().set_eq_read_only(entry.read_only);
+        self.as_mut().set_eq_detail(QString::from(
+            if entry.read_only && entry.source == "Factory" {
+                "Factory preset loaded. Edit a draft, then use Save as to create your own preset."
+            } else if entry.read_only {
+                "Combined imported profile loaded. Use Save as to keep EQ independent from Effects."
+            } else {
+                "User EQ preset loaded. Live audio is unchanged until EQ apply is connected."
+            },
+        ));
         self.as_mut().set_eq_enabled(entry.enabled);
         self.as_mut().set_eq_band_gains_tenths_db(qstring_list(
             entry
@@ -534,7 +594,11 @@ impl qobject::AppState {
         let revision = *self.as_ref().eq_selection_revision();
         self.as_mut()
             .set_eq_selection_revision(revision.saturating_add(1));
-        self.as_mut().rust_mut().eq_id = entry.id.clone();
+        {
+            let mut rust = self.as_mut().rust_mut();
+            rust.eq_id = entry.id.clone();
+            rust.eq_draft = Some(entry.clone());
+        }
     }
 
     fn set_catalog_failure(mut self: Pin<&mut Self>, error: &str) {
@@ -554,7 +618,11 @@ impl qobject::AppState {
         if !has_catalog {
             self.as_mut()
                 .set_effects_state(QString::from("Unavailable"));
+            self.as_mut()
+                .set_effects_detail(QString::from("Effects profiles are unavailable."));
             self.as_mut().set_eq_state(QString::from("Unavailable"));
+            self.as_mut()
+                .set_eq_detail(QString::from("EQ presets are unavailable."));
         }
     }
 
@@ -594,15 +662,27 @@ impl qobject::AppState {
         self.as_mut().set_direct_mode(enabled);
     }
 
-    pub fn mark_eq_modified(mut self: Pin<&mut Self>) {
-        if self.as_ref().eq_state().to_string() != "Modified" {
-            self.as_mut().set_eq_state(QString::from("Modified"));
-            let count = *self.as_ref().unsaved_count();
-            self.as_mut().set_unsaved_count(count + 1);
+    pub fn update_eq_band(mut self: Pin<&mut Self>, index: i32, gain_tenths_db: i32) {
+        let was_modified = self.as_ref().eq_state().to_string() == "Modified";
+        let Some(mut draft) = self.as_ref().rust().eq_draft.clone() else {
+            return;
+        };
+        if let Err(error) = draft.set_band_gain(index, gain_tenths_db) {
+            self.as_mut()
+                .set_eq_detail(QString::from(format!("EQ draft was not changed: {error}")));
+            return;
         }
+        self.as_mut().apply_eq_entry(&draft);
+        self.as_mut().sync_eq_modified_state(was_modified);
     }
 
     pub fn select_eq_preset(mut self: Pin<&mut Self>, name: &QString) {
+        if self.as_ref().eq_state().to_string() == "Modified" {
+            self.as_mut().set_eq_detail(QString::from(
+                "Save or revert this EQ draft before selecting another preset.",
+            ));
+            return;
+        }
         let name = name.to_string();
         let entry = self
             .as_ref()
@@ -616,15 +696,33 @@ impl qobject::AppState {
         }
     }
 
-    pub fn mark_effects_modified(mut self: Pin<&mut Self>) {
-        if self.as_ref().effects_state().to_string() != "Modified" {
-            self.as_mut().set_effects_state(QString::from("Modified"));
-            let count = *self.as_ref().unsaved_count();
-            self.as_mut().set_unsaved_count(count + 1);
+    pub fn update_effects_draft(
+        mut self: Pin<&mut Self>,
+        control: &QString,
+        enabled: bool,
+        level: i32,
+    ) {
+        let was_modified = self.as_ref().effects_state().to_string() == "Modified";
+        let Some(mut draft) = self.as_ref().rust().effects_draft.clone() else {
+            return;
+        };
+        if let Err(error) = draft.set_control(&control.to_string(), enabled, level) {
+            self.as_mut().set_effects_detail(QString::from(format!(
+                "Effects draft was not changed: {error}"
+            )));
+            return;
         }
+        self.as_mut().apply_effects_entry(&draft);
+        self.as_mut().sync_effects_modified_state(was_modified);
     }
 
     pub fn select_effects_profile(mut self: Pin<&mut Self>, name: &QString) {
+        if self.as_ref().effects_state().to_string() == "Modified" {
+            self.as_mut().set_effects_detail(QString::from(
+                "Save or revert this Effects draft before selecting another profile.",
+            ));
+            return;
+        }
         let name = name.to_string();
         let entry = self
             .as_ref()
@@ -638,20 +736,260 @@ impl qobject::AppState {
         }
     }
 
-    pub fn save_eq_preview(mut self: Pin<&mut Self>) {
-        if self.as_ref().eq_state().to_string() == "Modified" {
-            self.as_mut().set_eq_state(QString::from("Saved"));
-            let count = *self.as_ref().unsaved_count();
+    pub fn revert_eq_draft(mut self: Pin<&mut Self>) {
+        let was_modified = self.as_ref().eq_state().to_string() == "Modified";
+        let id = self.as_ref().rust().eq_id.clone();
+        let entry = self
+            .as_ref()
+            .rust()
+            .eq_entries
+            .iter()
+            .find(|entry| entry.id == id)
+            .cloned();
+        if let Some(entry) = entry {
+            self.as_mut().apply_eq_entry(&entry);
+            if was_modified {
+                self.as_mut().decrement_unsaved_count();
+            }
+        }
+    }
+
+    pub fn revert_effects_draft(mut self: Pin<&mut Self>) {
+        let was_modified = self.as_ref().effects_state().to_string() == "Modified";
+        let id = self.as_ref().rust().effects_id.clone();
+        let entry = self
+            .as_ref()
+            .rust()
+            .effects_entries
+            .iter()
+            .find(|entry| entry.id == id)
+            .cloned();
+        if let Some(entry) = entry {
+            self.as_mut().apply_effects_entry(&entry);
+            if was_modified {
+                self.as_mut().decrement_unsaved_count();
+            }
+        }
+    }
+
+    pub fn save_eq_draft(mut self: Pin<&mut Self>) {
+        if *self.as_ref().eq_read_only() {
+            self.as_mut().set_eq_detail(QString::from(
+                "This preset is read-only. Use Save as to create an independent EQ preset.",
+            ));
+            return;
+        }
+        let Some(draft) = self.as_ref().rust().eq_draft.clone() else {
+            return;
+        };
+        match crate::device_service::write_eq_preset(&draft) {
+            Ok(saved) => self.as_mut().accept_saved_eq(saved),
+            Err(error) => self.as_mut().set_eq_save_failure(&error.to_string()),
+        }
+    }
+
+    pub fn save_eq_draft_as(mut self: Pin<&mut Self>, name: &QString) {
+        let Some(draft) = self.as_ref().rust().eq_draft.clone() else {
+            return;
+        };
+        match crate::device_service::write_eq_preset_as(&draft, &name.to_string()) {
+            Ok(saved) => self.as_mut().accept_saved_eq(saved),
+            Err(error) => self.as_mut().set_eq_save_failure(&error.to_string()),
+        }
+    }
+
+    pub fn save_effects_draft(mut self: Pin<&mut Self>) {
+        if *self.as_ref().effects_read_only() {
+            self.as_mut().set_effects_detail(QString::from(
+                "This profile is read-only. Use Save as to create an independent Effects profile.",
+            ));
+            return;
+        }
+        let Some(draft) = self.as_ref().rust().effects_draft.clone() else {
+            return;
+        };
+        match crate::device_service::write_effects_profile(&draft) {
+            Ok(saved) => self.as_mut().accept_saved_effects(saved),
+            Err(error) => self.as_mut().set_effects_save_failure(&error.to_string()),
+        }
+    }
+
+    pub fn save_effects_draft_as(mut self: Pin<&mut Self>, name: &QString) {
+        let Some(draft) = self.as_ref().rust().effects_draft.clone() else {
+            return;
+        };
+        match crate::device_service::write_effects_profile_as(&draft, &name.to_string()) {
+            Ok(saved) => self.as_mut().accept_saved_effects(saved),
+            Err(error) => self.as_mut().set_effects_save_failure(&error.to_string()),
+        }
+    }
+
+    fn sync_eq_modified_state(mut self: Pin<&mut Self>, was_modified: bool) {
+        let modified = {
+            let this = self.as_ref();
+            let rust = this.rust();
+            rust.eq_draft.as_ref() != rust.eq_entries.iter().find(|entry| entry.id == rust.eq_id)
+        };
+        self.as_mut()
+            .set_section_modified_count(was_modified, modified);
+        self.as_mut()
+            .set_eq_state(QString::from(if modified { "Modified" } else { "Preview" }));
+        self.as_mut().set_eq_detail(QString::from(if modified {
+            "Draft changed locally. Live audio and the saved EQ preset are unchanged."
+        } else {
+            "Draft matches the saved preset. Live audio is unchanged."
+        }));
+    }
+
+    fn sync_effects_modified_state(mut self: Pin<&mut Self>, was_modified: bool) {
+        let modified = {
+            let this = self.as_ref();
+            let rust = this.rust();
+            rust.effects_draft.as_ref()
+                != rust
+                    .effects_entries
+                    .iter()
+                    .find(|entry| entry.id == rust.effects_id)
+        };
+        self.as_mut()
+            .set_section_modified_count(was_modified, modified);
+        self.as_mut().set_effects_state(QString::from(if modified {
+            "Modified"
+        } else {
+            "Preview"
+        }));
+        self.as_mut().set_effects_detail(QString::from(if modified {
+            "Draft changed locally. Live audio and the saved Effects profile are unchanged."
+        } else {
+            "Draft matches the saved profile. Live audio is unchanged."
+        }));
+    }
+
+    fn set_section_modified_count(mut self: Pin<&mut Self>, was_modified: bool, modified: bool) {
+        let count = *self.as_ref().unsaved_count();
+        if modified && !was_modified {
+            self.as_mut().set_unsaved_count(count.saturating_add(1));
+        } else if was_modified && !modified {
             self.as_mut().set_unsaved_count((count - 1).max(0));
         }
     }
 
-    pub fn save_effects_preview(mut self: Pin<&mut Self>) {
-        if self.as_ref().effects_state().to_string() == "Modified" {
-            self.as_mut().set_effects_state(QString::from("Saved"));
-            let count = *self.as_ref().unsaved_count();
-            self.as_mut().set_unsaved_count((count - 1).max(0));
+    fn decrement_unsaved_count(mut self: Pin<&mut Self>) {
+        let count = *self.as_ref().unsaved_count();
+        self.as_mut().set_unsaved_count((count - 1).max(0));
+    }
+
+    fn accept_saved_eq(mut self: Pin<&mut Self>, entry: crate::EqPresetEntry) {
+        let was_modified = self.as_ref().eq_state().to_string() == "Modified";
+        {
+            let mut rust = self.as_mut().rust_mut();
+            if let Some(existing) = rust
+                .eq_entries
+                .iter_mut()
+                .find(|existing| existing.id == entry.id)
+            {
+                *existing = entry.clone();
+            } else {
+                rust.eq_entries.push(entry.clone());
+            }
+            rust.eq_entries.sort_by_cached_key(|entry| {
+                (entry.read_only, entry.name.to_lowercase(), entry.id.clone())
+            });
         }
+        let names = {
+            let this = self.as_ref();
+            qstring_list(
+                this.rust()
+                    .eq_entries
+                    .iter()
+                    .map(|entry| entry.name.as_str()),
+            )
+        };
+        self.as_mut().set_eq_preset_names(names);
+        self.as_mut().refresh_profile_catalog_detail();
+        self.as_mut().apply_eq_entry(&entry);
+        self.as_mut().set_eq_state(QString::from("Saved"));
+        self.as_mut().set_eq_detail(QString::from(
+            "EQ preset saved independently. Live audio is unchanged.",
+        ));
+        if was_modified {
+            self.as_mut().decrement_unsaved_count();
+        }
+    }
+
+    fn accept_saved_effects(mut self: Pin<&mut Self>, entry: crate::EffectsProfileEntry) {
+        let was_modified = self.as_ref().effects_state().to_string() == "Modified";
+        {
+            let mut rust = self.as_mut().rust_mut();
+            if let Some(existing) = rust
+                .effects_entries
+                .iter_mut()
+                .find(|existing| existing.id == entry.id)
+            {
+                *existing = entry.clone();
+            } else {
+                rust.effects_entries.push(entry.clone());
+            }
+            rust.effects_entries.sort_by_cached_key(|entry| {
+                (entry.read_only, entry.name.to_lowercase(), entry.id.clone())
+            });
+        }
+        let names = {
+            let this = self.as_ref();
+            qstring_list(
+                this.rust()
+                    .effects_entries
+                    .iter()
+                    .map(|entry| entry.name.as_str()),
+            )
+        };
+        self.as_mut().set_effects_profile_names(names);
+        self.as_mut().refresh_profile_catalog_detail();
+        self.as_mut().apply_effects_entry(&entry);
+        self.as_mut().set_effects_state(QString::from("Saved"));
+        self.as_mut().set_effects_detail(QString::from(
+            "Effects profile saved independently. Live audio is unchanged.",
+        ));
+        if was_modified {
+            self.as_mut().decrement_unsaved_count();
+        }
+    }
+
+    fn set_eq_save_failure(mut self: Pin<&mut Self>, error: &str) {
+        self.as_mut().set_eq_detail(QString::from(format!(
+            "EQ preset was not saved; the previous file is unchanged: {error}"
+        )));
+    }
+
+    fn set_effects_save_failure(mut self: Pin<&mut Self>, error: &str) {
+        self.as_mut().set_effects_detail(QString::from(format!(
+            "Effects profile was not saved; the previous file is unchanged: {error}"
+        )));
+    }
+
+    fn refresh_profile_catalog_detail(mut self: Pin<&mut Self>) {
+        let detail = {
+            let this = self.as_ref();
+            let rust = this.rust();
+            if rust.catalog_warning_count == 0 {
+                format!(
+                    "{} Effects profiles and {} EQ presets loaded for {}.",
+                    rust.effects_entries.len(),
+                    rust.eq_entries.len(),
+                    rust.catalog_output
+                )
+            } else {
+                format!(
+                    "{} Effects profiles and {} EQ presets loaded for {}; {} library warning(s).",
+                    rust.effects_entries.len(),
+                    rust.eq_entries.len(),
+                    rust.catalog_output,
+                    rust.catalog_warning_count
+                )
+            }
+        };
+        self.as_mut()
+            .set_profile_catalog_detail(QString::from(detail));
     }
 }
 
@@ -669,7 +1007,7 @@ fn preferred_effects_entry<'a>(
         .or_else(|| {
             entries
                 .iter()
-                .find(|entry| !entry.read_only && entry.name.eq_ignore_ascii_case("My profile"))
+                .find(|entry| entry.name.eq_ignore_ascii_case("My profile"))
         })
         .or_else(|| entries.iter().find(|entry| !entry.read_only))
         .or_else(|| entries.first())
@@ -685,7 +1023,7 @@ fn preferred_eq_entry<'a>(
         .or_else(|| {
             entries
                 .iter()
-                .find(|entry| !entry.read_only && entry.name.eq_ignore_ascii_case("SHP Last"))
+                .find(|entry| entry.name.eq_ignore_ascii_case("SHP Last"))
         })
         .or_else(|| entries.iter().find(|entry| !entry.read_only))
         .or_else(|| entries.first())

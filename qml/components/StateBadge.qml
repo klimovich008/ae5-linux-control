@@ -36,6 +36,10 @@ Item {
             return Theme.textSecondary
         }
     }
+    readonly property bool alerting:
+        ["error", "unavailable", "write-failed",
+         "not-applied"].indexOf(normalizedKind) >= 0
+    readonly property color labelColor: alerting ? stateColor : Theme.textPrimary
 
     implicitWidth: Math.min(maximumBadgeWidth, badgeRow.implicitWidth)
     implicitHeight: 24
@@ -59,7 +63,7 @@ Item {
         Label {
             Layout.fillWidth: true
             text: root.stateText
-            color: root.stateColor
+            color: root.labelColor
             font.pixelSize: Theme.fontCaption
             font.weight: Font.DemiBold
             elide: Text.ElideRight

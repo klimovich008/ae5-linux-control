@@ -185,7 +185,7 @@ Rectangle {
 
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 44
+                    Layout.preferredHeight: Theme.controlHeightLarge + Theme.space2
                     radius: Theme.radiusSmall
                     color: Theme.surface
                     border.color: root.appState.softwareEqState === "error"
@@ -296,7 +296,7 @@ Rectangle {
                 Layout.leftMargin: root.pageGutter
                 Layout.rightMargin: root.pageGutter
                 Layout.preferredHeight: 1
-                color: Theme.separator
+                color: Theme.separatorStrong
             }
 
             ColumnLayout {

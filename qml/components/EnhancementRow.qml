@@ -27,7 +27,7 @@ Item {
                                                  ? qsTr("%1 is bypassed while Direct Mode is active.").arg(title)
                                                  : ""
 
-    implicitHeight: Math.max(Theme.controlHeightLarge, trackColumn.implicitHeight)
+    implicitHeight: Theme.controlHeightLarge
     Accessible.role: Accessible.Grouping
     Accessible.name: root.title
     Accessible.description: root.interactive
@@ -86,17 +86,19 @@ Item {
                            root.controlKey, checked, Math.round(level.value))
         }
 
-        ColumnLayout {
+        Item {
             id: trackColumn
 
             Layout.fillWidth: true
-            spacing: 0
+            Layout.preferredHeight: Theme.controlHeightLarge
 
             AppSlider {
                 id: level
 
                 objectName: "effect-" + root.controlKey + "-level"
-                Layout.fillWidth: true
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
                 from: 0
                 to: 100
                 value: root.initialValue
@@ -110,26 +112,24 @@ Item {
                              root.controlKey, enabledSwitch.checked, Math.round(value))
             }
 
-            RowLayout {
-                visible: root.leftPole.length > 0 || root.rightPole.length > 0
-                Layout.fillWidth: true
-                Layout.topMargin: -4
+            Label {
+                visible: root.leftPole.length > 0
+                anchors.left: parent.left
+                anchors.top: parent.verticalCenter
+                anchors.topMargin: Theme.space2
+                text: root.leftPole
+                color: Theme.textSecondary
+                font.pixelSize: Theme.fontMicro
+            }
 
-                Label {
-                    text: root.leftPole
-                    color: Theme.textSecondary
-                    font.pixelSize: Theme.fontMicro
-                }
-
-                Item {
-                    Layout.fillWidth: true
-                }
-
-                Label {
-                    text: root.rightPole
-                    color: Theme.textSecondary
-                    font.pixelSize: Theme.fontMicro
-                }
+            Label {
+                visible: root.rightPole.length > 0
+                anchors.right: parent.right
+                anchors.top: parent.verticalCenter
+                anchors.topMargin: Theme.space2
+                text: root.rightPole
+                color: Theme.textSecondary
+                font.pixelSize: Theme.fontMicro
             }
         }
 

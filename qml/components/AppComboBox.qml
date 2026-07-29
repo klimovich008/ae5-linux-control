@@ -20,11 +20,13 @@ ComboBox {
     background: Rectangle {
         radius: Theme.radiusSmall
         color: !root.enabled
-               ? Theme.surfaceRaised
+               ? Theme.surfaceSunken
                : root.pressed || root.popup.visible ? Theme.surfaceSunken
                : root.hovered ? Theme.surfaceRaised : Theme.surface
         border.width: root.visualFocus ? 2 : 1
-        border.color: root.visualFocus ? Theme.focus : Theme.separatorStrong
+        border.color: root.visualFocus
+                      ? Theme.focus
+                      : !root.enabled ? Theme.separator : Theme.separatorStrong
 
         Behavior on color {
             ColorAnimation { duration: Theme.durationFast }
@@ -35,7 +37,7 @@ ComboBox {
         leftPadding: 0
         rightPadding: 0
         text: root.displayText
-        color: root.enabled ? Theme.textPrimary : Theme.textDisabled
+        color: root.enabled ? Theme.textPrimary : Theme.textSecondary
         verticalAlignment: Text.AlignVCenter
         font.pixelSize: Theme.fontBody
         elide: Text.ElideRight

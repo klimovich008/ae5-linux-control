@@ -53,9 +53,10 @@ Rectangle {
         anchors.rightMargin: root.compact ? Theme.space3 : Theme.space4
         anchors.topMargin: Theme.space2
         anchors.bottomMargin: Theme.space2
-        spacing: root.compact ? Theme.space2 : Theme.space3
+        spacing: root.compact || !root.wide ? Theme.space2 : Theme.space3
 
         ColumnLayout {
+            Layout.minimumWidth: root.compact ? 150 : 190
             Layout.preferredWidth: root.compact ? 150 : 190
             spacing: Theme.space1
 
@@ -172,7 +173,9 @@ Rectangle {
                     delegate: AppButton {
                         required property string modelData
                         objectName: "gain-" + modelData.toLowerCase()
-                        implicitWidth: modelData === "Medium" ? 84 : 72
+                        implicitWidth: root.wide
+                                       ? modelData === "Medium" ? 84 : 72
+                                       : modelData === "Medium" ? 76 : 66
                         implicitHeight: Theme.controlHeight
                         text: modelData
                         checked: root.appState.headphoneGain === modelData
@@ -197,7 +200,7 @@ Rectangle {
 
         ColumnLayout {
             Layout.fillWidth: true
-            Layout.minimumWidth: root.compact ? 150 : 190
+            Layout.minimumWidth: root.compact ? 150 : 220
             spacing: Theme.space1
 
             Label {
@@ -258,7 +261,10 @@ Rectangle {
         }
 
         ColumnLayout {
+            Layout.fillWidth: true
+            Layout.minimumWidth: 150
             Layout.preferredWidth: root.compact ? 150 : 190
+            Layout.maximumWidth: root.compact ? 150 : 220
             spacing: Theme.space1
 
             Label {
@@ -283,6 +289,7 @@ Rectangle {
 
             Label {
                 visible: !root.compact
+                Layout.fillWidth: true
                 text: root.appState.profileStateLive
                       ? qsTr("Live state; save in each section")
                       : root.appState.qaMode
@@ -292,6 +299,7 @@ Rectangle {
                         : qsTr("Device unavailable · profiles read-only")
                 color: Theme.textSecondary
                 font.pixelSize: Theme.fontMicro
+                elide: Text.ElideRight
             }
         }
 
@@ -301,23 +309,14 @@ Rectangle {
             objectName: "unsaved-review"
             visible: root.appState.unsavedCount > 0
             enabled: visible
-            variant: "ghost"
-            text: root.wide ? qsTr("%1 unsaved · Review").arg(root.appState.unsavedCount)
-                            : qsTr("%1 unsaved").arg(root.appState.unsavedCount)
+            variant: "warning"
+            text: root.wide
+                  ? qsTr("Review · %1 unsaved").arg(root.appState.unsavedCount)
+                  : qsTr("Review · %1").arg(root.appState.unsavedCount)
             tooltipText: qsTr("Review unsaved Effects and EQ changes")
             Accessible.name: qsTr("Review %1 unsaved changes").arg(root.appState.unsavedCount)
             Accessible.ignored: !visible
             onClicked: root.reviewRequested()
-
-            contentItem: Label {
-                text: reviewButton.text
-                color: Theme.modified
-                horizontalAlignment: Text.AlignHCenter
-                verticalAlignment: Text.AlignVCenter
-                font.pixelSize: Theme.fontCaption
-                font.weight: Font.DemiBold
-                Accessible.ignored: !reviewButton.visible
-            }
         }
     }
 }

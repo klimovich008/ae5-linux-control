@@ -8,8 +8,8 @@ QtObject {
     // Surfaces
     readonly property color background: light ? "#F4F8FA" : "#071725"
     readonly property color sidebar: light ? "#E8F0F4" : "#081B2A"
-    readonly property color surface: light ? "#FFFFFF" : "#0C2131"
-    readonly property color surfaceRaised: light ? "#EDF3F7" : "#102A3C"
+    readonly property color surface: light ? "#FFFFFF" : "#0F2839"
+    readonly property color surfaceRaised: light ? "#EDF3F7" : "#163449"
     readonly property color surfaceSunken: light ? "#DDE7EE" : "#051019"
     readonly property color faceplate: light ? "#E2ECF2" : "#06131F"
     readonly property color separator: light ? "#C6D5DE" : "#294354"
@@ -18,14 +18,14 @@ QtObject {
     // Text
     readonly property color textPrimary: light ? "#10212C" : "#F1F6F9"
     readonly property color textSecondary: light ? "#405967" : "#9FB1BC"
-    readonly property color textDisabled: light ? "#778B97" : "#607582"
+    readonly property color textDisabled: light ? "#778B97" : "#879CA9"
     readonly property color textOnAccent: light ? "#FFFFFF" : "#04141C"
 
     // Interaction
-    readonly property color accent: light ? "#006F86" : "#00C7E6"
-    readonly property color accentHover: light ? "#00596C" : "#4FDCF2"
-    readonly property color accentPressed: light ? "#004353" : "#00A2BB"
-    readonly property color accentSubtle: light ? "#DCEFF4" : "#0B2E3C"
+    readonly property color accent: light ? "#006F86" : "#139CC0"
+    readonly property color accentHover: light ? "#00596C" : "#32B1D0"
+    readonly property color accentPressed: light ? "#004353" : "#0E7F9C"
+    readonly property color accentSubtle: light ? "#DCEFF4" : "#123F52"
     readonly property color focus: light ? "#6941C6" : "#9B73F4"
 
     // Status

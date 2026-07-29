@@ -11,7 +11,7 @@ Rectangle {
     property var gains: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
     readonly property var frequencies: ["31", "62", "125", "250", "500", "1k", "2k", "4k", "8k", "16k"]
     readonly property real graphLeft: 42
-    readonly property real graphRight: width - 22
+    readonly property real graphRight: width - 42
     readonly property real graphTop: 18
     readonly property real graphBottom: height - 34
 
@@ -94,7 +94,8 @@ Rectangle {
             y: root.graphTop
             width: 1
             height: root.graphBottom - root.graphTop
-            color: Qt.rgba(Theme.separator.r, Theme.separator.g, Theme.separator.b, 0.55)
+            color: Qt.rgba(Theme.separator.r, Theme.separator.g,
+                           Theme.separator.b, 0.68)
         }
     }
 
@@ -222,7 +223,9 @@ Rectangle {
         delegate: Label {
             required property int index
 
-            x: root.xFor(index) - width / 2
+            x: Math.max(Theme.space1,
+                        Math.min(root.width - width - Theme.space1,
+                                 root.xFor(index) - width / 2))
             y: root.graphBottom + 9
             text: index === 9 ? root.frequencies[index] + " Hz"
                                : root.frequencies[index]

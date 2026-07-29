@@ -33,7 +33,9 @@ Button {
             if (!root.enabled && root.checked)
                 return Theme.accentSubtle
             if (!root.enabled)
-                return Theme.surfaceRaised
+                return Theme.surfaceSunken
+            if (root.variant === "warning")
+                return root.hovered ? Theme.surfaceRaised : Theme.modifiedSubtle
             if (root.variant === "primary")
                 return root.down ? Theme.accentPressed
                                   : root.hovered ? Theme.accentHover : Theme.accent
@@ -48,6 +50,11 @@ Button {
         border.width: root.visualFocus ? 2 : 1
         border.color: root.visualFocus
                       ? Theme.focus
+                      : !root.enabled && root.checked
+                        ? Qt.rgba(Theme.accent.r, Theme.accent.g,
+                                  Theme.accent.b, 0.45)
+                      : !root.enabled ? Theme.separator
+                      : root.variant === "warning" ? Theme.modified
                       : root.checked ? Theme.accent
                       : root.variant === "primary" ? Theme.accent
                       : root.variant === "danger" ? Theme.error
@@ -61,16 +68,18 @@ Button {
     contentItem: Label {
         text: root.text
         color: !root.enabled && root.checked
-               ? Theme.textPrimary
+               ? Theme.textSecondary
                : !root.enabled
                ? Theme.textDisabled
                : root.variant === "primary" ? Theme.textOnAccent
+               : root.variant === "warning" ? Theme.modified
                : root.variant === "danger" ? Theme.error
                : root.checked ? Theme.textPrimary : Theme.textSecondary
         horizontalAlignment: Text.AlignHCenter
         verticalAlignment: Text.AlignVCenter
         font.pixelSize: Theme.fontLabel
-        font.weight: root.variant === "primary" || root.checked
+        font.weight: root.variant === "primary"
+                     || root.variant === "warning" || root.checked
                      ? Font.DemiBold : Font.Normal
         elide: Text.ElideRight
     }

@@ -9,8 +9,15 @@ Rectangle {
 
     property var appState
     property bool compact: false
+    readonly property int pageGutter: compact ? 20 : Theme.space6
 
     color: Theme.background
+    Accessible.role: Accessible.Pane
+    Accessible.name: qsTr("Sound")
+    Accessible.description: root.appState.statusCode === "ready"
+                            ? qsTr("Volume, mute, profile saving and checked software EQ are live. %1")
+                              .arg(root.appState.profileCatalogDetail)
+                            : root.appState.statusDetail
 
     function containsFocusItem(container) {
         let item = root.Window.window ? root.Window.window.activeFocusItem : null
@@ -22,22 +29,34 @@ Rectangle {
         return false
     }
 
-    function revealSection(section, header) {
+    function revealSection(section, header, openSaveAs) {
         const flickable = pageScroll.contentItem
         const position = section.mapToItem(contentColumn, 0, 0).y
         flickable.contentY = Math.max(
-                    0, Math.min(position - 8, flickable.contentHeight - flickable.height))
-        Qt.callLater(function() { header.focusEditor() })
+                    0, Math.min(position - 8,
+                                contentColumn.implicitHeight - flickable.height))
+        Qt.callLater(function() {
+            header.focusEditor()
+            if (openSaveAs)
+                header.openSaveAs()
+        })
+    }
+
+    function reviewObject(objectName, openSaveAs) {
+        if (objectName === "effects")
+            revealSection(effectsSection, effectsHeader, openSaveAs)
+        else
+            revealSection(eqSection, eqHeader, openSaveAs)
     }
 
     function reviewUnsaved() {
         if (root.appState.effectsState === "Modified"
                 && containsFocusItem(effectsSection)) {
-            revealSection(effectsSection, effectsHeader)
+            reviewObject("effects", false)
         } else if (root.appState.eqState === "Modified") {
-            revealSection(eqSection, eqHeader)
+            reviewObject("eq", false)
         } else if (root.appState.effectsState === "Modified") {
-            revealSection(effectsSection, effectsHeader)
+            reviewObject("effects", false)
         }
     }
 
@@ -72,42 +91,47 @@ Rectangle {
         anchors.fill: parent
         clip: true
         contentWidth: availableWidth
+        bottomPadding: Theme.space5
         ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+        ScrollBar.vertical.policy: ScrollBar.AsNeeded
+        ScrollBar.vertical.active: root.compact || ScrollBar.vertical.pressed
 
         ColumnLayout {
             id: contentColumn
 
-            width: parent.width
-            spacing: 10
+            width: Math.min(pageScroll.availableWidth, Theme.contentMaxWidth)
+            x: Math.max(0, (pageScroll.availableWidth - width) / 2)
+            spacing: Theme.space3
 
             Item {
-                Layout.preferredHeight: 8
+                Layout.preferredHeight: Theme.space2
             }
 
             ColumnLayout {
                 Layout.fillWidth: true
-                Layout.leftMargin: root.compact ? 22 : 32
-                Layout.rightMargin: root.compact ? 22 : 32
-                spacing: 4
+                Layout.leftMargin: root.pageGutter
+                Layout.rightMargin: root.pageGutter
+                spacing: Theme.space1
 
                 Label {
                     text: qsTr("Sound")
                     color: Theme.textPrimary
-                    font.pixelSize: 28
+                    font.pixelSize: Theme.fontPageTitle
                     font.weight: Font.DemiBold
                 }
 
                 Label {
                     text: qsTr("Hardware output, Effects profiles and EQ presets remain separate.")
                     color: Theme.textSecondary
-                    font.pixelSize: 13
+                    font.pixelSize: Theme.fontLabel
                 }
             }
 
             CapabilityNotice {
+                visible: root.appState.statusCode !== "ready"
                 Layout.fillWidth: true
-                Layout.leftMargin: root.compact ? 22 : 32
-                Layout.rightMargin: root.compact ? 22 : 32
+                Layout.leftMargin: root.pageGutter
+                Layout.rightMargin: root.pageGutter
                 statusCode: root.appState.statusCode
                 title: root.appState.statusCode === "ready"
                        ? qsTr("Volume, mute, profile saving and checked software EQ are live")
@@ -123,9 +147,9 @@ Rectangle {
                 id: eqSection
 
                 Layout.fillWidth: true
-                Layout.leftMargin: root.compact ? 22 : 32
-                Layout.rightMargin: root.compact ? 22 : 32
-                spacing: 10
+                Layout.leftMargin: root.pageGutter
+                Layout.rightMargin: root.pageGutter
+                spacing: Theme.space3
 
                 ObjectHeader {
                     id: eqHeader
@@ -146,7 +170,7 @@ Rectangle {
 
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: eqRuntimeLayout.implicitHeight + 18
+                    Layout.preferredHeight: 44
                     radius: Theme.radiusSmall
                     color: Theme.surface
                     border.color: root.appState.softwareEqState === "error"
@@ -161,72 +185,47 @@ Rectangle {
                         anchors.left: parent.left
                         anchors.right: parent.right
                         anchors.verticalCenter: parent.verticalCenter
-                        anchors.leftMargin: 12
-                        anchors.rightMargin: 12
-                        spacing: 12
+                        anchors.leftMargin: Theme.space3
+                        anchors.rightMargin: Theme.space3
+                        spacing: Theme.space2
 
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: 2
+                        Label {
+                            text: qsTr("Live EQ")
+                            color: Theme.textPrimary
+                            font.pixelSize: Theme.fontLabel
+                            font.weight: Font.DemiBold
+                        }
 
-                            RowLayout {
-                                spacing: 7
-
-                                Label {
-                                    text: qsTr("Live software EQ")
-                                    color: Theme.textPrimary
-                                    font.pixelSize: 13
-                                    font.weight: Font.DemiBold
+                        StateBadge {
+                            id: runtimeStateBadge
+                            stateText: {
+                                switch (root.appState.softwareEqState) {
+                                case "current": return qsTr("Active")
+                                case "configured": return qsTr("Saved only")
+                                case "different": return qsTr("Different graph")
+                                case "applying": return qsTr("Applying")
+                                case "error": return qsTr("Error")
+                                case "unavailable": return qsTr("Unavailable")
+                                default: return qsTr("Inactive")
                                 }
-
-                                Rectangle {
-                                    Layout.preferredWidth: runtimeStateLabel.implicitWidth + 12
-                                    Layout.preferredHeight: 22
-                                    radius: 11
-                                    color: root.appState.softwareEqState === "error"
-                                           ? Qt.rgba(Theme.error.r, Theme.error.g,
-                                                     Theme.error.b, 0.15)
-                                           : root.appState.softwareEqActive
-                                             ? Qt.rgba(Theme.accent.r, Theme.accent.g,
-                                                       Theme.accent.b, 0.14)
-                                             : Theme.surfaceRaised
-
-                                    Label {
-                                        id: runtimeStateLabel
-
-                                        anchors.centerIn: parent
-                                        text: {
-                                            switch (root.appState.softwareEqState) {
-                                            case "current": return qsTr("Active")
-                                            case "configured": return qsTr("Saved only")
-                                            case "different": return qsTr("Different graph")
-                                            case "applying": return qsTr("Applying")
-                                            case "error": return qsTr("Error")
-                                            case "unavailable": return qsTr("Unavailable")
-                                            default: return qsTr("Inactive")
-                                            }
-                                        }
-                                        color: root.appState.softwareEqState === "error"
-                                               ? Theme.error
-                                               : root.appState.softwareEqActive
-                                                 ? Theme.accent
-                                                 : Theme.textSecondary
-                                        font.pixelSize: 11
-                                        font.weight: Font.DemiBold
-                                    }
-                                }
-                            }
-
-                            Label {
-                                Layout.fillWidth: true
-                                text: root.appState.softwareEqDetail
-                                color: Theme.textSecondary
-                                font.pixelSize: 11
-                                wrapMode: Text.Wrap
                             }
                         }
 
-                        Button {
+                        Label {
+                            Layout.fillWidth: true
+                            text: root.appState.softwareEqDetail
+                            color: Theme.textSecondary
+                            font.pixelSize: Theme.fontCaption
+                            elide: Text.ElideRight
+                            ToolTip.visible: truncated && runtimeDetailHover.hovered
+                            ToolTip.text: text
+
+                            HoverHandler {
+                                id: runtimeDetailHover
+                            }
+                        }
+
+                        AppButton {
                             id: disableEqButton
 
                             visible: root.appState.softwareEqActive
@@ -237,37 +236,38 @@ Rectangle {
                             onClicked: root.appState.disableSoftwareEq()
                         }
 
-                        Button {
+                        AppButton {
                             id: applyEqButton
 
-                            readonly property string blockedReason: !root.appState.eqEnabled
-                                                                    ? qsTr("Enable this EQ preset before applying it.")
-                                                                    : root.appState.eqApplyBlockReason
+                            readonly property string applyBlockReason: !root.appState.eqEnabled
+                                                                         ? qsTr("Enable this EQ preset before applying it.")
+                                                                         : root.appState.eqApplyBlockReason
 
                             enabled: root.appState.eqEnabled
                                      && root.appState.eqApplyAvailable
                                      && root.appState.softwareEqState !== "applying"
+                            blockedReason: applyBlockReason
                             text: qsTr("Apply EQ")
                             Accessible.name: qsTr("Apply selected EQ draft")
                             Accessible.description: enabled
                                                     ? qsTr("Applies this draft to the live AE-5 PipeWire output.")
-                                                    : blockedReason
-                            ToolTip.visible: (hovered || activeFocus) && !enabled
-                            ToolTip.text: blockedReason
+                                                    : applyBlockReason
                             onClicked: root.appState.applyEqDraft()
                         }
                     }
 
                     Accessible.role: root.appState.softwareEqState === "error"
                                      ? Accessible.AlertMessage : Accessible.StatusBar
-                    Accessible.name: qsTr("Live software EQ: %1").arg(runtimeStateLabel.text)
+                    Accessible.name: qsTr("Live software EQ: %1").arg(runtimeStateBadge.stateText)
                     Accessible.description: root.appState.softwareEqDetail
                 }
 
                 EqualizerGraph {
                     Layout.fillWidth: true
                     Layout.minimumHeight: 180
-                    Layout.preferredHeight: root.compact ? 190 : 214
+                    Layout.preferredHeight: root.compact
+                                            ? 180
+                                            : root.width >= 1200 ? 230 : 200
                     appState: root.appState
                     editingEnabled: root.appState.profileCatalogStatus === "ready"
                 }
@@ -275,8 +275,8 @@ Rectangle {
 
             Rectangle {
                 Layout.fillWidth: true
-                Layout.leftMargin: root.compact ? 22 : 32
-                Layout.rightMargin: root.compact ? 22 : 32
+                Layout.leftMargin: root.pageGutter
+                Layout.rightMargin: root.pageGutter
                 Layout.preferredHeight: 1
                 color: Theme.separator
             }
@@ -285,10 +285,10 @@ Rectangle {
                 id: effectsSection
 
                 Layout.fillWidth: true
-                Layout.leftMargin: root.compact ? 22 : 32
-                Layout.rightMargin: root.compact ? 22 : 32
-                Layout.bottomMargin: 20
-                spacing: 8
+                Layout.leftMargin: root.pageGutter
+                Layout.rightMargin: root.pageGutter
+                Layout.bottomMargin: Theme.space4
+                spacing: Theme.space2
 
                 ObjectHeader {
                     id: effectsHeader
@@ -309,12 +309,12 @@ Rectangle {
 
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: directModeRow.implicitHeight + 12
+                    Layout.preferredHeight: directModeRow.implicitHeight + Theme.space3
                     radius: Theme.radiusSmall
                     color: root.appState.directMode
-                           ? Qt.rgba(Theme.focus.r, Theme.focus.g, Theme.focus.b, 0.12)
+                           ? Theme.accentSubtle
                            : Theme.surface
-                    border.color: root.appState.directMode ? Theme.focus : Theme.separator
+                    border.color: root.appState.directMode ? Theme.accent : Theme.separator
 
                     RowLayout {
                         id: directModeRow
@@ -322,18 +322,18 @@ Rectangle {
                         anchors.left: parent.left
                         anchors.right: parent.right
                         anchors.verticalCenter: parent.verticalCenter
-                        anchors.leftMargin: 12
-                        anchors.rightMargin: 12
-                        spacing: 12
+                        anchors.leftMargin: Theme.space3
+                        anchors.rightMargin: Theme.space3
+                        spacing: Theme.space3
 
                         ColumnLayout {
                             Layout.fillWidth: true
-                            spacing: 2
+                            spacing: Theme.space1
 
                             Label {
                                 text: qsTr("Direct Mode")
                                 color: Theme.textPrimary
-                                font.pixelSize: 14
+                                font.pixelSize: Theme.fontBody
                             }
 
                             Label {
@@ -341,32 +341,33 @@ Rectangle {
                                       ? qsTr("EQ and enhancements are visible but bypassed.")
                                       : qsTr("Bypasses EQ and enhancements when enabled.")
                                 color: Theme.textSecondary
-                                font.pixelSize: 11
+                                font.pixelSize: Theme.fontCaption
                             }
                         }
 
-                        Switch {
+                        AppSwitch {
                             checked: root.appState.directMode
                             enabled: root.appState.directModeAvailable
                                      && root.appState.directModeWriteEnabled
+                            blockedReason: root.appState.directModeAvailable
+                                           ? root.appState.hardwareWriteBlockReason
+                                           : qsTr("Direct Mode is not exposed by the current driver.")
                             Accessible.name: qsTr("Direct Mode")
                             Accessible.description: enabled
                                                     ? qsTr("Toggle Direct Mode")
                                                     : root.appState.directModeAvailable
                                                       ? root.appState.hardwareWriteBlockReason
                                                       : qsTr("Direct Mode is not exposed by the current driver.")
-                            ToolTip.visible: hovered && !enabled
-                            ToolTip.text: Accessible.description
-                            onToggled: root.appState.setPreviewDirectMode(checked)
+                            onClicked: root.appState.setPreviewDirectMode(checked)
                         }
                     }
                 }
 
                 GridLayout {
                     Layout.fillWidth: true
-                    columns: root.width >= 1300 ? 2 : 1
-                    columnSpacing: 28
-                    rowSpacing: 0
+                    columns: root.width >= Theme.effectsColumnsBreakpoint ? 2 : 1
+                    columnSpacing: Theme.space5
+                    rowSpacing: Theme.space1
 
                     EnhancementRow {
                         Layout.fillWidth: true

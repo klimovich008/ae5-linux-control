@@ -79,7 +79,7 @@ Rectangle {
                 anchors.verticalCenter: parent.verticalCenter
                 text: modelData > 0 ? "+" + modelData : modelData
                 color: Theme.textSecondary
-                font.pixelSize: 10
+                font.pixelSize: Theme.fontMicro
             }
         }
     }
@@ -161,21 +161,25 @@ Rectangle {
             handle: Rectangle {
                 x: (band.width - width) / 2
                 y: root.yFor(band.value) - root.graphTop - height / 2
-                width: band.activeFocus ? 15 : 12
+                width: band.visualFocus || band.hovered ? 16 : 12
                 height: width
                 radius: width / 2
                 color: Theme.surfaceRaised
-                border.width: band.activeFocus ? 3 : 2
-                border.color: band.activeFocus ? Theme.focus : Theme.accent
+                border.width: band.visualFocus ? 3 : 2
+                border.color: band.visualFocus ? Theme.focus : Theme.accent
+
+                Behavior on width {
+                    NumberAnimation { duration: Theme.durationFast }
+                }
 
                 Label {
-                    visible: band.activeFocus
+                    visible: band.visualFocus || band.hovered
                     anchors.horizontalCenter: parent.horizontalCenter
                     anchors.bottom: parent.top
                     anchors.bottomMargin: 5
                     text: (band.value > 0 ? "+" : "") + band.value.toFixed(0) + " dB"
                     color: Theme.textPrimary
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.fontMicro
                     padding: 4
 
                     background: Rectangle {
@@ -187,6 +191,11 @@ Rectangle {
             }
 
             onMoved: root.setGain(index, value)
+
+            HoverHandler {
+                enabled: band.enabled
+                cursorShape: band.pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor
+            }
 
             Keys.onPressed: event => {
                 if (event.key === Qt.Key_Home) {
@@ -212,9 +221,10 @@ Rectangle {
 
             x: root.xFor(index) - width / 2
             y: root.graphBottom + 9
-            text: root.frequencies[index]
+            text: index === 9 ? root.frequencies[index] + " Hz"
+                               : root.frequencies[index]
             color: Theme.textSecondary
-            font.pixelSize: 10
+            font.pixelSize: Theme.fontMicro
         }
     }
 
@@ -225,6 +235,6 @@ Rectangle {
         anchors.topMargin: 7
         text: "dB"
         color: Theme.textSecondary
-        font.pixelSize: 10
+        font.pixelSize: Theme.fontMicro
     }
 }

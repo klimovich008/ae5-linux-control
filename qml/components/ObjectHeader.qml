@@ -49,17 +49,18 @@ Item {
 
         anchors.left: parent.left
         anchors.right: parent.right
-        spacing: 12
+        spacing: Theme.space3
 
         ColumnLayout {
             Layout.fillWidth: true
-            Layout.minimumWidth: 170
-            spacing: 3
+            Layout.minimumWidth: 180
+            Layout.preferredWidth: 180
+            spacing: Theme.space1
 
             Label {
                 text: root.objectTitle
                 color: Theme.textPrimary
-                font.pixelSize: 18
+                font.pixelSize: Theme.fontSectionTitle
                 font.weight: Font.DemiBold
             }
 
@@ -69,7 +70,7 @@ Item {
                 Layout.fillWidth: true
                 text: root.statusDetail
                 color: Theme.textSecondary
-                font.pixelSize: 12
+                font.pixelSize: Theme.fontCaption
                 elide: Text.ElideRight
                 ToolTip.visible: truncated && detailHover.hovered
                 ToolTip.text: text
@@ -80,20 +81,27 @@ Item {
             }
         }
 
-        ColumnLayout {
-            Layout.preferredWidth: 190
-            spacing: 4
+        RowLayout {
+            Layout.preferredWidth: 308
+            Layout.minimumWidth: 308
+            Layout.maximumWidth: 308
+            Layout.alignment: Qt.AlignVCenter
+            spacing: Theme.space2
 
             Label {
+                Layout.preferredWidth: 80
                 text: root.selectorLabel
                 color: Theme.textSecondary
-                font.pixelSize: 12
+                font.pixelSize: Theme.fontCaption
+                horizontalAlignment: Text.AlignRight
             }
 
-            ComboBox {
+            AppComboBox {
                 id: selector
 
-                Layout.fillWidth: true
+                Layout.preferredWidth: 220
+                Layout.minimumWidth: 220
+                Layout.maximumWidth: 220
                 model: root.options
                 currentIndex: {
                     for (let index = 0; index < root.options.length; ++index) {
@@ -103,106 +111,76 @@ Item {
                     return -1
                 }
                 enabled: root.options.length > 0 && !root.modified
+                blockedReason: root.modified
+                               ? qsTr("Save or revert this draft before selecting another object.")
+                               : ""
                 Accessible.name: root.selectorLabel
                 Accessible.description: root.modified
                                         ? qsTr("Save or revert this draft before selecting another object.")
                                         : qsTr("Selects an object for editing; live audio is unchanged.")
-                ToolTip.visible: hovered && !enabled
-                ToolTip.text: Accessible.description
                 onActivated: index => root.selectionRequested(textAt(index))
             }
         }
 
+        StateBadge {
+            Layout.alignment: Qt.AlignVCenter
+            Layout.preferredWidth: 88
+            stateText: root.stateText
+        }
+
         RowLayout {
-            Layout.alignment: Qt.AlignBottom
-            Layout.preferredWidth: 78
-            Layout.preferredHeight: 37
-            spacing: 7
+            Layout.alignment: Qt.AlignVCenter
+            Layout.preferredWidth: 200
+            spacing: Theme.space2
 
-            Rectangle {
-                Layout.preferredWidth: 7
-                Layout.preferredHeight: 7
-                radius: 4
-                color: root.modified ? Theme.modified
-                                     : root.stateText === "Saved" ? Theme.success
-                                                                  : Theme.accent
+            AppButton {
+                visible: root.modified
+                enabled: visible
+                Accessible.ignored: !visible
+                text: qsTr("Revert")
+                Accessible.name: qsTr("Revert %1 draft").arg(root.objectTitle)
+                onClicked: root.revertRequested()
             }
 
-            Label {
-                text: root.stateText
-                color: root.modified ? Theme.modified
-                                     : root.stateText === "Saved" ? Theme.success
-                                                                  : Theme.textSecondary
-                font.pixelSize: 13
-            }
-        }
+            AppButton {
+                id: saveButton
 
-        Button {
-            visible: root.modified
-            enabled: visible
-            Accessible.ignored: !visible
-            Layout.alignment: Qt.AlignBottom
-            text: qsTr("Revert")
-            Accessible.name: qsTr("Revert %1 draft").arg(root.objectTitle)
-            onClicked: root.revertRequested()
-        }
-
-        Button {
-            id: saveButton
-
-            visible: root.modified
-            enabled: visible
-            Accessible.ignored: !visible
-            Layout.alignment: Qt.AlignBottom
-            text: root.readOnly ? qsTr("Save as") : qsTr("Save")
-            Accessible.name: root.readOnly
-                             ? qsTr("Save %1 as a new object").arg(root.objectTitle)
-                             : qsTr("Save %1").arg(root.objectTitle)
-            onClicked: root.readOnly ? root.openSaveAs() : root.saveRequested()
-
-            background: Rectangle {
-                radius: Theme.radiusSmall
-                color: saveButton.down ? Qt.darker(Theme.accent, 1.25)
-                                       : saveButton.hovered ? Qt.lighter(Theme.accent, 1.1)
-                                                            : Theme.accent
-                border.width: saveButton.visualFocus ? 3 : 0
-                border.color: Theme.focus
+                visible: root.modified
+                enabled: visible
+                Accessible.ignored: !visible
+                variant: "primary"
+                text: root.readOnly ? qsTr("Save as") : qsTr("Save")
+                Accessible.name: root.readOnly
+                                 ? qsTr("Save %1 as a new object").arg(root.objectTitle)
+                                 : qsTr("Save %1").arg(root.objectTitle)
+                onClicked: root.readOnly ? root.openSaveAs() : root.saveRequested()
             }
 
-            contentItem: Label {
-                text: saveButton.text
-                color: Theme.background
-                horizontalAlignment: Text.AlignHCenter
-                verticalAlignment: Text.AlignVCenter
-                font.weight: Font.DemiBold
+            Item {
+                Layout.fillWidth: true
             }
-        }
 
-        ToolButton {
-            id: actionsButton
+            IconButton {
+                id: actionsButton
 
-            Layout.alignment: Qt.AlignBottom
-            display: AbstractButton.IconOnly
-            icon.name: "view-more-symbolic"
-            icon.color: Theme.textSecondary
-            Accessible.name: qsTr("%1 actions").arg(root.objectTitle)
-            ToolTip.visible: hovered || activeFocus
-            ToolTip.text: Accessible.name
-            onClicked: actionsMenu.open()
+                iconName: "dots-three-vertical"
+                accessibleName: qsTr("%1 actions").arg(root.objectTitle)
+                onClicked: actionsMenu.open()
 
-            Menu {
-                id: actionsMenu
+                Menu {
+                    id: actionsMenu
 
-                MenuItem {
-                    text: qsTr("Save as…")
-                    enabled: root.options.length > 0
-                    onTriggered: root.openSaveAs()
-                }
+                    MenuItem {
+                        text: qsTr("Save as…")
+                        enabled: root.options.length > 0
+                        onTriggered: root.openSaveAs()
+                    }
 
-                MenuItem {
-                    text: qsTr("Revert draft")
-                    enabled: root.modified
-                    onTriggered: root.revertRequested()
+                    MenuItem {
+                        text: qsTr("Revert draft")
+                        enabled: root.modified
+                        onTriggered: root.revertRequested()
+                    }
                 }
             }
         }

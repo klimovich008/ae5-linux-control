@@ -33,21 +33,21 @@ Rectangle {
 
     RowLayout {
         anchors.fill: parent
-        anchors.leftMargin: root.compact ? 14 : 20
-        anchors.rightMargin: root.compact ? 14 : 20
-        anchors.topMargin: 10
-        anchors.bottomMargin: 10
-        spacing: root.compact ? 12 : 20
+        anchors.leftMargin: root.compact ? Theme.space3 : Theme.space4
+        anchors.rightMargin: root.compact ? Theme.space3 : Theme.space4
+        anchors.topMargin: Theme.space2
+        anchors.bottomMargin: Theme.space2
+        spacing: root.compact ? Theme.space2 : Theme.space3
 
         ColumnLayout {
-            Layout.preferredWidth: root.compact ? 140 : 190
-            spacing: 2
+            Layout.preferredWidth: root.compact ? 150 : 190
+            spacing: Theme.space1
 
             Label {
                 Layout.fillWidth: true
                 text: root.appState.deviceName
                 color: Theme.textPrimary
-                font.pixelSize: 13
+                font.pixelSize: Theme.fontLabel
                 font.weight: Font.DemiBold
                 elide: Text.ElideRight
             }
@@ -65,16 +65,13 @@ Rectangle {
                 Label {
                     text: root.appState.deviceStatus
                     color: root.statusColor
-                    font.pixelSize: 11
+                    font.pixelSize: Theme.fontCaption
                     Accessible.description: root.appState.statusDetail
-                    ToolTip.visible: statusArea.containsMouse
+                    ToolTip.visible: statusHover.hovered
                     ToolTip.text: root.appState.statusDetail
 
-                    MouseArea {
-                        id: statusArea
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        acceptedButtons: Qt.NoButton
+                    HoverHandler {
+                        id: statusHover
                     }
                 }
 
@@ -82,7 +79,7 @@ Rectangle {
                     visible: !root.compact && root.appState.audioFormatAvailable
                     text: "· " + root.appState.audioFormat
                     color: Theme.textSecondary
-                    font.pixelSize: 11
+                    font.pixelSize: Theme.fontCaption
                 }
             }
         }
@@ -94,56 +91,44 @@ Rectangle {
         }
 
         ColumnLayout {
-            spacing: 4
+            spacing: Theme.space1
 
             Label {
-                text: qsTr("OUTPUT")
+                text: qsTr("Output")
                 color: Theme.textSecondary
-                font.pixelSize: 10
-                font.letterSpacing: 0.8
+                font.pixelSize: Theme.fontCaption
             }
 
             RowLayout {
-                spacing: 2
+                spacing: Theme.space1
 
                 Repeater {
-                    model: root.compact ? ["Speakers", "Headphones"] : ["Speakers", "Headphones", "Digital"]
+                    model: ["Speakers", "Headphones", "Digital"]
 
-                    delegate: Button {
+                    delegate: AppButton {
                         id: outputButton
 
                         required property string modelData
 
-                        text: root.compact ? (modelData === "Headphones" ? qsTr("HP") : qsTr("SPK")) : modelData
+                        implicitWidth: root.compact
+                                       ? 48
+                                       : modelData === "Headphones" ? 112
+                                       : modelData === "Speakers" ? 88 : 72
+                        implicitHeight: Theme.controlHeight
+                        text: root.compact
+                              ? modelData === "Headphones" ? qsTr("HP")
+                              : modelData === "Speakers" ? qsTr("SPK") : qsTr("DIG")
+                              : modelData
                         checked: root.appState.output === modelData
                         checkable: true
+                        tooltipText: root.compact ? modelData : ""
                         enabled: root.appState.outputAvailable
                                  && root.appState.outputWriteEnabled
+                        blockedReason: root.appState.outputWriteBlockReason
                         Accessible.name: modelData
                         Accessible.description: enabled ? qsTr("Select %1 output").arg(modelData)
                                                         : root.appState.outputWriteBlockReason
-                        ToolTip.visible: hovered && !enabled
-                        ToolTip.text: Accessible.description
                         onClicked: root.appState.selectPreviewOutput(modelData)
-
-                        background: Rectangle {
-                            radius: Theme.radiusSmall
-                            color: outputButton.checked
-                                   ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.16)
-                                   : Theme.surface
-                            border.width: outputButton.visualFocus ? 3 : 1
-                            border.color: outputButton.visualFocus
-                                          ? Theme.focus
-                                          : outputButton.checked ? Theme.accent : Theme.separator
-                        }
-
-                        contentItem: Label {
-                            text: outputButton.text
-                            color: outputButton.checked ? Theme.textPrimary : Theme.textSecondary
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                            font.pixelSize: 11
-                        }
                     }
                 }
             }
@@ -151,34 +136,34 @@ Rectangle {
 
         ColumnLayout {
             visible: !root.compact
-            spacing: 4
+            spacing: Theme.space1
 
             Label {
-                text: qsTr("GAIN")
+                text: qsTr("Headphone gain")
                 color: Theme.textSecondary
-                font.pixelSize: 10
-                font.letterSpacing: 0.8
+                font.pixelSize: Theme.fontCaption
             }
 
             RowLayout {
-                spacing: 2
+                spacing: Theme.space1
 
                 Repeater {
                     model: ["Low", "Medium", "High"]
 
-                    delegate: Button {
+                    delegate: AppButton {
                         required property string modelData
+                        implicitWidth: modelData === "Medium" ? 84 : 72
+                        implicitHeight: Theme.controlHeight
                         text: modelData
                         checked: root.appState.headphoneGain === modelData
                         checkable: true
                         enabled: root.appState.headphoneGainAvailable
                                  && root.appState.headphoneGainWriteEnabled
+                        blockedReason: root.appState.headphoneGainAvailable
+                                       ? qsTr("Gain changes are read-only until guarded write verification is complete.")
+                                       : root.appState.hardwareWriteBlockReason
                         Accessible.name: qsTr("%1 headphone gain").arg(modelData)
-                        Accessible.description: modelData === "High"
-                                                ? qsTr("High gain requires a deliberate safety confirmation.")
-                                                : root.appState.hardwareWriteBlockReason
-                        ToolTip.visible: hovered || activeFocus
-                        ToolTip.text: Accessible.description
+                        Accessible.description: blockedReason
                     }
                 }
             }
@@ -192,36 +177,35 @@ Rectangle {
 
         ColumnLayout {
             Layout.fillWidth: true
-            Layout.minimumWidth: 170
-            spacing: 3
+            Layout.minimumWidth: root.compact ? 150 : 190
+            spacing: Theme.space1
 
             Label {
-                text: qsTr("MASTER VOLUME")
+                text: qsTr("Master volume")
                 color: Theme.textSecondary
-                font.pixelSize: 10
-                font.letterSpacing: 0.8
+                font.pixelSize: Theme.fontCaption
             }
 
             RowLayout {
                 Layout.fillWidth: true
-                spacing: 8
+                spacing: Theme.space2
 
-                ToolButton {
-                    display: AbstractButton.IconOnly
-                    icon.name: root.appState.muted ? "audio-volume-muted-symbolic"
-                                                       : "audio-volume-medium-symbolic"
-                    icon.color: root.appState.muted ? Theme.error : Theme.textPrimary
+                IconButton {
+                    iconName: root.appState.muted
+                              ? "speaker-simple-x"
+                              : root.appState.masterVolume === 0
+                                ? "speaker-simple-none"
+                                : root.appState.masterVolume <= 50
+                                  ? "speaker-simple-low" : "speaker-simple-high"
+                    accessibleName: root.appState.muted ? qsTr("Unmute") : qsTr("Mute")
+                    variant: root.appState.muted ? "danger" : "ghost"
                     enabled: root.appState.muteAvailable
                              && root.appState.muteWriteEnabled
-                    Accessible.name: root.appState.muted ? qsTr("Unmute") : qsTr("Mute")
-                    Accessible.description: enabled ? Accessible.name
-                                                    : root.appState.hardwareWriteBlockReason
-                    ToolTip.visible: hovered && !enabled
-                    ToolTip.text: Accessible.description
+                    blockedReason: root.appState.hardwareWriteBlockReason
                     onClicked: root.appState.requestMuted(!root.appState.muted)
                 }
 
-                Slider {
+                AppSlider {
                     id: masterVolumeSlider
 
                     Layout.fillWidth: true
@@ -230,7 +214,7 @@ Rectangle {
                     value: root.appState.masterVolume
                     enabled: root.appState.volumeAvailable
                              && root.appState.volumeWriteEnabled
-                    focusPolicy: Qt.StrongFocus
+                    blockedReason: root.appState.hardwareWriteBlockReason
                     Accessible.name: qsTr("Master volume")
                     Accessible.description: enabled
                                             ? qsTr("%1 percent").arg(Math.round(value))
@@ -246,31 +230,32 @@ Rectangle {
                     text: root.appState.volumeAvailable ? root.appState.masterVolume + "%" : "—"
                     color: Theme.textPrimary
                     horizontalAlignment: Text.AlignRight
-                    font.pixelSize: 13
-                    font.family: "monospace"
+                    font.pixelSize: Theme.fontLabel
                 }
             }
         }
 
         ColumnLayout {
-            Layout.preferredWidth: root.compact ? 150 : 180
-            spacing: 2
+            Layout.preferredWidth: root.compact ? 150 : 190
+            spacing: Theme.space1
 
             Label {
                 visible: !root.compact
-                text: qsTr("CURRENT SETUP")
+                text: qsTr("Current setup")
                 color: Theme.textSecondary
-                font.pixelSize: 10
-                font.letterSpacing: 0.8
+                font.pixelSize: Theme.fontCaption
             }
 
             Label {
                 Layout.fillWidth: true
                 text: root.compact
-                      ? qsTr("%1 · %2").arg(root.appState.effectsProfile).arg(root.appState.eqPreset)
+                      ? qsTr("Gain %1 · FX %2 · EQ %3")
+                        .arg(root.appState.headphoneGain)
+                        .arg(root.appState.effectsProfile)
+                        .arg(root.appState.eqPreset)
                       : qsTr("Effects: %1 · EQ: %2").arg(root.appState.effectsProfile).arg(root.appState.eqPreset)
                 color: Theme.textPrimary
-                font.pixelSize: 11
+                font.pixelSize: Theme.fontCaption
                 elide: Text.ElideRight
             }
 
@@ -282,18 +267,18 @@ Rectangle {
                         ? qsTr("Device live · drafts save by section")
                         : qsTr("Device unavailable · profiles read-only")
                 color: Theme.textSecondary
-                font.pixelSize: 10
+                font.pixelSize: Theme.fontMicro
             }
         }
 
-        Button {
+        AppButton {
             id: reviewButton
 
             visible: root.appState.unsavedCount > 0
             enabled: visible
+            variant: "ghost"
             text: root.compact ? qsTr("%1 unsaved").arg(root.appState.unsavedCount)
-                               : qsTr("%1 unsaved\nReview").arg(root.appState.unsavedCount)
-            flat: true
+                               : qsTr("%1 unsaved · Review").arg(root.appState.unsavedCount)
             Accessible.name: qsTr("Review %1 unsaved changes").arg(root.appState.unsavedCount)
             Accessible.ignored: !visible
             onClicked: root.reviewRequested()
@@ -303,7 +288,7 @@ Rectangle {
                 color: Theme.modified
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
-                font.pixelSize: 11
+                font.pixelSize: Theme.fontCaption
                 font.weight: Font.DemiBold
                 Accessible.ignored: !reviewButton.visible
             }

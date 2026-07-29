@@ -7,6 +7,7 @@ Rectangle {
     id: root
 
     property bool compact: false
+    property string currentKey: "sound"
 
     color: Theme.sidebar
 
@@ -29,26 +30,25 @@ Rectangle {
 
         Repeater {
             model: [
-                { label: qsTr("Overview"), icon: "go-home-symbolic" },
-                { label: qsTr("Sound"), icon: "audio-speakers-symbolic" },
-                { label: qsTr("Equalizer"), icon: "multimedia-volume-control-symbolic" },
-                { label: qsTr("Playback"), icon: "media-playback-start-symbolic" },
-                { label: qsTr("Recording"), icon: "audio-input-microphone-symbolic" },
-                { label: qsTr("Mixer"), icon: "audio-volume-high-symbolic" }
+                { key: "overview", label: qsTr("Overview"), icon: "squares-four" },
+                { key: "sound", label: qsTr("Sound"), icon: "speaker-high" },
+                { key: "equalizer", label: qsTr("Equalizer"), icon: "sliders" },
+                { key: "playback", label: qsTr("Playback"), icon: "play-circle" },
+                { key: "recording", label: qsTr("Recording"), icon: "microphone" },
+                { key: "mixer", label: qsTr("Mixer"), icon: "faders-horizontal" }
             ]
 
             delegate: ItemDelegate {
                 id: navItem
 
                 required property var modelData
-                readonly property bool selected: modelData.label === qsTr("Sound")
+                readonly property bool selected: modelData.key === root.currentKey
 
                 Layout.fillWidth: true
-                Layout.preferredHeight: 44
-                leftPadding: root.compact ? 0 : 16
-                rightPadding: root.compact ? 0 : 12
+                Layout.preferredHeight: Theme.navItemHeight
+                leftPadding: root.compact ? 0 : Theme.space4
+                rightPadding: root.compact ? 0 : Theme.space3
                 hoverEnabled: true
-                enabled: selected
                 focusPolicy: selected ? Qt.TabFocus : Qt.NoFocus
                 Accessible.name: modelData.label
                 Accessible.description: selected
@@ -58,10 +58,11 @@ Rectangle {
                 background: Rectangle {
                     radius: Theme.radiusSmall
                     color: navItem.selected
-                           ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.1)
-                                            : navItem.hovered ? Theme.surface : "transparent"
-                    border.width: navItem.visualFocus ? 3 : 0
+                           ? Theme.accentSubtle
+                           : navItem.hovered ? Theme.surface : "transparent"
+                    border.width: navItem.visualFocus ? 2 : 0
                     border.color: Theme.focus
+                    clip: true
 
                     Rectangle {
                         visible: navItem.selected
@@ -72,15 +73,20 @@ Rectangle {
                 }
 
                 contentItem: RowLayout {
-                    spacing: 12
+                    spacing: Theme.space3
 
                     ToolButton {
-                        Layout.preferredWidth: root.compact ? 72 : 24
+                        Layout.preferredWidth: root.compact
+                                               ? Theme.sidebarWidthCompact
+                                               : Theme.space5
                         display: AbstractButton.IconOnly
-                        icon.name: navItem.modelData.icon
-                        icon.color: navItem.selected ? Theme.accent : Theme.textSecondary
+                        icon.source: Theme.iconSource(navItem.modelData.icon)
+                        icon.width: 20
+                        icon.height: 20
+                        icon.color: navItem.selected ? Theme.accent : Theme.textDisabled
                         background: Item {}
-                        enabled: false
+                        focusPolicy: Qt.NoFocus
+                        hoverEnabled: false
                         Accessible.ignored: true
                     }
 
@@ -88,14 +94,21 @@ Rectangle {
                         visible: !root.compact
                         Layout.fillWidth: true
                         text: navItem.modelData.label
-                        color: navItem.selected ? Theme.textPrimary : Theme.textSecondary
-                        font.pixelSize: 14
+                        color: navItem.selected ? Theme.textPrimary : Theme.textDisabled
+                        font.pixelSize: Theme.fontBody
                         font.weight: navItem.selected ? Font.DemiBold : Font.Normal
                     }
                 }
 
                 ToolTip.visible: root.compact && (hovered || activeFocus)
-                ToolTip.text: modelData.label
+                ToolTip.text: selected
+                              ? modelData.label
+                              : qsTr("%1 — coming in a later milestone").arg(modelData.label)
+
+                HoverHandler {
+                    enabled: navItem.selected
+                    cursorShape: Qt.PointingHandCursor
+                }
             }
         }
 
@@ -114,9 +127,9 @@ Rectangle {
 
         Repeater {
             model: [
-                { label: qsTr("Lighting"), icon: "preferences-desktop-theme-symbolic" },
-                { label: qsTr("Device"), icon: "drive-harddisk-symbolic" },
-                { label: qsTr("Settings"), icon: "preferences-system-symbolic" }
+                { label: qsTr("Lighting"), icon: "lightbulb" },
+                { label: qsTr("Device"), icon: "circuitry" },
+                { label: qsTr("Settings"), icon: "gear" }
             ]
 
             delegate: ItemDelegate {
@@ -125,26 +138,34 @@ Rectangle {
                 required property var modelData
 
                 Layout.fillWidth: true
-                Layout.preferredHeight: 44
-                leftPadding: root.compact ? 0 : 16
-                rightPadding: root.compact ? 0 : 12
+                Layout.preferredHeight: Theme.navItemHeight
+                leftPadding: root.compact ? 0 : Theme.space4
+                rightPadding: root.compact ? 0 : Theme.space3
                 hoverEnabled: true
-                enabled: false
+                focusPolicy: Qt.NoFocus
                 Accessible.name: modelData.label
                 Accessible.description: qsTr("Coming in a later milestone")
 
-                background: Item {}
+                background: Rectangle {
+                    color: utilityItem.hovered ? Theme.surface : "transparent"
+                    radius: Theme.radiusSmall
+                }
 
                 contentItem: RowLayout {
-                    spacing: 12
+                    spacing: Theme.space3
 
                     ToolButton {
-                        Layout.preferredWidth: root.compact ? 72 : 24
+                        Layout.preferredWidth: root.compact
+                                               ? Theme.sidebarWidthCompact
+                                               : Theme.space5
                         display: AbstractButton.IconOnly
-                        icon.name: utilityItem.modelData.icon
-                        icon.color: Theme.disabled
+                        icon.source: Theme.iconSource(utilityItem.modelData.icon)
+                        icon.width: 20
+                        icon.height: 20
+                        icon.color: Theme.textDisabled
                         background: Item {}
-                        enabled: false
+                        focusPolicy: Qt.NoFocus
+                        hoverEnabled: false
                         Accessible.ignored: true
                     }
 
@@ -152,8 +173,8 @@ Rectangle {
                         visible: !root.compact
                         Layout.fillWidth: true
                         text: utilityItem.modelData.label
-                        color: Theme.disabled
-                        font.pixelSize: 14
+                        color: Theme.textDisabled
+                        font.pixelSize: Theme.fontBody
                     }
                 }
 

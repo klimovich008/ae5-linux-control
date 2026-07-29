@@ -209,10 +209,20 @@ Status: **in progress — Phase 4 independent profile persistence complete**
   strict validation, duplicate-name refusal, hidden section-control
   preservation, catalog refresh, restart discovery, and independent unsaved
   counts were verified against an isolated copy of the personal library.
-- Active next step: connect the ten-band EQ to its checked software/hardware
-  apply lifecycle with readback, rollback, logging, and visible runtime state.
-  Effects, OutFX, output, gain, and Direct Mode writes remain gated. No GUI
-  work may relax those guards or exceed the 20% hardware-test ceiling.
+- Completed Phase 5 checked-transaction slice: the ten-band QML draft now has
+  typed Apply and Disable actions backed by `ae5d`. Saved preset state remains
+  separate from live software-EQ state. The daemon validates the draft and
+  exact output, blocks Direct Mode or OutFX conflicts before writes, verifies
+  graph ownership and PipeWire markers, calculates automatic preamp, and
+  restores the prior managed config and runtime graph on failure. The physical
+  OutFX-on failure test left the config absent, runtime graph absent, and the
+  20% unmuted sink unchanged; native Wayland and X11 launches showed no QML
+  errors.
+- Active next step: with the user present and OutFX deliberately off, run one
+  guarded apply/change/disable/restart cycle at no more than 20% and record
+  cross-rate response and persistence evidence. Effects, OutFX, output, gain,
+  and Direct Mode writes remain gated. No GUI work may relax those guards or
+  exceed the 20% hardware-test ceiling.
 - Keep hardware, profiles, state transitions, readback, rollback, and
   diagnostics outside toolkit-specific UI code so the backend can be reused by
   the future `ae5d`/CXX-Qt/QML architecture documented in

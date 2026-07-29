@@ -1,8 +1,9 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Ae5Device, AudioFormat, ControlSnapshot, DIRECT_MODE_CONTROL, PipeWireNode, ae5_audio_format,
-    ae5_output, snapshot_controls, unsafe_playback_control_block_reason,
+    Ae5Device, AudioFormat, ControlSnapshot, DIRECT_MODE_CONTROL, EqChainConfig, PipeWireNode,
+    SoftwareEqOutput, ae5_audio_format, ae5_output, eq_chain_config, snapshot_controls,
+    software_eq_output, unsafe_playback_control_block_reason,
 };
 
 const READ_ONLY_REASON: &str =
@@ -28,6 +29,11 @@ pub struct DeviceOutputState {
     pub headphone_gain_available: bool,
     pub direct_mode: bool,
     pub direct_mode_available: bool,
+    pub software_eq_state: String,
+    pub software_eq_detail: String,
+    pub software_eq_active: bool,
+    pub eq_apply_available: bool,
+    pub eq_apply_block_reason: String,
     pub hardware_write_enabled: bool,
     pub volume_write_enabled: bool,
     pub mute_write_enabled: bool,
@@ -44,6 +50,8 @@ struct DeviceStateParts {
     controls: Result<Vec<ControlSnapshot>, String>,
     output_node: Result<Option<PipeWireNode>, String>,
     audio_format: Result<Option<AudioFormat>, String>,
+    eq_config: Result<EqChainConfig, String>,
+    eq_output: Result<Option<SoftwareEqOutput>, String>,
     output_write_block_reason: Option<String>,
 }
 
@@ -57,6 +65,8 @@ impl DeviceOutputState {
             controls: snapshot_controls(card_index).map_err(|error| error.to_string()),
             output_node: ae5_output(card_index).map_err(|error| error.to_string()),
             audio_format: ae5_audio_format(card_index).map_err(|error| error.to_string()),
+            eq_config: eq_chain_config().map_err(|error| error.to_string()),
+            eq_output: software_eq_output(card_index).map_err(|error| error.to_string()),
             output_write_block_reason: unsafe_playback_control_block_reason("Output Select")
                 .map(str::to_owned),
         };
@@ -65,7 +75,7 @@ impl DeviceOutputState {
 
     fn no_device() -> Self {
         Self {
-            schema_version: 1,
+            schema_version: 2,
             device_name: "Sound BlasterX AE-5".to_owned(),
             connected: false,
             status_code: "no-device".to_owned(),
@@ -82,6 +92,11 @@ impl DeviceOutputState {
             headphone_gain_available: false,
             direct_mode: false,
             direct_mode_available: false,
+            software_eq_state: "unavailable".to_owned(),
+            software_eq_detail: "No compatible AE-5 is available for software EQ.".to_owned(),
+            software_eq_active: false,
+            eq_apply_available: false,
+            eq_apply_block_reason: "No compatible Sound BlasterX AE-5 was detected.".to_owned(),
             hardware_write_enabled: false,
             volume_write_enabled: false,
             mute_write_enabled: false,
@@ -131,6 +146,14 @@ fn compose_state(device: Ae5Device, parts: DeviceStateParts) -> DeviceOutputStat
     let direct_mode = direct_mode_control
         .and_then(|control| control.playback_switch)
         .unwrap_or(false);
+    let output_present = matches!(&parts.output_node, Ok(Some(_)));
+    let software_eq = software_eq_summary(
+        &controls,
+        &parts.eq_config,
+        &parts.eq_output,
+        output_present,
+        direct_mode,
+    );
 
     let (master_volume, volume_available, muted, mute_available) = match parts.output_node {
         Ok(Some(node)) => {
@@ -184,7 +207,7 @@ fn compose_state(device: Ae5Device, parts: DeviceStateParts) -> DeviceOutputStat
         .unwrap_or_else(|| READ_ONLY_REASON.to_owned());
 
     DeviceOutputState {
-        schema_version: 1,
+        schema_version: 2,
         device_name: device
             .codec_name
             .unwrap_or_else(|| "Sound BlasterX AE-5".to_owned()),
@@ -203,6 +226,11 @@ fn compose_state(device: Ae5Device, parts: DeviceStateParts) -> DeviceOutputStat
         headphone_gain_available,
         direct_mode,
         direct_mode_available,
+        software_eq_state: software_eq.state,
+        software_eq_detail: software_eq.detail,
+        software_eq_active: software_eq.active,
+        eq_apply_available: software_eq.apply_available,
+        eq_apply_block_reason: software_eq.apply_block_reason,
         hardware_write_enabled: volume_available || mute_available,
         volume_write_enabled: volume_available,
         mute_write_enabled: mute_available,
@@ -213,6 +241,101 @@ fn compose_state(device: Ae5Device, parts: DeviceStateParts) -> DeviceOutputStat
         output_write_block_reason,
         card_index: device.card_index,
         controls_count,
+    }
+}
+
+struct SoftwareEqSummary {
+    state: String,
+    detail: String,
+    active: bool,
+    apply_available: bool,
+    apply_block_reason: String,
+}
+
+fn software_eq_summary(
+    controls: &[ControlSnapshot],
+    config: &Result<EqChainConfig, String>,
+    runtime: &Result<Option<SoftwareEqOutput>, String>,
+    output_present: bool,
+    direct_mode: bool,
+) -> SoftwareEqSummary {
+    let (state, detail, active) = match (config, runtime) {
+        (Err(error), _) => (
+            "unavailable",
+            format!("Software EQ configuration is unavailable: {error}"),
+            false,
+        ),
+        (_, Err(error)) => (
+            "unavailable",
+            format!("Software EQ runtime state is unavailable: {error}"),
+            false,
+        ),
+        (Ok(config), Ok(runtime)) => {
+            let active = runtime.is_some();
+            let current = config.signature().as_deref()
+                == runtime
+                    .as_ref()
+                    .and_then(|output| output.signature.as_deref());
+            if !config.enabled && !active {
+                (
+                    "inactive",
+                    "Desktop audio uses the physical AE-5 output without software EQ.".to_owned(),
+                    false,
+                )
+            } else if config.enabled && !active {
+                (
+                    "configured",
+                    format!(
+                        "A software EQ is saved but not active in this PipeWire session · automatic preamp {:+.2} dB.",
+                        config.preamp_db
+                    ),
+                    false,
+                )
+            } else if config.enabled && current {
+                (
+                    "current",
+                    format!(
+                        "Software EQ is active in the existing AE-5 output · automatic preamp {:+.2} dB.",
+                        config.preamp_db
+                    ),
+                    true,
+                )
+            } else {
+                (
+                    "different",
+                    "A different AE-5 software EQ graph is active; refresh or disable it before replacing it."
+                        .to_owned(),
+                    active,
+                )
+            }
+        }
+    };
+    let outfx = controls
+        .iter()
+        .find(|control| control.name == "Enable OutFX")
+        .and_then(|control| control.playback_switch);
+    let apply_block_reason = if !output_present {
+        "PipeWire has no AE-5 playback output for software EQ.".to_owned()
+    } else if direct_mode {
+        "Turn Direct Mode off before applying software EQ.".to_owned()
+    } else if outfx == Some(true) {
+        "Turn OutFX off before applying software EQ to avoid two processing paths.".to_owned()
+    } else if outfx.is_none() {
+        "The live OutFX state is unavailable; software EQ cannot be applied safely.".to_owned()
+    } else if state == "unavailable" {
+        detail.clone()
+    } else if state == "different" {
+        "A different AE-5 software EQ graph is active; disable it before applying another preset."
+            .to_owned()
+    } else {
+        String::new()
+    };
+    SoftwareEqSummary {
+        state: state.to_owned(),
+        detail,
+        active,
+        apply_available: apply_block_reason.is_empty(),
+        apply_block_reason,
     }
 }
 
@@ -249,7 +372,7 @@ fn format_audio_format(format: &AudioFormat) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ChannelLevel;
+    use crate::{ChannelLevel, EQ_FREQUENCIES, EqBand, EqChainConfig, SoftwareEqOutput};
 
     fn device() -> Ae5Device {
         Ae5Device {
@@ -294,6 +417,17 @@ mod tests {
             playback_channels: Vec::new(),
             capture_channels: Vec::new(),
         });
+        controls.push(ControlSnapshot {
+            name: "Enable OutFX".to_owned(),
+            selected: None,
+            choices: Vec::new(),
+            playback_switch: Some(false),
+            capture_switch: None,
+            playback_level: None,
+            capture_level: None,
+            playback_channels: Vec::new(),
+            capture_channels: Vec::new(),
+        });
         controls
     }
 
@@ -316,6 +450,14 @@ mod tests {
                 sample_format: "S16LE".to_owned(),
                 sample_rate: 96_000,
             })),
+            eq_config: Ok(EqChainConfig {
+                path: "/tmp/ae5-test-eq".into(),
+                enabled: false,
+                bands: Vec::new(),
+                target_node: None,
+                preamp_db: 0.0,
+            }),
+            eq_output: Ok(None),
             output_write_block_reason: None,
         }
     }
@@ -348,6 +490,8 @@ mod tests {
                 state.audio_format.as_str(),
                 state.volume_write_enabled,
                 state.mute_write_enabled,
+                state.software_eq_state.as_str(),
+                state.eq_apply_available,
             ),
             (
                 "ready",
@@ -358,7 +502,70 @@ mod tests {
                 "S16LE · 96 kHz",
                 true,
                 true,
+                "inactive",
+                true,
             )
+        );
+    }
+
+    #[test]
+    fn compose_state_blocks_software_eq_while_outfx_is_active() {
+        let mut parts = healthy_parts();
+        parts
+            .controls
+            .as_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|control| control.name == "Enable OutFX")
+            .unwrap()
+            .playback_switch = Some(true);
+
+        let state = compose_state(device(), parts);
+
+        assert_eq!(
+            (
+                state.eq_apply_available,
+                state.eq_apply_block_reason.as_str(),
+            ),
+            (
+                false,
+                "Turn OutFX off before applying software EQ to avoid two processing paths.",
+            )
+        );
+    }
+
+    #[test]
+    fn compose_state_reports_the_verified_runtime_equalizer() {
+        let mut parts = healthy_parts();
+        let bands = EQ_FREQUENCIES
+            .map(|frequency| EqBand {
+                frequency,
+                q: 1.4,
+                gain_db: 0.0,
+            })
+            .to_vec();
+        let config = EqChainConfig {
+            path: "/tmp/ae5-test-eq".into(),
+            enabled: true,
+            bands,
+            target_node: Some(node().node_name),
+            preamp_db: 0.0,
+        };
+        parts.eq_output = Ok(Some(SoftwareEqOutput {
+            node: node(),
+            signature: config.signature(),
+        }));
+        parts.eq_config = Ok(config);
+
+        let state = compose_state(device(), parts);
+
+        assert_eq!(
+            (
+                state.software_eq_state.as_str(),
+                state.software_eq_active,
+                state.eq_apply_available,
+            ),
+            ("current", true, true)
         );
     }
 

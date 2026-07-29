@@ -10,7 +10,9 @@ fn main() {
 
 fn run() -> Result<(), Box<dyn Error>> {
     let _connection = ae5_control::device_service::serve()?;
-    eprintln!("ae5d event=service-ready bus=session writes=volume,mute,profile-library");
+    eprintln!(
+        "ae5d event=service-ready bus=session writes=volume,mute,profile-library,software-eq"
+    );
     loop {
         thread::park();
     }

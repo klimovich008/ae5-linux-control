@@ -37,6 +37,11 @@ pub mod qobject {
         #[qproperty(QStringList, eq_band_gains_tenths_db, cxx_name = "eqBandGainsTenthsDb")]
         #[qproperty(bool, eq_enabled, cxx_name = "eqEnabled")]
         #[qproperty(i32, eq_selection_revision, cxx_name = "eqSelectionRevision")]
+        #[qproperty(QString, software_eq_state, cxx_name = "softwareEqState")]
+        #[qproperty(QString, software_eq_detail, cxx_name = "softwareEqDetail")]
+        #[qproperty(bool, software_eq_active, cxx_name = "softwareEqActive")]
+        #[qproperty(bool, eq_apply_available, cxx_name = "eqApplyAvailable")]
+        #[qproperty(QString, eq_apply_block_reason, cxx_name = "eqApplyBlockReason")]
         #[qproperty(QString, effects_profile, cxx_name = "effectsProfile")]
         #[qproperty(QString, effects_state, cxx_name = "effectsState")]
         #[qproperty(QString, effects_source, cxx_name = "effectsSource")]
@@ -151,6 +156,14 @@ pub mod qobject {
         fn save_eq_draft_as(self: Pin<&mut Self>, name: &QString);
 
         #[qinvokable]
+        #[cxx_name = "applyEqDraft"]
+        fn apply_eq_draft(self: Pin<&mut Self>);
+
+        #[qinvokable]
+        #[cxx_name = "disableSoftwareEq"]
+        fn disable_software_eq(self: Pin<&mut Self>);
+
+        #[qinvokable]
         #[cxx_name = "saveEffectsDraft"]
         fn save_effects_draft(self: Pin<&mut Self>);
 
@@ -194,6 +207,11 @@ pub struct AppStateRust {
     eq_band_gains_tenths_db: QStringList,
     eq_enabled: bool,
     eq_selection_revision: i32,
+    software_eq_state: QString,
+    software_eq_detail: QString,
+    software_eq_active: bool,
+    eq_apply_available: bool,
+    eq_apply_block_reason: QString,
     effects_profile: QString,
     effects_state: QString,
     effects_source: QString,
@@ -273,6 +291,15 @@ impl Default for AppStateRust {
             eq_band_gains_tenths_db: QStringList::default(),
             eq_enabled: false,
             eq_selection_revision: 0,
+            software_eq_state: QString::from("unavailable"),
+            software_eq_detail: QString::from(
+                "Live software EQ state is unavailable until ae5d connects.",
+            ),
+            software_eq_active: false,
+            eq_apply_available: false,
+            eq_apply_block_reason: QString::from(
+                "ae5d is unavailable; reconnect before applying software EQ.",
+            ),
             effects_profile: QString::from("Loading…"),
             effects_state: QString::from("Loading"),
             effects_source: QString::default(),
@@ -362,6 +389,16 @@ impl qobject::AppState {
                 self.as_mut().set_output_available(false);
                 self.as_mut().set_headphone_gain_available(false);
                 self.as_mut().set_direct_mode_available(false);
+                self.as_mut()
+                    .set_software_eq_state(QString::from("unavailable"));
+                self.as_mut().set_software_eq_detail(QString::from(
+                    "Live software EQ state is unavailable because ae5d is not responding.",
+                ));
+                self.as_mut().set_software_eq_active(false);
+                self.as_mut().set_eq_apply_available(false);
+                self.as_mut().set_eq_apply_block_reason(QString::from(
+                    "ae5d is unavailable; reconnect before applying software EQ.",
+                ));
                 self.as_mut().set_hardware_write_enabled(false);
                 self.as_mut().set_volume_write_enabled(false);
                 self.as_mut().set_mute_write_enabled(false);
@@ -402,6 +439,48 @@ impl qobject::AppState {
         }
     }
 
+    pub fn apply_eq_draft(mut self: Pin<&mut Self>) {
+        let Some(draft) = self.as_ref().rust().eq_draft.clone() else {
+            self.as_mut()
+                .set_eq_runtime_failure("No EQ draft is selected.");
+            return;
+        };
+        self.as_mut()
+            .set_software_eq_state(QString::from("applying"));
+        self.as_mut().set_software_eq_detail(QString::from(
+            "Applying the selected EQ draft and verifying PipeWire readback…",
+        ));
+        match crate::device_service::apply_eq_preset(&draft) {
+            Ok(state) => self.as_mut().apply_device_state(&state),
+            Err(error) => self
+                .as_mut()
+                .set_eq_runtime_failure(&format!("Software EQ was not applied: {error}")),
+        }
+    }
+
+    pub fn disable_software_eq(mut self: Pin<&mut Self>) {
+        self.as_mut()
+            .set_software_eq_state(QString::from("applying"));
+        self.as_mut().set_software_eq_detail(QString::from(
+            "Disabling the AE-5 software EQ and verifying PipeWire readback…",
+        ));
+        match crate::device_service::disable_software_eq() {
+            Ok(state) => self.as_mut().apply_device_state(&state),
+            Err(error) => self
+                .as_mut()
+                .set_eq_runtime_failure(&format!("Software EQ was not disabled: {error}")),
+        }
+    }
+
+    fn set_eq_runtime_failure(mut self: Pin<&mut Self>, detail: &str) {
+        if let Ok(state) = crate::device_service::read_device_state() {
+            self.as_mut().apply_device_state(&state);
+        }
+        self.as_mut().set_software_eq_state(QString::from("error"));
+        self.as_mut().set_software_eq_detail(QString::from(detail));
+        self.as_mut().set_write_failure(detail);
+    }
+
     fn apply_device_state(mut self: Pin<&mut Self>, state: &crate::DeviceOutputState) {
         let status = match state.status_code.as_str() {
             "ready" => "Connected",
@@ -434,6 +513,16 @@ impl qobject::AppState {
             .set_headphone_gain(QString::from(&state.headphone_gain));
         self.as_mut()
             .set_headphone_gain_available(state.headphone_gain_available);
+        self.as_mut()
+            .set_software_eq_state(QString::from(&state.software_eq_state));
+        self.as_mut()
+            .set_software_eq_detail(QString::from(&state.software_eq_detail));
+        self.as_mut()
+            .set_software_eq_active(state.software_eq_active);
+        self.as_mut()
+            .set_eq_apply_available(state.eq_apply_available);
+        self.as_mut()
+            .set_eq_apply_block_reason(QString::from(&state.eq_apply_block_reason));
         self.as_mut().set_direct_mode(state.direct_mode);
         self.as_mut()
             .set_direct_mode_available(state.direct_mode_available);
@@ -578,7 +667,7 @@ impl qobject::AppState {
             } else if entry.read_only {
                 "Combined imported profile loaded. Use Save as to keep EQ independent from Effects."
             } else {
-                "User EQ preset loaded. Live audio is unchanged until EQ apply is connected."
+                "User EQ preset loaded. Use Apply EQ to change live audio."
             },
         ));
         self.as_mut().set_eq_enabled(entry.enabled);
@@ -837,7 +926,7 @@ impl qobject::AppState {
         self.as_mut().set_eq_detail(QString::from(if modified {
             "Draft changed locally. Live audio and the saved EQ preset are unchanged."
         } else {
-            "Draft matches the saved preset. Live audio is unchanged."
+            "Draft matches the saved preset. Use Apply EQ to change live audio."
         }));
     }
 
@@ -910,7 +999,7 @@ impl qobject::AppState {
         self.as_mut().apply_eq_entry(&entry);
         self.as_mut().set_eq_state(QString::from("Saved"));
         self.as_mut().set_eq_detail(QString::from(
-            "EQ preset saved independently. Live audio is unchanged.",
+            "EQ preset saved independently. Use Apply EQ to change live audio.",
         ));
         if was_modified {
             self.as_mut().decrement_unsaved_count();

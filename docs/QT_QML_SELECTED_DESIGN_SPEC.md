@@ -544,9 +544,24 @@ Exit: modifying or saving one object cannot alter the other's state.
 
 ### Phase 5 — interactive EQ
 
-- implement Shape-based graph and ten accessible band handles;
-- add numeric editing, keyboard control, factory curves, and custom presets;
-- connect software/hardware EQ state and readback.
+Status: **in progress — checked software-EQ transaction connected**
+
+- [x] implement the Shape-based graph and ten keyboard-accessible band
+  controls with visible numeric dB values;
+- [x] load factory, imported, and custom preset curves into independent
+  Rust-owned drafts;
+- [x] expose saved/configured/current/different/unavailable runtime states
+  separately from preset Saved/Modified state;
+- [x] connect typed Apply and Disable operations through `ae5d`, with exact
+  output targeting, OutFX and Direct Mode conflict checks, runtime ownership,
+  marker readback, automatic preamp, config/runtime rollback, and structured
+  logging;
+- [x] verify the OutFX-on failure path on physical hardware: the daemon refused
+  the request before writes, the managed config remained absent, no runtime
+  graph appeared, and the 20% unmuted sink state was preserved;
+- [ ] run one guarded OutFX-off apply/change/disable/restart cycle at no more
+  than 20%, then record response and persistence evidence before closing the
+  phase.
 
 Exit: graph, numeric values, runtime EQ state, and persisted preset agree.
 

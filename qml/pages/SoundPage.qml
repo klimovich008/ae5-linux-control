@@ -51,11 +51,11 @@ Rectangle {
                 Layout.rightMargin: root.compact ? 22 : 32
                 statusCode: root.appState.statusCode
                 title: root.appState.statusCode === "ready"
-                       ? qsTr("Volume, mute and profile saving are live; audio apply remains a safe preview")
+                       ? qsTr("Volume, mute, profile saving and checked software EQ are live")
                        : root.appState.deviceStatus
                 detail: root.appState.statusCode === "ready"
                         ? root.appState.profileCatalogDetail + " "
-                          + qsTr("Editing changes a draft; saving writes only that section, while live audio remains unchanged.")
+                          + qsTr("EQ applies only when the live device state is safe; Effects remain a preview.")
                         : root.appState.statusDetail
                 onRetryRequested: root.appState.refreshFromDaemon()
             }
@@ -79,6 +79,125 @@ Rectangle {
                     onSaveRequested: root.appState.saveEqDraft()
                     onSaveAsRequested: name => root.appState.saveEqDraftAs(name)
                     onRevertRequested: root.appState.revertEqDraft()
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: eqRuntimeLayout.implicitHeight + 18
+                    radius: Theme.radiusSmall
+                    color: Theme.surface
+                    border.color: root.appState.softwareEqState === "error"
+                                  ? Theme.error
+                                  : root.appState.softwareEqActive
+                                    ? Theme.accent
+                                    : Theme.separator
+
+                    RowLayout {
+                        id: eqRuntimeLayout
+
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.leftMargin: 12
+                        anchors.rightMargin: 12
+                        spacing: 12
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 2
+
+                            RowLayout {
+                                spacing: 7
+
+                                Label {
+                                    text: qsTr("Live software EQ")
+                                    color: Theme.textPrimary
+                                    font.pixelSize: 13
+                                    font.weight: Font.DemiBold
+                                }
+
+                                Rectangle {
+                                    Layout.preferredWidth: runtimeStateLabel.implicitWidth + 12
+                                    Layout.preferredHeight: 22
+                                    radius: 11
+                                    color: root.appState.softwareEqState === "error"
+                                           ? Qt.rgba(0.95, 0.30, 0.32, 0.15)
+                                           : root.appState.softwareEqActive
+                                             ? Qt.rgba(0.16, 0.82, 0.82, 0.14)
+                                             : Theme.surfaceRaised
+
+                                    Label {
+                                        id: runtimeStateLabel
+
+                                        anchors.centerIn: parent
+                                        text: {
+                                            switch (root.appState.softwareEqState) {
+                                            case "current": return qsTr("Active")
+                                            case "configured": return qsTr("Saved only")
+                                            case "different": return qsTr("Different graph")
+                                            case "applying": return qsTr("Applying")
+                                            case "error": return qsTr("Error")
+                                            case "unavailable": return qsTr("Unavailable")
+                                            default: return qsTr("Inactive")
+                                            }
+                                        }
+                                        color: root.appState.softwareEqState === "error"
+                                               ? Theme.error
+                                               : root.appState.softwareEqActive
+                                                 ? Theme.accent
+                                                 : Theme.textSecondary
+                                        font.pixelSize: 11
+                                        font.weight: Font.DemiBold
+                                    }
+                                }
+                            }
+
+                            Label {
+                                Layout.fillWidth: true
+                                text: root.appState.softwareEqDetail
+                                color: Theme.textSecondary
+                                font.pixelSize: 11
+                                elide: Text.ElideRight
+                                ToolTip.visible: truncated && runtimeDetailHover.hovered
+                                ToolTip.text: text
+
+                                HoverHandler {
+                                    id: runtimeDetailHover
+                                }
+                            }
+                        }
+
+                        Button {
+                            id: disableEqButton
+
+                            visible: root.appState.softwareEqActive
+                            enabled: visible && root.appState.softwareEqState !== "applying"
+                            Accessible.ignored: !visible
+                            text: qsTr("Disable EQ")
+                            Accessible.name: qsTr("Disable live software equalizer")
+                            onClicked: root.appState.disableSoftwareEq()
+                        }
+
+                        Button {
+                            id: applyEqButton
+
+                            readonly property string blockedReason: !root.appState.eqEnabled
+                                                                    ? qsTr("Enable this EQ preset before applying it.")
+                                                                    : root.appState.eqApplyBlockReason
+
+                            enabled: root.appState.eqEnabled
+                                     && root.appState.eqApplyAvailable
+                                     && root.appState.softwareEqState !== "applying"
+                            text: qsTr("Apply EQ")
+                            Accessible.name: qsTr("Apply selected EQ draft")
+                            Accessible.description: enabled
+                                                    ? qsTr("Applies this draft to the live AE-5 PipeWire output.")
+                                                    : blockedReason
+                            ToolTip.visible: hovered && !enabled
+                            ToolTip.text: blockedReason
+                            onClicked: root.appState.applyEqDraft()
+                        }
+                    }
                 }
 
                 EqualizerGraph {

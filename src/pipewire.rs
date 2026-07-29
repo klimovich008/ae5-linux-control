@@ -600,6 +600,306 @@ pub fn apply_software_eq(
     })
 }
 
+pub fn replace_software_eq(
+    card_index: i32,
+    graph: &str,
+    signature: &str,
+    previous_graph: Option<&str>,
+    previous_signature: Option<&str>,
+) -> io::Result<SoftwareEqOutput> {
+    let output = ae5_output(card_index)?.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("PipeWire has no playback output for ALSA card {card_index}"),
+        )
+    })?;
+    require_direct_filter_support(output.id)?;
+    let suspended = suspend_ae5_output(card_index)?;
+    replace_software_eq_state_with(
+        graph,
+        signature,
+        previous_graph,
+        previous_signature,
+        |graph| set_direct_filter(output.id, graph),
+        |signature| set_software_eq_signature(output.id, signature),
+        || software_eq_signature(output.id),
+    )?;
+    if let Err(error) = suspended.resume() {
+        return rollback_replaced_software_eq(
+            card_index,
+            signature,
+            previous_graph,
+            previous_signature,
+            error,
+        );
+    }
+    let current = match software_eq_output(card_index) {
+        Ok(Some(current)) => current,
+        Ok(None) => {
+            return rollback_replaced_software_eq(
+                card_index,
+                signature,
+                previous_graph,
+                previous_signature,
+                io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "PipeWire lost the AE-5 software equalizer after applying it",
+                ),
+            );
+        }
+        Err(error) => {
+            return rollback_replaced_software_eq(
+                card_index,
+                signature,
+                previous_graph,
+                previous_signature,
+                error,
+            );
+        }
+    };
+    if current.node.id != output.id || current.signature.as_deref() != Some(signature) {
+        return rollback_replaced_software_eq(
+            card_index,
+            signature,
+            previous_graph,
+            previous_signature,
+            io::Error::other(
+                "PipeWire changed the AE-5 output identity or EQ marker after applying the graph",
+            ),
+        );
+    }
+    Ok(current)
+}
+
+fn rollback_replaced_software_eq(
+    card_index: i32,
+    applied_signature: &str,
+    previous_graph: Option<&str>,
+    previous_signature: Option<&str>,
+    apply_error: io::Error,
+) -> io::Result<SoftwareEqOutput> {
+    match restore_software_eq_runtime(
+        card_index,
+        Some(applied_signature),
+        previous_graph,
+        previous_signature,
+    ) {
+        Ok(()) => Err(apply_error),
+        Err(rollback_error) => Err(io::Error::other(format!(
+            "{apply_error}; software EQ rollback also failed: {rollback_error}"
+        ))),
+    }
+}
+
+fn restore_software_eq_runtime(
+    card_index: i32,
+    expected_signature: Option<&str>,
+    graph: Option<&str>,
+    signature: Option<&str>,
+) -> io::Result<()> {
+    if graph.is_some() != signature.is_some() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "restored software equalizer graph and signature must be provided together",
+        ));
+    }
+    let output = ae5_output(card_index)?.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            "PipeWire lost the AE-5 output before software EQ rollback",
+        )
+    })?;
+    require_direct_filter_support(output.id)?;
+    let actual = software_eq_signature(output.id)?;
+    if actual.as_deref() != expected_signature {
+        return Err(io::Error::other(format!(
+            "refusing software EQ rollback because the active marker changed (expected {}, found {})",
+            expected_signature.unwrap_or("none"),
+            actual.as_deref().unwrap_or("none")
+        )));
+    }
+
+    let suspended = suspend_ae5_output(card_index)?;
+    let rollback = set_direct_filter(output.id, graph.unwrap_or(""))
+        .and_then(|_| set_software_eq_signature(output.id, signature))
+        .and_then(|_| require_software_eq_signature(output.id, signature));
+    let resume = suspended.resume();
+    match (rollback, resume) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
+        (Err(error), Err(resume_error)) => Err(io::Error::other(format!(
+            "{error}; resuming the AE-5 output also failed: {resume_error}"
+        ))),
+    }
+}
+
+pub fn remove_software_eq(
+    card_index: i32,
+    previous_graph: &str,
+    previous_signature: &str,
+) -> io::Result<PipeWireNode> {
+    if previous_graph.is_empty() || previous_signature.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "previous software equalizer graph and signature must not be empty",
+        ));
+    }
+    let output = ae5_output(card_index)?.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("PipeWire has no playback output for ALSA card {card_index}"),
+        )
+    })?;
+    require_direct_filter_support(output.id)?;
+    if software_eq_signature(output.id)?.as_deref() != Some(previous_signature) {
+        return Err(io::Error::other(
+            "the active software EQ marker changed outside AE-5 Control",
+        ));
+    }
+
+    let suspended = suspend_ae5_output(card_index)?;
+    let removed = set_direct_filter(output.id, "")
+        .and_then(|_| set_software_eq_signature(output.id, None))
+        .and_then(|_| require_software_eq_signature(output.id, None));
+    if let Err(remove_error) = removed {
+        let rollback = set_direct_filter(output.id, previous_graph)
+            .and_then(|_| set_software_eq_signature(output.id, Some(previous_signature)))
+            .and_then(|_| require_software_eq_signature(output.id, Some(previous_signature)));
+        return match rollback {
+            Ok(()) => Err(remove_error),
+            Err(rollback_error) => Err(io::Error::other(format!(
+                "{remove_error}; software EQ rollback also failed: {rollback_error}"
+            ))),
+        };
+    }
+    if let Err(error) = suspended.resume() {
+        restore_software_eq_runtime(
+            card_index,
+            None,
+            Some(previous_graph),
+            Some(previous_signature),
+        )
+        .map_err(|rollback_error| {
+            io::Error::other(format!(
+                "{error}; software EQ rollback also failed: {rollback_error}"
+            ))
+        })?;
+        return Err(error);
+    }
+    match software_eq_output(card_index) {
+        Ok(None) => ae5_output(card_index)?.ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                "PipeWire lost the AE-5 output after disabling software EQ",
+            )
+        }),
+        Ok(Some(_)) => {
+            let error = io::Error::other(
+                "PipeWire still reports an active AE-5 software EQ after disabling it",
+            );
+            restore_software_eq_runtime(
+                card_index,
+                None,
+                Some(previous_graph),
+                Some(previous_signature),
+            )
+            .map_err(|rollback_error| {
+                io::Error::other(format!(
+                    "{error}; software EQ rollback also failed: {rollback_error}"
+                ))
+            })?;
+            Err(error)
+        }
+        Err(error) => {
+            restore_software_eq_runtime(
+                card_index,
+                None,
+                Some(previous_graph),
+                Some(previous_signature),
+            )
+            .map_err(|rollback_error| {
+                io::Error::other(format!(
+                    "{error}; software EQ rollback also failed: {rollback_error}"
+                ))
+            })?;
+            Err(error)
+        }
+    }
+}
+
+fn replace_software_eq_state_with<SetFilter, SetSignature, ReadSignature>(
+    graph: &str,
+    signature: &str,
+    previous_graph: Option<&str>,
+    previous_signature: Option<&str>,
+    mut set_filter: SetFilter,
+    mut set_signature: SetSignature,
+    mut read_signature: ReadSignature,
+) -> io::Result<()>
+where
+    SetFilter: FnMut(&str) -> io::Result<()>,
+    SetSignature: FnMut(Option<&str>) -> io::Result<()>,
+    ReadSignature: FnMut() -> io::Result<Option<String>>,
+{
+    if graph.is_empty() || signature.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "software equalizer graph and signature must not be empty",
+        ));
+    }
+    if previous_graph.is_some() != previous_signature.is_some() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "previous software equalizer graph and signature must be provided together",
+        ));
+    }
+    let current = read_signature()?;
+    if current.as_deref() != previous_signature {
+        return Err(io::Error::other(format!(
+            "the active software EQ marker changed outside AE-5 Control (expected {}, found {})",
+            previous_signature.unwrap_or("none"),
+            current.as_deref().unwrap_or("none")
+        )));
+    }
+
+    let applied = set_filter(graph)
+        .and_then(|_| set_signature(Some(signature)))
+        .and_then(|_| {
+            let actual = read_signature()?;
+            if actual.as_deref() == Some(signature) {
+                Ok(())
+            } else {
+                Err(io::Error::other(format!(
+                    "PipeWire did not retain the software EQ marker (expected {signature}, found {})",
+                    actual.as_deref().unwrap_or("none")
+                )))
+            }
+        });
+    if let Err(apply_error) = applied {
+        let rollback = set_filter(previous_graph.unwrap_or(""))
+            .and_then(|_| set_signature(previous_signature))
+            .and_then(|_| {
+                let actual = read_signature()?;
+                if actual.as_deref() == previous_signature {
+                    Ok(())
+                } else {
+                    Err(io::Error::other(format!(
+                        "rollback marker read back as {}, expected {}",
+                        actual.as_deref().unwrap_or("none"),
+                        previous_signature.unwrap_or("none")
+                    )))
+                }
+            });
+        return match rollback {
+            Ok(()) => Err(apply_error),
+            Err(rollback_error) => Err(io::Error::other(format!(
+                "{apply_error}; software EQ rollback also failed: {rollback_error}"
+            ))),
+        };
+    }
+    Ok(())
+}
+
 pub fn unload_software_eq(card_index: i32) -> io::Result<PipeWireNode> {
     let output = ae5_output(card_index)?.ok_or_else(|| {
         io::Error::new(
@@ -1884,7 +2184,127 @@ fn has_windows_audio_taper(details: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::RefCell;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn replacing_eq_restores_the_previous_graph_after_failed_readback() {
+        let signature = RefCell::new(Some("old".to_owned()));
+        let writes = RefCell::new(Vec::new());
+
+        let error = replace_software_eq_state_with(
+            "new-graph",
+            "new",
+            Some("old-graph"),
+            Some("old"),
+            |graph| {
+                writes.borrow_mut().push(format!("filter:{graph}"));
+                Ok(())
+            },
+            |requested| {
+                writes
+                    .borrow_mut()
+                    .push(format!("signature:{}", requested.unwrap_or("none")));
+                *signature.borrow_mut() = requested.map(|value| {
+                    if value == "new" {
+                        "wrong".to_owned()
+                    } else {
+                        value.to_owned()
+                    }
+                });
+                Ok(())
+            },
+            || Ok(signature.borrow().clone()),
+        )
+        .unwrap_err();
+
+        assert_eq!(
+            (error.kind(), signature.into_inner(), writes.into_inner(),),
+            (
+                io::ErrorKind::Other,
+                Some("old".to_owned()),
+                vec![
+                    "filter:new-graph".to_owned(),
+                    "signature:new".to_owned(),
+                    "filter:old-graph".to_owned(),
+                    "signature:old".to_owned(),
+                ],
+            )
+        );
+    }
+
+    #[test]
+    fn replacing_eq_restores_the_previous_graph_after_filter_write_failure() {
+        let signature = RefCell::new(Some("old".to_owned()));
+        let writes = RefCell::new(Vec::new());
+
+        let error = replace_software_eq_state_with(
+            "new-graph",
+            "new",
+            Some("old-graph"),
+            Some("old"),
+            |graph| {
+                writes.borrow_mut().push(format!("filter:{graph}"));
+                if graph == "new-graph" {
+                    Err(io::Error::new(
+                        io::ErrorKind::BrokenPipe,
+                        "simulated filter write failure",
+                    ))
+                } else {
+                    Ok(())
+                }
+            },
+            |requested| {
+                writes
+                    .borrow_mut()
+                    .push(format!("signature:{}", requested.unwrap_or("none")));
+                *signature.borrow_mut() = requested.map(str::to_owned);
+                Ok(())
+            },
+            || Ok(signature.borrow().clone()),
+        )
+        .unwrap_err();
+
+        assert_eq!(
+            (error.kind(), signature.into_inner(), writes.into_inner()),
+            (
+                io::ErrorKind::BrokenPipe,
+                Some("old".to_owned()),
+                vec![
+                    "filter:new-graph".to_owned(),
+                    "filter:old-graph".to_owned(),
+                    "signature:old".to_owned(),
+                ],
+            )
+        );
+    }
+
+    #[test]
+    fn replacing_eq_refuses_an_unowned_runtime_graph_before_writing() {
+        let writes = RefCell::new(Vec::new());
+
+        let error = replace_software_eq_state_with(
+            "new-graph",
+            "new",
+            None,
+            None,
+            |graph| {
+                writes.borrow_mut().push(format!("filter:{graph}"));
+                Ok(())
+            },
+            |signature| {
+                writes.borrow_mut().push(format!("signature:{signature:?}"));
+                Ok(())
+            },
+            || Ok(Some("foreign".to_owned())),
+        )
+        .unwrap_err();
+
+        assert_eq!(
+            (error.kind(), writes.into_inner()),
+            (io::ErrorKind::Other, Vec::<String>::new())
+        );
+    }
 
     #[test]
     fn parses_wpctl_node_identity_and_default_marker() {

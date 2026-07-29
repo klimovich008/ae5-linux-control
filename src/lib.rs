@@ -27,8 +27,9 @@ pub use controls::{
 pub use device::Ae5Device;
 pub use device_state::DeviceOutputState;
 pub use eq_chain::{
-    EQ_FREQUENCIES, EqBand, EqChainChange, EqChainConfig, EqChainError, bands_from_profile,
-    disable_eq_chain, enable_eq_chain, eq_chain_config, validate_eq_chain_activation,
+    EQ_FREQUENCIES, EqBand, EqChainChange, EqChainConfig, EqChainError, bands_from_gains_tenths_db,
+    bands_from_profile, disable_eq_chain, enable_eq_chain, enable_eq_chain_bands, eq_chain_config,
+    restore_eq_chain_config, validate_eq_chain_activation,
 };
 pub use feature_parity::{FeatureParity, FeatureSupport, feature_parity};
 pub use lighting::{
@@ -39,9 +40,9 @@ pub use pipewire::{
     AudioFormat, NativeRatesConfig, PipeWireNode, PipeWireRouteState, RuntimeSampleRate,
     SoftwareEqOutput, SoftwareVolumeOutput, ae5_audio_format, ae5_input, ae5_output,
     ae5_route_state, ae5_windows_volume_curve_active, apply_software_eq, native_rates_config,
-    runtime_sample_rate, set_ae5_default_input, set_ae5_default_output,
-    set_ae5_runtime_sample_rate, set_ae5_software_mute, set_ae5_software_volume,
-    set_native_rates_enabled, software_eq_output, unload_software_eq,
+    remove_software_eq, replace_software_eq, runtime_sample_rate, set_ae5_default_input,
+    set_ae5_default_output, set_ae5_runtime_sample_rate, set_ae5_software_mute,
+    set_ae5_software_volume, set_native_rates_enabled, software_eq_output, unload_software_eq,
 };
 pub use profile::{
     ApplyReport, LINUX_DRIVER_DEFAULTS_PRESERVED, Profile, ProfileControl, ProfileError,

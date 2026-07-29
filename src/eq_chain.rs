@@ -162,6 +162,27 @@ pub fn bands_from_profile(
         .collect()
 }
 
+pub fn bands_from_gains_tenths_db(gains: &[i16]) -> Result<Vec<EqBand>, EqChainError> {
+    if gains.len() != EQ_FREQUENCIES.len() {
+        return Err(EqChainError::Invalid(format!(
+            "equalizer needs exactly {} gains, found {}",
+            EQ_FREQUENCIES.len(),
+            gains.len()
+        )));
+    }
+    let bands = EQ_FREQUENCIES
+        .into_iter()
+        .zip(gains.iter().copied())
+        .map(|(frequency, gain)| EqBand {
+            frequency,
+            q: EQ_Q,
+            gain_db: f64::from(gain) / 10.0,
+        })
+        .collect::<Vec<_>>();
+    validate_bands(&bands)?;
+    Ok(bands)
+}
+
 pub fn eq_chain_config() -> Result<EqChainConfig, EqChainError> {
     eq_chain_config_at(&eq_chain_path()?)
 }
@@ -172,6 +193,15 @@ pub fn enable_eq_chain(
     target_node: &str,
 ) -> Result<EqChainChange, EqChainError> {
     enable_eq_chain_at(&eq_chain_path()?, profile, controls, target_node)
+}
+
+pub fn enable_eq_chain_bands(
+    bands: &[EqBand],
+    controls: &[ControlSnapshot],
+    target_node: &str,
+) -> Result<EqChainChange, EqChainError> {
+    require_outfx_disabled(controls)?;
+    set_eq_chain_enabled_at(&eq_chain_path()?, Some((bands, target_node)))
 }
 
 fn enable_eq_chain_at(
@@ -187,6 +217,31 @@ fn enable_eq_chain_at(
 
 pub fn disable_eq_chain() -> Result<EqChainChange, EqChainError> {
     set_eq_chain_enabled_at(&eq_chain_path()?, None)
+}
+
+pub fn restore_eq_chain_config(config: &EqChainConfig) -> Result<EqChainChange, EqChainError> {
+    let path = eq_chain_path()?;
+    if config.path != path {
+        return Err(EqChainError::Invalid(format!(
+            "cannot restore software equalizer state from {} into {}",
+            config.path.display(),
+            path.display()
+        )));
+    }
+    restore_eq_chain_config_at(&path, config)
+}
+
+fn restore_eq_chain_config_at(
+    path: &Path,
+    config: &EqChainConfig,
+) -> Result<EqChainChange, EqChainError> {
+    match (config.enabled, config.target_node.as_deref()) {
+        (false, _) => set_eq_chain_enabled_at(path, None),
+        (true, Some(target)) => set_eq_chain_enabled_at(path, Some((&config.bands, target))),
+        (true, None) => Err(EqChainError::Invalid(
+            "enabled software equalizer state has no target node".to_owned(),
+        )),
+    }
 }
 
 pub fn validate_eq_chain_activation(
@@ -699,6 +754,38 @@ mod tests {
         bands_from_profile(&profile_with([24; 10]), &live_controls()).unwrap()
     }
 
+    #[test]
+    fn draft_gains_map_to_the_fixed_ten_band_graph() {
+        let bands =
+            bands_from_gains_tenths_db(&[-120, -60, 0, 10, 20, 30, 40, 50, 60, 120]).unwrap();
+
+        assert_eq!(
+            bands
+                .iter()
+                .map(|band| (band.frequency, band.gain_db))
+                .collect::<Vec<_>>(),
+            vec![
+                (31, -12.0),
+                (62, -6.0),
+                (125, 0.0),
+                (250, 1.0),
+                (500, 2.0),
+                (1000, 3.0),
+                (2000, 4.0),
+                (4000, 5.0),
+                (8000, 6.0),
+                (16000, 12.0),
+            ]
+        );
+    }
+
+    #[test]
+    fn draft_gains_reject_an_incomplete_equalizer() {
+        let error = bands_from_gains_tenths_db(&[0; 9]).unwrap_err();
+
+        assert!(error.to_string().contains("exactly 10"));
+    }
+
     fn test_path() -> PathBuf {
         std::env::temp_dir()
             .join(format!(
@@ -799,6 +886,32 @@ mod tests {
         assert!(disabled.changed);
         assert!(!path.exists());
 
+        fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn restoring_a_previous_config_recreates_it_byte_identically() {
+        let path = test_path();
+        let mut previous_bands = flat_bands();
+        previous_bands[2].gain_db = 3.0;
+        set_eq_chain_enabled_at(
+            &path,
+            Some((&previous_bands, "alsa_output.pci-ae5.analog-stereo")),
+        )
+        .unwrap();
+        let previous = eq_chain_config_at(&path).unwrap();
+        let previous_bytes = fs::read(&path).unwrap();
+
+        let mut replacement_bands = flat_bands();
+        replacement_bands[5].gain_db = -4.0;
+        set_eq_chain_enabled_at(
+            &path,
+            Some((&replacement_bands, "alsa_output.pci-ae5.analog-stereo")),
+        )
+        .unwrap();
+        restore_eq_chain_config_at(&path, &previous).unwrap();
+
+        assert_eq!(fs::read(&path).unwrap(), previous_bytes);
         fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 

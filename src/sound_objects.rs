@@ -391,6 +391,10 @@ impl EffectsProfileEntry {
 }
 
 impl EqPresetEntry {
+    pub fn validate(&self) -> Result<(), String> {
+        validate_eq_draft(self)
+    }
+
     pub fn set_band_gain(&mut self, index: i32, gain_tenths_db: i32) -> Result<(), String> {
         let index = usize::try_from(index)
             .ok()

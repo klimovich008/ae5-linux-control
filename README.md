@@ -472,14 +472,22 @@ Save, and Save as behavior. Persistence uses typed `ae5d` D-Bus methods and
 atomic JSON writes; combined imports and factory objects are saved as new
 section-only files, while unrepresented section controls such as X-Bass
 crossover are retained. Restart discovery and isolated-library writes are
-verified. Editing and saving still do not apply audio: EQ, Effects, and OutFX
-remain explicit previews until their checked apply transactions are connected.
-Master volume and mute are the first enabled controls: each uses a narrowly
-scoped typed D-Bus method, exact AE-5 PipeWire targeting, checked readback,
-rollback on mismatch, and a structured `ae5d` journal event. Output, gain,
-Direct Mode, EQ, Effects, and OutFX writes remain unavailable, so the GUI
-cannot reach the card-suspend or DSP paths associated with earlier
-corruption.
+verified. Editing and saving do not implicitly apply audio. The EQ section has
+separate **Apply EQ** and **Disable EQ** actions backed by a checked `ae5d`
+transaction: it validates the ten-band draft, targets the exact physical AE-5
+output, blocks Direct Mode and OutFX conflicts before writing, verifies the
+PipeWire graph marker, and restores the prior managed config and runtime graph
+if a write or readback fails. The UI distinguishes preset Saved/Modified state
+from live EQ Inactive/Saved only/Active/Error state. The guarded OutFX-on
+physical test confirmed that a blocked apply leaves the config, runtime graph,
+20% volume, and mute state unchanged; one user-observed OutFX-off
+apply/change/disable/restart acceptance cycle is still required.
+
+Master volume and mute use the same narrow typed D-Bus pattern with exact AE-5
+PipeWire targeting, checked readback, rollback on mismatch, and structured
+`ae5d` journal events. Effects and OutFX remain previews. Output, gain, Direct
+Mode, and hardware-effect writes remain unavailable, so the QML GUI cannot
+perform the DSP transitions associated with earlier corruption.
 
 On Fedora/Nobara, install the Qt development packages. Until the user-service
 files are included in the RPM, launch `ae5d` in one terminal:

@@ -1,7 +1,10 @@
 use crate::{
-    Ae5Device, DeviceOutputState, EffectsProfileEntry, EqPresetEntry, SoundObjectCatalog,
-    save_effects_profile, save_effects_profile_as, save_eq_preset, save_eq_preset_as,
-    set_ae5_software_mute, set_ae5_software_volume, sound_object_catalog,
+    Ae5Device, DeviceOutputState, EffectsProfileEntry, EqChainConfig, EqPresetEntry,
+    SoftwareEqOutput, SoundObjectCatalog, ae5_output, bands_from_gains_tenths_db, disable_eq_chain,
+    enable_eq_chain_bands, eq_chain_config, remove_software_eq, replace_software_eq,
+    restore_eq_chain_config, save_effects_profile, save_effects_profile_as, save_eq_preset,
+    save_eq_preset_as, set_ae5_software_mute, set_ae5_software_volume, snapshot_controls,
+    software_eq_output, sound_object_catalog,
 };
 
 pub const SERVICE_NAME: &str = "io.github.klimovich008.Ae5Control";
@@ -71,6 +74,14 @@ impl Ae5DeviceService {
             save_eq_preset_as(&draft, &name, &output)
                 .map_err(|error| zbus::fdo::Error::Failed(error.to_string())),
         )
+    }
+
+    fn apply_eq_preset(&self, draft: EqPresetEntry) -> zbus::fdo::Result<DeviceOutputState> {
+        log_write("software-eq", "apply", apply_eq_preset_checked(&draft))
+    }
+
+    fn disable_software_eq(&self) -> zbus::fdo::Result<DeviceOutputState> {
+        log_write("software-eq", "disable", disable_software_eq_checked())
     }
 
     fn set_master_volume(&self, percent: u16) -> zbus::fdo::Result<DeviceOutputState> {
@@ -155,6 +166,261 @@ fn capture_state() -> zbus::fdo::Result<DeviceOutputState> {
     DeviceOutputState::capture().map_err(|error| zbus::fdo::Error::Failed(error.to_string()))
 }
 
+fn apply_eq_preset_checked(draft: &EqPresetEntry) -> zbus::fdo::Result<DeviceOutputState> {
+    draft.validate().map_err(zbus::fdo::Error::InvalidArgs)?;
+    if !draft.enabled {
+        return Err(zbus::fdo::Error::InvalidArgs(
+            "Enable this EQ preset before applying it.".to_owned(),
+        ));
+    }
+
+    let initial_state = capture_state()?;
+    if !initial_state.eq_apply_available {
+        return Err(zbus::fdo::Error::Failed(
+            initial_state.eq_apply_block_reason,
+        ));
+    }
+    let card_index = initial_state.card_index;
+    let controls = snapshot_controls(card_index)
+        .map_err(|error| zbus::fdo::Error::Failed(error.to_string()))?;
+    let output = ae5_output(card_index)
+        .map_err(|error| zbus::fdo::Error::Failed(error.to_string()))?
+        .ok_or_else(|| {
+            zbus::fdo::Error::Failed(
+                "PipeWire has no AE-5 playback output for software EQ.".to_owned(),
+            )
+        })?;
+    let previous_config =
+        eq_chain_config().map_err(|error| zbus::fdo::Error::Failed(error.to_string()))?;
+    let previous_output = software_eq_output(card_index)
+        .map_err(|error| zbus::fdo::Error::Failed(error.to_string()))?;
+    let (previous_graph, previous_signature) =
+        known_previous_eq_runtime(&previous_config, previous_output.as_ref())
+            .map_err(zbus::fdo::Error::Failed)?;
+    let bands = bands_from_gains_tenths_db(&draft.gains_tenths_db)
+        .map_err(|error| zbus::fdo::Error::InvalidArgs(error.to_string()))?;
+    let change = enable_eq_chain_bands(&bands, &controls, &output.node_name)
+        .map_err(|error| zbus::fdo::Error::Failed(error.to_string()))?;
+    let graph = change
+        .config
+        .filter_graph()
+        .map_err(|error| zbus::fdo::Error::Failed(error.to_string()))?
+        .ok_or_else(|| {
+            zbus::fdo::Error::Failed(
+                "The saved software equalizer did not produce a filter graph.".to_owned(),
+            )
+        })?;
+    let signature = change.config.signature().ok_or_else(|| {
+        zbus::fdo::Error::Failed(
+            "The saved software equalizer did not produce a runtime marker.".to_owned(),
+        )
+    })?;
+
+    if let Err(error) = replace_software_eq(
+        card_index,
+        &graph,
+        &signature,
+        previous_graph.as_deref(),
+        previous_signature.as_deref(),
+    ) {
+        return match restore_eq_chain_config(&previous_config) {
+            Ok(_) => Err(zbus::fdo::Error::Failed(format!(
+                "Software EQ was not applied and the previous configuration was restored: {error}"
+            ))),
+            Err(rollback_error) => Err(zbus::fdo::Error::Failed(format!(
+                "Software EQ apply failed: {error}; configuration rollback also failed: {rollback_error}"
+            ))),
+        };
+    }
+
+    let verification = capture_state().and_then(|state| {
+        if state.software_eq_active && state.software_eq_state == "current" {
+            Ok(state)
+        } else {
+            Err(zbus::fdo::Error::Failed(format!(
+                "Software EQ runtime verification returned '{}': {}",
+                state.software_eq_state, state.software_eq_detail
+            )))
+        }
+    });
+    match verification {
+        Ok(state) => Ok(state),
+        Err(error) => rollback_applied_eq(
+            card_index,
+            &graph,
+            &signature,
+            &previous_config,
+            previous_graph.as_deref(),
+            previous_signature.as_deref(),
+            error,
+        ),
+    }
+}
+
+fn disable_software_eq_checked() -> zbus::fdo::Result<DeviceOutputState> {
+    let card_index = live_card_index()?;
+    let previous_config =
+        eq_chain_config().map_err(|error| zbus::fdo::Error::Failed(error.to_string()))?;
+    let previous_output = software_eq_output(card_index)
+        .map_err(|error| zbus::fdo::Error::Failed(error.to_string()))?;
+    let (previous_graph, previous_signature) =
+        known_previous_eq_runtime(&previous_config, previous_output.as_ref())
+            .map_err(zbus::fdo::Error::Failed)?;
+
+    if previous_output.is_some() {
+        let (Some(graph), Some(signature)) =
+            (previous_graph.as_deref(), previous_signature.as_deref())
+        else {
+            return Err(zbus::fdo::Error::Failed(
+                "The active software EQ cannot be restored safely.".to_owned(),
+            ));
+        };
+        remove_software_eq(card_index, graph, signature)
+            .map_err(|error| zbus::fdo::Error::Failed(error.to_string()))?;
+    }
+    if let Err(error) = disable_eq_chain() {
+        let rollback = match (previous_graph.as_deref(), previous_signature.as_deref()) {
+            (Some(graph), Some(signature)) => {
+                replace_software_eq(card_index, graph, signature, None, None).map(|_| ())
+            }
+            _ => Ok(()),
+        };
+        return match rollback {
+            Ok(()) => Err(zbus::fdo::Error::Failed(format!(
+                "Software EQ was not disabled and the previous runtime was restored: {error}"
+            ))),
+            Err(rollback_error) => Err(zbus::fdo::Error::Failed(format!(
+                "Software EQ disable failed: {error}; runtime rollback also failed: {rollback_error}"
+            ))),
+        };
+    }
+
+    let verification = capture_state().and_then(|state| {
+        if !state.software_eq_active && state.software_eq_state == "inactive" {
+            Ok(state)
+        } else {
+            Err(zbus::fdo::Error::Failed(format!(
+                "Software EQ disable readback returned '{}': {}",
+                state.software_eq_state, state.software_eq_detail
+            )))
+        }
+    });
+    match verification {
+        Ok(state) => Ok(state),
+        Err(error) => rollback_disabled_eq(
+            card_index,
+            &previous_config,
+            previous_graph.as_deref(),
+            previous_signature.as_deref(),
+            error,
+        ),
+    }
+}
+
+fn rollback_applied_eq(
+    card_index: i32,
+    applied_graph: &str,
+    applied_signature: &str,
+    previous_config: &EqChainConfig,
+    previous_graph: Option<&str>,
+    previous_signature: Option<&str>,
+    failure: zbus::fdo::Error,
+) -> zbus::fdo::Result<DeviceOutputState> {
+    let runtime = match (previous_graph, previous_signature) {
+        (Some(graph), Some(signature)) => replace_software_eq(
+            card_index,
+            graph,
+            signature,
+            Some(applied_graph),
+            Some(applied_signature),
+        )
+        .map(|_| ()),
+        (None, None) => {
+            remove_software_eq(card_index, applied_graph, applied_signature).map(|_| ())
+        }
+        _ => Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "previous software EQ graph and signature do not match",
+        )),
+    };
+    let config = restore_eq_chain_config(previous_config);
+    match (runtime, config) {
+        (Ok(()), Ok(_)) => Err(zbus::fdo::Error::Failed(format!(
+            "{failure}; the previous software EQ state was restored"
+        ))),
+        (runtime, config) => Err(zbus::fdo::Error::Failed(format!(
+            "{failure}; rollback failed (runtime: {}; configuration: {})",
+            runtime
+                .err()
+                .map(|error| error.to_string())
+                .unwrap_or_else(|| "restored".to_owned()),
+            config
+                .err()
+                .map(|error| error.to_string())
+                .unwrap_or_else(|| "restored".to_owned())
+        ))),
+    }
+}
+
+fn rollback_disabled_eq(
+    card_index: i32,
+    previous_config: &EqChainConfig,
+    previous_graph: Option<&str>,
+    previous_signature: Option<&str>,
+    failure: zbus::fdo::Error,
+) -> zbus::fdo::Result<DeviceOutputState> {
+    let config = restore_eq_chain_config(previous_config);
+    let runtime = match (previous_graph, previous_signature) {
+        (Some(graph), Some(signature)) => {
+            replace_software_eq(card_index, graph, signature, None, None).map(|_| ())
+        }
+        (None, None) => Ok(()),
+        _ => Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "previous software EQ graph and signature do not match",
+        )),
+    };
+    match (config, runtime) {
+        (Ok(_), Ok(())) => Err(zbus::fdo::Error::Failed(format!(
+            "{failure}; the previous software EQ state was restored"
+        ))),
+        (config, runtime) => Err(zbus::fdo::Error::Failed(format!(
+            "{failure}; rollback failed (configuration: {}; runtime: {})",
+            config
+                .err()
+                .map(|error| error.to_string())
+                .unwrap_or_else(|| "restored".to_owned()),
+            runtime
+                .err()
+                .map(|error| error.to_string())
+                .unwrap_or_else(|| "restored".to_owned())
+        ))),
+    }
+}
+
+fn known_previous_eq_runtime(
+    config: &EqChainConfig,
+    output: Option<&SoftwareEqOutput>,
+) -> Result<(Option<String>, Option<String>), String> {
+    let Some(output) = output else {
+        return Ok((None, None));
+    };
+    let expected_signature = config.signature().ok_or_else(|| {
+        "An AE-5 software EQ graph is active without a matching managed configuration.".to_owned()
+    })?;
+    if output.signature.as_deref() != Some(expected_signature.as_str()) {
+        return Err(
+            "The active AE-5 software EQ graph changed outside ae5d; disable it before applying another preset."
+                .to_owned(),
+        );
+    }
+    let graph = config
+        .filter_graph()
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "The managed software EQ has no restorable filter graph.".to_owned())?;
+    Ok((Some(graph), Some(expected_signature)))
+}
+
 fn live_card_index() -> zbus::fdo::Result<i32> {
     Ae5Device::discover()
         .map_err(|error| zbus::fdo::Error::Failed(error.to_string()))?
@@ -183,6 +449,8 @@ trait Ae5Device {
     ) -> zbus::Result<EffectsProfileEntry>;
     fn save_eq_preset(&self, draft: EqPresetEntry) -> zbus::Result<EqPresetEntry>;
     fn save_eq_preset_as(&self, draft: EqPresetEntry, name: &str) -> zbus::Result<EqPresetEntry>;
+    fn apply_eq_preset(&self, draft: EqPresetEntry) -> zbus::Result<DeviceOutputState>;
+    fn disable_software_eq(&self) -> zbus::Result<DeviceOutputState>;
     fn set_master_volume(&self, percent: u16) -> zbus::Result<DeviceOutputState>;
     fn set_muted(&self, muted: bool) -> zbus::Result<DeviceOutputState>;
 }
@@ -227,6 +495,16 @@ pub fn write_eq_preset_as(draft: &EqPresetEntry, name: &str) -> zbus::Result<EqP
     Ae5DeviceProxy::new(&connection)?.save_eq_preset_as(draft.clone(), name)
 }
 
+pub fn apply_eq_preset(draft: &EqPresetEntry) -> zbus::Result<DeviceOutputState> {
+    let connection = zbus::blocking::Connection::session()?;
+    Ae5DeviceProxy::new(&connection)?.apply_eq_preset(draft.clone())
+}
+
+pub fn disable_software_eq() -> zbus::Result<DeviceOutputState> {
+    let connection = zbus::blocking::Connection::session()?;
+    Ae5DeviceProxy::new(&connection)?.disable_software_eq()
+}
+
 pub fn write_master_volume(percent: u16) -> zbus::Result<DeviceOutputState> {
     let connection = zbus::blocking::Connection::session()?;
     Ae5DeviceProxy::new(&connection)?.set_master_volume(percent)
@@ -251,5 +529,64 @@ mod tests {
                 "io.github.klimovich008.Ae5Control.Device1",
             )
         );
+    }
+
+    #[test]
+    fn known_runtime_rebuilds_the_previous_graph() {
+        let config = EqChainConfig {
+            path: "/tmp/software-eq.state".into(),
+            enabled: true,
+            bands: crate::EQ_FREQUENCIES
+                .map(|frequency| crate::EqBand {
+                    frequency,
+                    q: 1.4,
+                    gain_db: 0.0,
+                })
+                .to_vec(),
+            target_node: Some("alsa_output.pci-ae5.analog-stereo".to_owned()),
+            preamp_db: 0.0,
+        };
+        let signature = config.signature().unwrap();
+        let output = SoftwareEqOutput {
+            node: crate::PipeWireNode {
+                id: 42,
+                node_name: "alsa_output.pci-ae5.analog-stereo".to_owned(),
+                description: "AE-5".to_owned(),
+                is_default: true,
+                volume_percent: Some(20),
+                muted: Some(false),
+            },
+            signature: Some(signature.clone()),
+        };
+
+        let (graph, restored_signature) =
+            known_previous_eq_runtime(&config, Some(&output)).unwrap();
+
+        assert!(graph.unwrap().contains("bq_peaking"));
+        assert_eq!(restored_signature.as_deref(), Some(signature.as_str()));
+    }
+
+    #[test]
+    fn unknown_runtime_is_refused() {
+        let config = EqChainConfig {
+            path: "/tmp/software-eq.state".into(),
+            enabled: false,
+            bands: Vec::new(),
+            target_node: None,
+            preamp_db: 0.0,
+        };
+        let output = SoftwareEqOutput {
+            node: crate::PipeWireNode {
+                id: 42,
+                node_name: "alsa_output.pci-ae5.analog-stereo".to_owned(),
+                description: "AE-5".to_owned(),
+                is_default: true,
+                volume_percent: None,
+                muted: None,
+            },
+            signature: Some("foreign".to_owned()),
+        };
+
+        assert!(known_previous_eq_runtime(&config, Some(&output)).is_err());
     }
 }

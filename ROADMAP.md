@@ -149,13 +149,12 @@ rejected with captured evidence and a narrower follow-up task.
 
 Status: **in progress**
 
-- In progress: the silent Windows collector, capture validator, dB
-  interpolator, one-stage Linux guard, transactional PipeWire setter, and CLI
-  preview/apply commands are implemented. Record the live Windows AE-5
-  endpoint volume range, hardware-support flags, and 101 scalar-to-decibel
-  points while muted. Binary analysis proves that Command forwards its
-  displayed percentage as a Windows endpoint scalar, so parity must match
-  measured attenuation rather than equal-looking percentages.
+- Completed prerequisite: matching Windows symbols and disassembly recovered
+  the exact `-96..0 dB`, exponent-`1.75` endpoint taper. A tested PipeWire SPA
+  overlay applies it only to the exact `11020051` AE-5 analog node while
+  preserving ordinary desktop percentages; non-AE-5 nodes remain cubic.
+- Run the guarded physical Windows/Linux loudness comparison at no more than
+  20% and record whether the formula closes the reported level difference.
 - Prove the active PipeWire graph and ALSA PCM rates at 44.1, 48, and 96 kHz.
 - Measure neutral repeatability and three curves: the personal headphone
   profile plus two materially different factory profiles.

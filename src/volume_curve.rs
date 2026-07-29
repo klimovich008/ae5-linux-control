@@ -9,6 +9,27 @@ const FORMAT_VERSION: u32 = 1;
 const MAX_CAPTURE_BYTES: u64 = 128 * 1024;
 const SCALAR_TOLERANCE: f64 = 0.001;
 const DB_TOLERANCE: f64 = 0.05;
+const WINDOWS_AE5_MIN_DB: f64 = -96.0;
+const WINDOWS_AE5_MAX_DB: f64 = 0.0;
+const WINDOWS_AUDIO_TAPER_EXPONENT: f64 = 1.75;
+const WINDOWS_AUDIO_TAPER_DB_SCALE: f64 = 20.0 * WINDOWS_AUDIO_TAPER_EXPONENT;
+
+pub fn windows_ae5_decibels(windows_percent: f64) -> Result<f64, VolumeCurveError> {
+    validate_percent(windows_percent, "Windows")?;
+    let minimum_taper = 10.0_f64.powf(WINDOWS_AE5_MIN_DB / WINDOWS_AUDIO_TAPER_DB_SCALE);
+    let maximum_taper = 10.0_f64.powf(WINDOWS_AE5_MAX_DB / WINDOWS_AUDIO_TAPER_DB_SCALE);
+    let scalar = windows_percent / 100.0;
+    let taper = minimum_taper + scalar * (maximum_taper - minimum_taper);
+    Ok(WINDOWS_AUDIO_TAPER_DB_SCALE * taper.log10())
+}
+
+pub fn windows_ae5_pipewire_percent(windows_percent: f64) -> Result<f64, VolumeCurveError> {
+    validate_percent(windows_percent, "Windows")?;
+    if windows_percent == 0.0 {
+        return Ok(0.0);
+    }
+    Ok(100.0 * 10.0_f64.powf(windows_ae5_decibels(windows_percent)? / 60.0))
+}
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct WindowsVolumePoint {
@@ -451,6 +472,37 @@ mod tests {
         assert!((curve.pipewire_percent(20.0).unwrap() - expected).abs() < 1e-9);
         assert_eq!(curve.pipewire_percent(0.0).unwrap(), 0.0);
         assert_eq!(curve.pipewire_percent(100.0).unwrap(), 100.0);
+    }
+
+    #[test]
+    fn reproduces_the_installed_windows_audio_taper() {
+        let expected = [
+            (0.0, -96.0, 0.0),
+            (5.0, -45.022_721_889, 17.767_294_535),
+            (20.0, -24.354_431_092, 39.272_885_838),
+            (30.0, -18.236_774_109, 49.665_380_247),
+            (43.0, -12.792_222_457, 61.206_323_361),
+            (50.0, -10.508_596_017, 66.812_347_773),
+            (100.0, 0.0, 100.0),
+        ];
+
+        for (windows_percent, expected_db, expected_pipewire_percent) in expected {
+            assert!((windows_ae5_decibels(windows_percent).unwrap() - expected_db).abs() < 1e-9);
+            assert!(
+                (windows_ae5_pipewire_percent(windows_percent).unwrap()
+                    - expected_pipewire_percent)
+                    .abs()
+                    < 1e-9
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_percentages_for_the_installed_taper() {
+        for invalid in [-0.1, 100.1, f64::NAN, f64::INFINITY] {
+            assert!(windows_ae5_decibels(invalid).is_err());
+            assert!(windows_ae5_pipewire_percent(invalid).is_err());
+        }
     }
 
     #[test]

@@ -137,5 +137,27 @@ grep -Fq 'api.alsa.disable-mmap = true' "$rule"
 grep -Fq 'api.alsa.period-size = 6016' "$rule"
 grep -Fq 'api.alsa.period-num = 4' "$rule"
 grep -Fq 'session.suspend-timeout-seconds = 0' "$rule"
+grep -Fq 'channelmix.volume-curve = "windows-audio-taper"' "$rule"
+[[ $(grep -Fc 'channelmix.volume-curve = "windows-audio-taper"' "$rule") -eq 1 ]]
+awk '
+	/node.name = "~alsa_output[.][*]"/ {
+		in_exact_output_rule = 1
+	}
+	in_exact_output_rule &&
+	/alsa.components = "~HDA:11020011,11020051,[.][*]"/ {
+		exact_ae5 = 1
+	}
+	in_exact_output_rule &&
+	/channelmix.volume-curve = "windows-audio-taper"/ {
+		windows_taper = 1
+	}
+	in_exact_output_rule && /^  }$/ {
+		exit !(exact_ae5 && windows_taper)
+	}
+	END {
+		if (!in_exact_output_rule)
+			exit 1
+	}
+' "$rule"
 
-printf 'AE-5 ACP profile: persistent raw S16 playback, one exact headphone route, and shared Front DAC validated\n'
+printf 'AE-5 ACP profile: persistent raw S16 playback, Windows volume taper, one exact headphone route, and shared Front DAC validated\n'

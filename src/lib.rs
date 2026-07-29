@@ -29,8 +29,8 @@ pub use lighting::{
 };
 pub use pipewire::{
     NativeRatesConfig, PipeWireNode, PipeWireRouteState, SoftwareEqOutput, SoftwareVolumeOutput,
-    ae5_input, ae5_output, ae5_route_state, apply_software_eq, native_rates_config,
-    set_ae5_default_input, set_ae5_default_output, set_ae5_software_volume,
+    ae5_input, ae5_output, ae5_route_state, ae5_windows_volume_curve_active, apply_software_eq,
+    native_rates_config, set_ae5_default_input, set_ae5_default_output, set_ae5_software_volume,
     set_native_rates_enabled, software_eq_output, unload_software_eq,
 };
 pub use profile::{
@@ -50,7 +50,10 @@ pub use sbcommand::{
     import_profile as import_sbcommand_profile,
     import_profile_with_report as import_sbcommand_profile_with_report,
 };
-pub use volume_curve::{VolumeCurveError, WindowsVolumeCurve, WindowsVolumePoint};
+pub use volume_curve::{
+    VolumeCurveError, WindowsVolumeCurve, WindowsVolumePoint, windows_ae5_decibels,
+    windows_ae5_pipewire_percent,
+};
 
 #[cfg(feature = "gui")]
 pub mod gui;

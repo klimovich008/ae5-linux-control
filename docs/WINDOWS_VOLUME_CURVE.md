@@ -1,126 +1,139 @@
 # Windows-equivalent AE-5 volume curve
 
-Status on 2026-07-29: **the Linux mapping and guarded setter are implemented;
-the exact physical Windows AE-5 capture is pending**.
+Status on 2026-07-29: **the installed Windows formula is recovered, tested,
+and active only on the original AE-5 analog PipeWire node**. The first
+headphone A/B acceptance remains pending.
 
-The collector was also executed in the existing cardless Windows 11 guest.
-Windows PowerShell parsed it, `Add-Type` compiled the Core Audio COM
-definitions, and execution reached the expected
-`GetDefaultAudioEndpoint(eRender, eMultimedia)` failure because that guest had
-no playback endpoint. The VM had no PCI host device attached and was shut
-down after the check. This validates script loading, not the physical AE-5
-curve.
+## Recovered Windows implementation
 
-## Why equal percentages do not match
+Sound Blaster Command divides its displayed master-volume value by 100 and
+passes the result unchanged to
+`IAudioEndpointVolume::SetMasterVolumeLevelScalar`. The remaining taper is in
+Windows Audio, not in the Creative UI.
 
-Sound Blaster Command forwards its displayed master volume divided by 100 to
-Windows `IAudioEndpointVolume::SetMasterVolumeLevelScalar`. Windows converts
-that scalar through its endpoint-specific audio-tapered curve. PipeWire's
-normal user volume uses a cubic curve: a displayed fraction `p` produces
-approximately `p³` sample amplitude.
+The matching Microsoft symbols for the installed Windows `audiosrv.dll`
+identify `CVolumeUnit::SetWiper`, `TaperFromScalar`, `ScalarFromTaper`,
+`ConvertScalarToDb`, and `GetWiper`. Disassembly proves these constants:
 
-AE5 Control therefore does not copy the displayed percentage. It:
+- default endpoint range: `-96..0 dB`;
+- taper exponent: `1.75`;
+- base: `10`;
+- decibel multiplier: `20`; and
+- default step: `1.5 dB`.
 
-1. records the installed Windows AE-5 endpoint's scalar-to-decibel result;
-2. interpolates the captured points in decibels; and
-3. solves PipeWire's cubic curve for the control value that produces the same
-   attenuation.
+The analyzed `audiosrv.dll` SHA-256 is
+`92cc5b7b85ce9870f0f94c6a5a7bba535539d08059c55fcfee3a4d61711c3ae4`.
+Its matching PDB GUID is
+`30772B45-0F0A-D93D-5C22-47C0A84574EE`.
 
-For a captured Windows attenuation `dB`, the existing PipeWire sink receives:
+Creative's installed `ctxhda.inf` independently agrees with the result:
+its commented 50% default is `-10.50 dB`, and its commented 20% headphone
+default is `-24.30 dB`, which are the formula's quantized values.
+
+No Microsoft or Creative binary is distributed by this repository.
+
+## Formula
+
+For displayed fraction `p` in `0..1`:
 
 ```text
-PipeWire percent = 100 × 10^(dB / 60)
+minimum_taper = 10^(-96 / 35)
+taper         = minimum_taper + p × (1 - minimum_taper)
+dB            = 35 × log10(taper)
+sample_gain   = taper^1.75
 ```
 
-No extra filter, sink, master gain, or virtual device is added.
+Zero remains digital silence instead of the formula's `-96 dB` floor.
 
-## Safety boundary
+PipeWire and Pulse-compatible clients store a displayed fraction as `p³`.
+The patch leaves that public value unchanged, takes its cube root immediately
+before channel mixing, and applies the recovered Windows taper. Plasma,
+GNOME, `wpctl`, and applications therefore continue to display the requested
+percentage.
 
-[`measure-ae5-volume-curve.ps1`](../scripts/windows/measure-ae5-volume-curve.ps1)
-uses the default Windows multimedia render endpoint and refuses to continue
-unless Plug and Play identifies it as an AE-5. It:
+| Display | Normal PipeWire | Patched AE-5 |
+|---:|---:|---:|
+| 0% | silence | silence |
+| 5% | -78.06 dB | -45.02 dB |
+| 20% | -41.94 dB | -24.35 dB |
+| 30% | -31.37 dB | -18.24 dB |
+| 43% | -21.99 dB | -12.79 dB |
+| 50% | -18.06 dB | -10.51 dB |
+| 100% | 0 dB | 0 dB |
 
-- opens no playback or capture stream;
-- writes no Creative feature, profile, gain, or OutFX property;
-- records all 101 integer endpoint-volume positions while the endpoint is
-  muted;
-- records `GetVolumeRange`, `GetVolumeStepInfo`,
-  `QueryHardwareSupport`, and the endpoint channel count; and
-- restores and verifies the original scalar and mute state before saving
-  JSON.
+The Rust implementation and its reference-point tests are in
+[`volume_curve.rs`](../src/volume_curve.rs). The processing patch and its C
+test are in
+[`ae5-windows-volume-curve.patch`](../pipewire/ae5-windows-volume-curve.patch).
 
-The output label is explicit because the Windows headphone and line-out paths
-must not be assumed equivalent.
+## AE-5-only boundary
 
-`QueryHardwareSupport` is also reported. If Windows says endpoint volume is
-hardware-backed, matching its dB attenuation in PipeWire can match level but
-does not prove equal analog noise or dynamic range; the later electrical
-capture remains mandatory.
+The patched SPA plugin defaults to PipeWire's original cubic behavior. It
+changes behavior only when a node explicitly has:
 
-On Linux, `volume-curve-apply` fails before changing volume unless:
-
-- the curve is a verified, restored AE-5 capture;
-- the selected Linux output matches the captured output;
-- hardware OutFX is readable and off;
-- Master is on at 99/99, Front is on at 90/99, and PCM is at 255/255; and
-- the exact AE-5 PipeWire profile has `api.alsa.soft-mixer=true` and
-  `api.alsa.ignore-dB=true`.
-
-The setter changes only the existing AE-5 sink volume. It reads the exact
-software volume and mute first, verifies both after the write, and restores
-the previous values if verification fails.
-
-## Capture procedure
-
-Do not use the passthrough VM from `7.1.4-ae5-stable` for this measurement.
-The accepted shutdown-reset candidate is not the current running kernel, and
-the newly reported OutFX failure can survive an OS handoff. Use a full power
-off before entering Windows.
-
-1. Keep AE-5 analog outputs disconnected for the unattended capture. Close
-   all audio applications.
-2. Boot the installed Windows system after the machine has lost motherboard
-   power.
-3. Select the AE-5 as the default Windows multimedia playback device.
-4. Select the intended Creative output, starting with **Headphones**. Do not
-   open or change OutFX during this run.
-5. Open an ordinary, non-administrator PowerShell in
-   `Documents\AE5-parity-capture` and run:
-
-```powershell
-Set-ExecutionPolicy -Scope Process Bypass
-.\measure-ae5-volume-curve.ps1 -Output Headphone
+```text
+channelmix.volume-curve = "windows-audio-taper"
 ```
 
-The result is written below `captures`. Preserve that JSON and perform a full
-Windows shutdown and motherboard power removal before returning to Linux.
+The WirePlumber rule sets that property only when all of these match:
 
-## Linux validation and use
+- an ALSA output node;
+- an analog device profile; and
+- codec components beginning `HDA:11020011,11020051`.
 
-After returning to Linux:
+`11020051` is the exact original AE-5 subsystem identity supported by this
+project. The motherboard, Fifine USB device, HDMI outputs, inputs, and other
+cards remain cubic.
+
+The plugin is an overlay, not a replacement Fedora package. PipeWire searches
+the AE5 Control directory first and then the normal system SPA directory.
+Removing the service drop-in and overlay restores the stock implementation.
+
+## Build, install, and rollback
+
+The build script downloads the source RPM matching the installed PipeWire,
+applies the patch, builds only the required plugin and tests, and refuses to
+overwrite an existing result:
 
 ```sh
-ae5ctl volume-curve-check /path/to/ae5-windows-volume-headphone-*.json
-ae5ctl volume-curve-map /path/to/capture.json 5
-ae5ctl volume-curve-map /path/to/capture.json 30
-ae5ctl volume-curve-apply /path/to/capture.json 5
+scripts/build-pipewire-volume-plugin.sh
+scripts/install-pipewire-volume-plugin.sh \
+  dist/pipewire-1.6.8-ae5/libspa-audioconvert.so
 ```
 
-`volume-curve-apply` preserves the current mute state. The first physical
-comparison remains capped at 20% on the Windows scale, uses Low headphone
-gain, and starts muted with the headphones unworn. A successful mapping is
-not yet a loudness-parity acceptance result; that still requires the existing
-matched electrical or guarded acoustic A/B procedure.
+Restart PipeWire and WirePlumber only while audio is idle:
 
-## OutFX incident boundary
+```sh
+systemctl --user restart pipewire.service wireplumber.service
+```
 
-The user's latest observation is consistent with the existing failure model:
-OutFX initially processed audio, a later setting transition left both Linux
-and Windows in a bad audio state, and only removal of motherboard power
-cleared it. That is not evidence that profile JSON or a normal software
-volume value was corrupted. It is evidence that an unsafe DSP/card state can
-survive driver and operating-system transitions.
+Rollback is explicit:
 
-Consequently, hardware `Enable OutFX` and its child ALSA writes remain
-rejected. Software OutFX implementation resumes only after this volume curve
-is captured and accepted.
+```sh
+scripts/install-pipewire-volume-plugin.sh --uninstall
+systemctl --user restart pipewire.service wireplumber.service
+```
+
+After installation, verify the exact AE-5 output reports
+`windows-audio-taper` while every other sink reports `cubic`:
+
+```sh
+wpctl inspect @DEFAULT_AUDIO_SINK@
+pw-cli enum-params @DEFAULT_AUDIO_SINK@ Props
+```
+
+The current host passed the formula test, the unchanged channel-mixer and
+audioconvert suites, a clean source-RPM rebuild, plugin-load verification,
+and the exact-node scope check. The AE-5 is left at 30% and muted.
+
+## Remaining acceptance
+
+The binary formula removes the need for a 101-point Windows capture as an
+implementation prerequisite. The silent collector remains useful as an
+independent check of a particular Windows endpoint range and driver revision.
+
+Formula correctness does not by itself prove equal perceived loudness,
+analog noise, or headphone gain. The first physical comparison must start
+muted, use Low headphone gain, keep the user-facing value at or below 20%,
+and compare matched Windows and Linux settings. Hardware OutFX remains
+blocked; it is not part of this volume patch.

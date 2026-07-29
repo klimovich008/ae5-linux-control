@@ -2,16 +2,17 @@ use ae5_control::{
     Ae5Device, Ae5Lighting, Ae5Mixer, DIRECT_MODE_CONTROL, EqBand, FeatureSupport,
     LINUX_DRIVER_DEFAULTS_PRESERVED, ONBOARD_LED_COUNT, PipeWireNode, PipeWireRouteState, Profile,
     RgbColor, SbCommandImportReport, SbCommandTarget, WindowsVolumeCurve, ae5_input, ae5_output,
-    ae5_route_state, apply_linux_driver_defaults, apply_software_eq, disable_eq_chain,
-    discover_sbcommand_installation, enable_eq_chain, eq_chain_config, export_library_profile,
-    feature_parity, front_vmaster_clamp_warning, headphone_playback_issue,
-    import_active_sbcommand_profile_with_report, import_discovered_sbcommand_profile_with_report,
-    import_sbcommand_profile_with_report, lighting_config_path, linux_driver_defaults,
-    native_rates_config, profile_library, profile_library_directory, rename_library_profile,
-    restore_saved_lighting, set_ae5_default_input, set_ae5_default_output, set_ae5_software_volume,
+    ae5_route_state, ae5_windows_volume_curve_active, apply_linux_driver_defaults,
+    apply_software_eq, disable_eq_chain, discover_sbcommand_installation, enable_eq_chain,
+    eq_chain_config, export_library_profile, feature_parity, front_vmaster_clamp_warning,
+    headphone_playback_issue, import_active_sbcommand_profile_with_report,
+    import_discovered_sbcommand_profile_with_report, import_sbcommand_profile_with_report,
+    lighting_config_path, linux_driver_defaults, native_rates_config, profile_library,
+    profile_library_directory, rename_library_profile, restore_saved_lighting,
+    set_ae5_default_input, set_ae5_default_output, set_ae5_software_volume,
     set_native_rates_enabled, set_saved_led, set_saved_lighting, snapshot_controls,
     software_eq_output, unload_software_eq, validate_eq_chain_activation,
-    validate_linux_driver_defaults,
+    validate_linux_driver_defaults, windows_ae5_decibels,
 };
 use std::error::Error;
 use std::fmt::Write as _;
@@ -56,6 +57,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         [command] if command == "native-rates-status" => print_native_rates_status(),
         [command] if command == "native-rates-enable" => set_native_rates(true),
         [command] if command == "native-rates-disable" => set_native_rates(false),
+        [command] if command == "volume-curve-status" => print_volume_curve_status(),
         [command, path] if command == "volume-curve-check" => check_volume_curve(path),
         [command, path, percent] if command == "volume-curve-map" => {
             map_volume_curve(path, percent)
@@ -408,9 +410,31 @@ fn check_volume_curve(path: &str) -> Result<(), Box<dyn Error>> {
     );
     for percent in [5.0, 20.0, 30.0, 100.0] {
         println!(
-            "  Windows {percent:>5.1}% -> PipeWire {:>6.2}%",
+            "  Windows {percent:>5.1}% -> unpatched PipeWire {:>6.2}%",
             curve.pipewire_percent(percent)?
         );
+    }
+    Ok(())
+}
+
+fn print_volume_curve_status() -> Result<(), Box<dyn Error>> {
+    let device = require_device()?;
+    let active = ae5_windows_volume_curve_active(device.card_index)?;
+    println!(
+        "AE-5 Windows volume taper: {}",
+        if active { "active" } else { "inactive" }
+    );
+    for percent in [5.0, 20.0, 30.0, 43.0, 50.0, 100.0] {
+        println!(
+            "  {percent:>5.1}% -> {:+7.2} dB",
+            windows_ae5_decibels(percent)?
+        );
+    }
+    if !active {
+        return Err(io::Error::other(
+            "the exact AE-5 node is not using channelmix.volume-curve=windows-audio-taper",
+        )
+        .into());
     }
     Ok(())
 }
@@ -419,9 +443,10 @@ fn map_volume_curve(path: &str, percent: &str) -> Result<(), Box<dyn Error>> {
     let percent = parse_volume_percent(percent)?;
     let curve = WindowsVolumeCurve::load(Path::new(path))?;
     println!(
-        "Windows {:.2}% -> PipeWire {:.3}% (same measured endpoint attenuation)",
+        "Windows {:.2}% -> unpatched PipeWire {:.3}% (the patched AE-5 keeps {:.2}%)",
         percent,
-        curve.pipewire_percent(percent)?
+        curve.pipewire_percent(percent)?,
+        percent
     );
     Ok(())
 }
@@ -431,10 +456,20 @@ fn apply_volume_curve(path: &str, percent: &str) -> Result<(), Box<dyn Error>> {
     let curve = WindowsVolumeCurve::load(Path::new(path))?;
     let device = require_device()?;
     curve.validate_linux_path(&snapshot_controls(device.card_index)?)?;
-    let pipewire_percent = curve.pipewire_percent(percent)?;
+    let curve_active = ae5_windows_volume_curve_active(device.card_index)?;
+    let pipewire_percent = if curve_active {
+        percent
+    } else {
+        curve.pipewire_percent(percent)?
+    };
     let output = set_ae5_software_volume(device.card_index, pipewire_percent)?;
     println!(
-        "AE-5 volume applied on the existing PipeWire sink.\n  Windows scale: {percent:.2}%\n  PipeWire control: {:.3}%\n  PipeWire readback: {:.3}%\n  Mute state: {}",
+        "AE-5 volume applied on the existing PipeWire sink.\n  Windows scale: {percent:.2}%\n  Processing curve: {}\n  PipeWire control: {:.3}%\n  PipeWire readback: {:.3}%\n  Mute state: {}",
+        if curve_active {
+            "AE-5 Windows taper"
+        } else {
+            "stock cubic fallback"
+        },
         pipewire_percent,
         output.applied_percent,
         if output.node.muted == Some(true) {
@@ -1116,10 +1151,11 @@ fn print_help() {
          \x20 native-rates-status   Show the per-user PipeWire rate configuration\n\
          \x20 native-rates-enable   Allow native 44.1, 48, and 96 kHz after restart\n\
          \x20 native-rates-disable  Remove the managed native-rate configuration\n\
+         \x20 volume-curve-status   Verify the AE-5-only Windows taper\n\
          \x20 volume-curve-check FILE\n\
          \x20                       Validate a restored Windows AE-5 curve capture\n\
          \x20 volume-curve-map FILE WINDOWS_PERCENT\n\
-         \x20                       Preview the equivalent PipeWire software volume\n\
+         \x20                       Preview the unpatched PipeWire fallback volume\n\
          \x20 volume-curve-apply FILE WINDOWS_PERCENT\n\
          \x20                       Apply it to the existing AE-5 sink without unmuting\n\
          \x20 eq-chain-status       Show the managed software equalizer and its bands\n\

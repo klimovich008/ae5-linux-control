@@ -187,6 +187,17 @@ pub fn ae5_input(card_index: i32) -> io::Result<Option<PipeWireNode>> {
     ae5_node(card_index, "sources")
 }
 
+pub fn ae5_windows_volume_curve_active(card_index: i32) -> io::Result<bool> {
+    let node = ae5_output(card_index)?.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("PipeWire has no playback output for ALSA card {card_index}"),
+        )
+    })?;
+    let details = run_wpctl(&["inspect", &node.id.to_string()])?;
+    Ok(has_windows_audio_taper(&details))
+}
+
 pub fn set_ae5_default_output(card_index: i32) -> io::Result<PipeWireNode> {
     set_ae5_default_node(card_index, "sinks", "playback output")
 }
@@ -1423,6 +1434,10 @@ fn property(output: &str, name: &str) -> Option<String> {
     })
 }
 
+fn has_windows_audio_taper(details: &str) -> bool {
+    property(details, "channelmix.volume-curve").as_deref() == Some("windows-audio-taper")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1492,6 +1507,13 @@ id 58, type PipeWire:Interface:Node
             property(details, "node.name").as_deref(),
             Some("alsa_output.pci-ae5.analog-stereo")
         );
+        assert!(!has_windows_audio_taper(details));
+        assert!(has_windows_audio_taper(
+            "channelmix.volume-curve = \"windows-audio-taper\""
+        ));
+        assert!(!has_windows_audio_taper(
+            "channelmix.volume-curve = \"cubic\""
+        ));
         assert_eq!(
             node_from_details(
                 NodeListing {

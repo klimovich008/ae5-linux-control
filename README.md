@@ -154,25 +154,27 @@ volume. The card-specific Headphone path pins Master, Front, and PCM to their
 0 dB values so their attenuation cannot stack underneath PipeWire. The GUI
 labels that fixed Master stage as `0 dB`, not `100%`.
 
-Windows-equivalent user-volume mapping is now implemented behind an exact
-capture requirement:
+Windows-equivalent user volume is implemented as an AE-5-only PipeWire
+processing option. Static analysis of the exact installed `audiosrv.dll` and
+matching symbols recovered Windows Audio's `-96..0 dB`, exponent-`1.75`
+taper; Creative's installed INF independently matches its 20% and 50%
+reference values. The desktop slider remains unchanged, but the exact
+original AE-5 analog node applies the Windows taper immediately before
+channel mixing.
 
 ```sh
-ae5ctl volume-curve-check /path/to/windows-ae5-curve.json
-ae5ctl volume-curve-map /path/to/windows-ae5-curve.json 20
-ae5ctl volume-curve-apply /path/to/windows-ae5-curve.json 20
+scripts/build-pipewire-volume-plugin.sh
+scripts/install-pipewire-volume-plugin.sh \
+  dist/pipewire-1.6.8-ae5/libspa-audioconvert.so
 ```
 
-The Windows collector records the physical AE-5 endpoint's 101 integer
-scalar-to-decibel points while muted, then restores and verifies the original
-state. Linux converts the measured attenuation to PipeWire's cubic control
-and changes only the existing sink. Apply fails closed if the output differs,
-hardware OutFX is on, the internal Master/Front/PCM stages are not fixed at
-0 dB, or the exact software-mixer policy is absent. The collector and guarded
-procedure are in
-[docs/WINDOWS_VOLUME_CURVE.md](docs/WINDOWS_VOLUME_CURVE.md). The physical
-Windows capture and matched-volume acceptance test remain pending; no guessed
-curve is shipped.
+The patched plugin remains cubic unless a node explicitly opts in.
+WirePlumber adds that property only to the analog output whose codec identity
+contains the exact AE-5 subsystem `11020051`; motherboard, USB, HDMI, input,
+and other audio nodes remain on stock PipeWire behavior. The implementation,
+evidence, verification, rebuild procedure, and rollback are in
+[docs/WINDOWS_VOLUME_CURVE.md](docs/WINDOWS_VOLUME_CURVE.md). A guarded
+physical Windows/Linux loudness comparison remains pending.
 
 The optional native-rate configuration lets PipeWire switch the global graph
 between 44.1, 48, and 96 kHz after its next restart:

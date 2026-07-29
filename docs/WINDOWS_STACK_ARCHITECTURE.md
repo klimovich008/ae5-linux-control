@@ -15,7 +15,7 @@ Versions examined: `ctxhda.inf` 6.0.105.0065 (2022-11-24),
 `CtxRFX64.dll` (2022-12-20), and `Creative.SBCommand.exe` (2023-10-06,
 .NET Framework 4.6.1, x86).
 
-The mounted Windows installation was rechecked on 2026-07-29. All seven live
+The mounted Windows installation was rechecked on 2026-07-29. All eight live
 binary hashes still match this table. The installed 0065 INF still registers
 the same render APO, and the machine-local Ghidra reports still show the
 master/child registration, endpoint-property write path, APO module chain and
@@ -46,6 +46,7 @@ before using that endpoint for any same-settings comparison.
 | `CtxRFX64.dll` | `07de141f54a6a128747cc76d69a5eb42963107ea89f05fdb09ce8bb1a3977770` |
 | `CtxHdC64.dll` | `ac4ab46eebd8cba2577f47567eb6d83a4d0a2b9d7d1eeea829a2d4a37fd02761` |
 | `Creative.SBCommand.exe` | `32c71d5ad40f5d3cc1bb35f756038e3de5c08e3291550f26ac9fa1cb1cabff58` |
+| `Creative.Platform.Devices.dll` | `e76ad407d5a2b7eeeb1049fa92d4b378ef03fdfddb8c7c963d8e07d8537eecdb` |
 | `Creative.Platform.Mixer.dll` | `4efad39e5ea495b3a5175cc4d0eaedc42adee6013ffa7f929fb4c73784ae2731` |
 | `MalLgcy.dll` | `feb040c20e549bffc4426088093736ea4eec13ebd6fd0058d89d4db46be0dcbd` |
 | `CTAudEp.dll` | `c090b3cd08727e59119da513ee2d4374bbe9ea1e1aca251058025bfd8a9f9e64` |
@@ -173,6 +174,54 @@ The query must preserve and restore the original endpoint scalar and mute
 state. It requires no audio playback. Those measured scalar-to-decibel points,
 not equal-looking percentages, are the appropriate reference for Linux volume
 parity.
+
+## Exact headphone load/gain and destination trace
+
+Command's AE-5 headphone load selector is independent from both endpoint
+master volume and the named SpeakerEQ headphone profiles. The managed device
+layer maps three controls to SoundCore feature `0x01000001`:
+
+| Parameter | Native registration name | Value |
+|---:|---|---|
+| `16` | `HPLoadSelect` | unsigned preset index |
+| `17` | `RetainHPLoadSetting` | boolean |
+| `19` | `HPOutputSelect` | `0` default/headphones, `1` line-out |
+
+For the AE-5, Command exposes the first three load indices. Their displayed
+impedance boundaries correspond by ordinal to Linux's Low (16–31 ohms),
+Medium (32–149 ohms), and High (150–600 ohms) choices. Selecting a load sends
+only index `0`, `1`, or `2`; the managed application performs no volume
+compensation, scaling, or companion master-volume write.
+
+The exact `CtxHdC64.dll` registration table contains those feature, parameter,
+type, and name tuples. Its generic setter resolves each tuple to a 20-byte
+endpoint property key, builds the matching typed `PROPVARIANT`, and calls the
+endpoint property store's `SetValue`. This is a different native path from
+master volume's `IAudioEndpointVolume` call.
+
+The installed `CtxHda.sys` does not retain the SoundCore names or feature
+tuple. It does, however, contain a lower-level `HeadphoneOutput` setting.
+Changing that value persists the new selection and invokes a route
+reconfiguration that enables one set of output paths and disables another.
+Thus Command's default/headphones-versus-line-out destination is a real driver
+route change, not a UI label. Static analysis did not recover the final
+`HPLoadSelect` property-to-amplifier-register handler, so no undocumented
+Windows register sequence is claimed.
+
+Linux's public CA0132 implementation reaches the hardware directly. Its
+`AE-5: Headphone Gain` enum has the same three ordinal choices and writes four
+CA0113 MMIO command values for each preset. Physical measurements at an
+attenuated fixed master stage found Medium only `+1.28 dB` and High
+`+7.04 dB` relative to Low, with at most `0.93 dB` repeat spread. The Windows
+comparison was performed at Low. Gain selection therefore cannot explain
+Linux being substantially quieter than Windows; changing Linux to a higher
+gain would only hide the endpoint-volume mismatch and invalidate the
+same-settings comparison.
+
+The line-out observation remains useful. Because Windows really changes the
+driver route for parameter `19`, headphone and line-out percentage behavior
+must be measured as separate endpoints or destinations. It is not valid to
+transfer a line-out volume result to the headphone route.
 
 ## Normal playback transport comparison
 

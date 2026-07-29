@@ -51,6 +51,15 @@ preset-file endpoint property. The actual response therefore remains inside
 the Windows driver/APO or device repository; it cannot be reconstructed from
 the shipped text configs.
 
+This named SpeakerEQ path is separate from Command's ordinary headphone
+load/gain selector. Scoped analysis of the exact installed managed and native
+binaries maps load/gain to SoundCore feature `0x01000001`, parameter `16`,
+with the AE-5 sending only ordinal values `0`, `1`, or `2`. Parameter `17`
+retains that selection. The application does not derive a response curve from
+the named profile metadata and does not adjust master volume when gain
+changes. The complete clean-room trace is recorded in
+[`WINDOWS_STACK_ARCHITECTURE.md`](WINDOWS_STACK_ARCHITECTURE.md#exact-headphone-loadgain-and-destination-trace).
+
 The Linux importer now uses the same bounded text metadata only to name the
 selected model in its unsupported warning. It does not treat the config as a
 curve, copy it into a native profile, or send it to the card. The exact
@@ -226,9 +235,11 @@ Acceptable evidence is:
 - measured target frequency response that can be approximated with the
   already-exposed ten-band hardware EQ.
 
-Do not decompile Creative software, disassemble firmware, parse proprietary
-binary preset files, or copy a Windows driver's implementation. Do not add a
-raw DSP-upload userspace API.
+Scoped binary analysis may identify interoperability boundaries, typed
+parameters, and externally observable behavior, but machine-local disassembly
+must not be committed and proprietary implementation must not be copied.
+Do not disassemble firmware, copy or decode proprietary coefficient payloads,
+or add a raw DSP-upload userspace API.
 
 If only the target response is available, implement an approximate named
 preset in the Rust migration layer and label it approximate. That is safer,

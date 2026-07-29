@@ -168,7 +168,7 @@ PipeWire policy, kernel audio-path, or rate-negotiation changes.
 
 ### M4 — Profile and Qt/QML GUI daily-use acceptance
 
-Status: **in progress — Phase 4 independent profile persistence complete**
+Status: **in progress — Phase 7 accessibility/scaling slice complete**
 
 - Reproduce and fix the reported profile-card fallback to Adventure and Action.
 - Make profile application state explicit: selected profile, route variant,
@@ -218,6 +218,16 @@ Status: **in progress — Phase 4 independent profile persistence complete**
   OutFX-on failure test left the config absent, runtime graph absent, and the
   20% unmuted sink unchanged; native Wayland and X11 launches showed no QML
   errors.
+- Completed the first Phase 7 acceptance slice: Qt Quick Controls Basic now
+  uses dark and light semantic palettes; custom controls have keyboard-only
+  focus rings; disabled controls explain their capability block; scoped
+  `Ctrl+S`, `Ctrl+Shift+S`, and faceplate Review actions preserve independent
+  Effects/EQ ownership; and AT-SPI exposes meaningful roles, names,
+  descriptions, values, and live status. Native Wayland checks passed at
+  1024 × 680, 1280 × 800, and 1600 × 1000 without horizontal overflow, and an
+  X11 smoke launch produced no QML error. Close-with-unsaved handling,
+  fractional-scale acceptance, and complete injected failure-state tests
+  remain open.
 - Active next step: with the user present and OutFX deliberately off, run one
   guarded apply/change/disable/restart cycle at no more than 20% and record
   cross-rate response and persistence evidence. Effects, OutFX, output, gain,

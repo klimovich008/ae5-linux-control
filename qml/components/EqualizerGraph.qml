@@ -19,6 +19,9 @@ Rectangle {
     radius: Theme.radiusMedium
     border.color: Theme.separator
     implicitHeight: 232
+    Accessible.role: Accessible.Chart
+    Accessible.name: qsTr("Ten-band equalizer")
+    Accessible.description: qsTr("Ten accessible sliders from 31 hertz to 16 kilohertz, with gains from minus 12 to plus 12 decibels.")
 
     function xFor(index) {
         return graphLeft + index * (graphRight - graphLeft) / 9
@@ -65,8 +68,10 @@ Rectangle {
             y: root.yFor(modelData)
             width: root.graphRight - root.graphLeft
             height: modelData === 0 ? 2 : 1
-            color: modelData === 0 ? Qt.rgba(0.62, 0.69, 0.74, 0.48)
-                                        : Qt.rgba(0.16, 0.26, 0.33, 0.75)
+            color: modelData === 0
+                   ? Qt.rgba(Theme.textSecondary.r, Theme.textSecondary.g,
+                             Theme.textSecondary.b, 0.48)
+                   : Qt.rgba(Theme.separator.r, Theme.separator.g, Theme.separator.b, 0.75)
 
             Label {
                 anchors.right: parent.left
@@ -89,7 +94,7 @@ Rectangle {
             y: root.graphTop
             width: 1
             height: root.graphBottom - root.graphTop
-            color: Qt.rgba(0.16, 0.26, 0.33, 0.55)
+            color: Qt.rgba(Theme.separator.r, Theme.separator.g, Theme.separator.b, 0.55)
         }
     }
 
@@ -139,11 +144,16 @@ Rectangle {
             enabled: root.editingEnabled && root.appState.eqEnabled
                      && !root.appState.directMode
             focusPolicy: Qt.StrongFocus
+            wheelEnabled: activeFocus
             Accessible.name: qsTr("%1 hertz equalizer band").arg(root.frequencies[index])
             Accessible.description: enabled
                                     ? qsTr("%1 decibels; arrow keys adjust by 1 dB").arg(value.toFixed(0))
-                                    : qsTr("Equalizer editing is unavailable while Direct Mode is active.")
-            ToolTip.visible: hovered && !enabled
+                                    : !root.appState.eqEnabled
+                                      ? qsTr("Enable this EQ preset before editing its bands.")
+                                      : root.appState.directMode
+                                        ? qsTr("Equalizer editing is unavailable while Direct Mode is active.")
+                                        : qsTr("Equalizer presets are unavailable until the profile catalog loads.")
+            ToolTip.visible: (hovered || activeFocus) && !enabled
             ToolTip.text: Accessible.description
 
             background: Item {}

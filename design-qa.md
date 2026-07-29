@@ -139,3 +139,54 @@ unrelated files.
 
 This check performed no hardware write. The final physical state remained
 Headphones, Medium gain, S16LE at 96 kHz, 20%, and unmuted.
+
+## Phase 5 checked-EQ addendum
+
+The QML screen now separates a preset's Saved/Modified state from the live
+software-EQ graph state. Apply and Disable are explicit typed daemon
+transactions rather than side effects of selecting or saving a preset.
+Applying is unavailable with a precise explanation while OutFX, Direct Mode,
+the selected preset, daemon state, or exact PipeWire target makes the
+transaction unsafe.
+
+The guarded physical OutFX-on test confirmed the failure path: the request was
+blocked before a write, the managed PipeWire configuration remained absent,
+no owned runtime graph appeared, and the exact 20% unmuted sink state remained
+unchanged. The user-observed OutFX-off apply/change/disable/restart cycle is
+still required before Phase 5 is complete.
+
+## Phase 7 accessibility and scaling addendum
+
+The production QML path now selects Qt Quick Controls Basic before constructing
+the application and maps all custom surfaces and states through semantic dark
+or light tokens. Contrast calculations passed for normal primary/secondary
+text and cyan, violet, green, amber, and red semantic status colors. Disabled
+controls remain visibly distinct and expose the reason they are unavailable.
+
+Native Wayland inspection verified:
+
+- 1024 × 680: 72 px icon rail, 908 px workspace, no horizontal overflow,
+  vertical scrolling, and the compact persistent hardware faceplate;
+- 1280 × 800: the selected default composition with full sidebar and one
+  object-owned console column;
+- 1600 × 1000: full sidebar, expanded graph, two-column enhancement use, and
+  the same singular hardware faceplate;
+- dark and explicit `--light` launches without QML type, binding, or load
+  errors;
+- AT-SPI status, grouping, chart, slider, checkbox, button, and list-item
+  semantics with meaningful names, descriptions, current values, and disabled
+  reasons;
+- visible keyboard-only focus styling on custom navigation, save, output, and
+  EQ controls, plus object-scoped Save/Save as and faceplate Review paths;
+- an X11 startup smoke that remained alive for the complete six-second window
+  with no diagnostic output.
+
+Qt's AT-SPI adapter emits benign `GetNselections`/`GetText` warnings when the
+inspection tool queries interfaces Qt does not implement. They do not indicate
+a QML load error or an application failure. Automated focus-order assertions,
+close-with-unsaved handling, 125%–200% scale checks, and complete injected
+failure-state coverage remain open Phase 7 work.
+
+This pass invoked no audio action. It did not change volume, mute, route, gain,
+OutFX, Direct Mode, ALSA controls, software-EQ configuration, or the runtime
+PipeWire graph.

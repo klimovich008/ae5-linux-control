@@ -49,11 +49,19 @@ Rectangle {
                 rightPadding: root.compact ? 0 : 12
                 hoverEnabled: true
                 enabled: selected
+                focusPolicy: selected ? Qt.TabFocus : Qt.NoFocus
                 Accessible.name: modelData.label
+                Accessible.description: selected
+                                        ? qsTr("Current page")
+                                        : qsTr("Coming in a later milestone")
 
                 background: Rectangle {
-                    color: navItem.selected ? Qt.rgba(0, 0.78, 0.9, 0.1)
+                    radius: Theme.radiusSmall
+                    color: navItem.selected
+                           ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.1)
                                             : navItem.hovered ? Theme.surface : "transparent"
+                    border.width: navItem.visualFocus ? 3 : 0
+                    border.color: Theme.focus
 
                     Rectangle {
                         visible: navItem.selected
@@ -73,6 +81,7 @@ Rectangle {
                         icon.color: navItem.selected ? Theme.accent : Theme.textSecondary
                         background: Item {}
                         enabled: false
+                        Accessible.ignored: true
                     }
 
                     Label {
@@ -85,7 +94,7 @@ Rectangle {
                     }
                 }
 
-                ToolTip.visible: root.compact && hovered
+                ToolTip.visible: root.compact && (hovered || activeFocus)
                 ToolTip.text: modelData.label
             }
         }
@@ -122,6 +131,7 @@ Rectangle {
                 hoverEnabled: true
                 enabled: false
                 Accessible.name: modelData.label
+                Accessible.description: qsTr("Coming in a later milestone")
 
                 background: Item {}
 
@@ -135,6 +145,7 @@ Rectangle {
                         icon.color: Theme.disabled
                         background: Item {}
                         enabled: false
+                        Accessible.ignored: true
                     }
 
                     Label {
@@ -146,7 +157,7 @@ Rectangle {
                     }
                 }
 
-                ToolTip.visible: root.compact && hovered
+                ToolTip.visible: root.compact && (hovered || activeFocus)
                 ToolTip.text: qsTr("%1 — coming in a later milestone").arg(modelData.label)
             }
         }

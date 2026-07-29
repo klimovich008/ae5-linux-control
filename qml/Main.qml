@@ -13,8 +13,16 @@ ApplicationWindow {
     minimumWidth: 1024
     minimumHeight: 680
     visible: true
-    title: qsTr("AE5 Control — Core Preview")
+    title: qsTr("AE5 Control")
     color: Theme.background
+    palette.window: Theme.background
+    palette.windowText: Theme.textPrimary
+    palette.base: Theme.surface
+    palette.text: Theme.textPrimary
+    palette.button: Theme.surfaceRaised
+    palette.buttonText: Theme.textPrimary
+    palette.highlight: Theme.accent
+    palette.highlightedText: Theme.background
 
     readonly property bool compact: width < 1120
 
@@ -49,6 +57,8 @@ ApplicationWindow {
             }
 
             SoundPage {
+                id: soundPage
+
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 appState: appState
@@ -61,6 +71,17 @@ ApplicationWindow {
             Layout.preferredHeight: root.compact ? 76 : 88
             appState: appState
             compact: root.compact
+            onReviewRequested: soundPage.reviewUnsaved()
         }
+    }
+
+    Shortcut {
+        sequence: StandardKey.Save
+        onActivated: soundPage.saveFocusedObject(false)
+    }
+
+    Shortcut {
+        sequence: "Ctrl+Shift+S"
+        onActivated: soundPage.saveFocusedObject(true)
     }
 }

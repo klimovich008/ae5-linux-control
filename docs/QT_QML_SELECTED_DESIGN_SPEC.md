@@ -576,10 +576,28 @@ is unavailable.
 
 ### Phase 7 — failure states, accessibility, and scaling
 
-- implement disconnected, partial, busy, permission, firmware, daemon, and
-  write-failure states;
-- complete keyboard traversal, accessible names, focus rings, and contrast;
-- verify Wayland/X11 and all required sizes/scales.
+Status: **in progress — first accessibility and responsive-layout slice
+complete**
+
+- [ ] implement and test disconnected, partial, busy, permission, firmware,
+  daemon, and write-failure states as reusable component states;
+- [x] expose meaningful AT-SPI roles, names, descriptions, values, and
+  applying/error status for navigation, notices, object headers, live EQ,
+  equalizer bands, enhancement controls, and the hardware faceplate;
+- [x] give custom controls keyboard-only focus rings, remove decorative icon
+  buttons from the accessibility tree, explain disabled controls, and expose
+  focused tooltips;
+- [x] connect object-scoped `Ctrl+S`, `Ctrl+Shift+S`, and faceplate Review
+  behavior without introducing a combined profile save;
+- [x] use Qt Quick Controls Basic and semantic dark/light palettes whose
+  normal text and status colors pass the intended contrast checks;
+- [x] verify native Wayland layouts at 1024 × 680, 1280 × 800, and
+  1600 × 1000 with no horizontal overflow, plus an X11 startup smoke test;
+- [ ] implement close-with-unsaved choices and automated focus-order
+  assertions;
+- [ ] verify 125%, 150%, and 200% display scaling and complete screen-reader
+  reading-order acceptance. The explicit `--light` palette is available now;
+  automatic system-theme following remains later polish.
 
 Exit: no state requires a terminal or application restart to understand.
 

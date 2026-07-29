@@ -1,9 +1,10 @@
 use cxx_qt::casting::Upcast;
-use cxx_qt_lib::{QGuiApplication, QQmlApplicationEngine, QQmlEngine, QUrl};
+use cxx_qt_lib::{QGuiApplication, QQmlApplicationEngine, QQmlEngine, QQuickStyle, QString, QUrl};
 use std::pin::Pin;
 
 fn main() {
     ae5_control::qml_app_state::initialize();
+    QQuickStyle::set_style(&QString::from("Basic"));
 
     let mut app = QGuiApplication::new();
     let mut engine = QQmlApplicationEngine::new();

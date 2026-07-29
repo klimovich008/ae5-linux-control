@@ -8,13 +8,17 @@ Rectangle {
 
     property var appState
     property bool compact: false
+    signal reviewRequested
     readonly property color statusColor: appState.statusCode === "ready" ? Theme.success
                                                   : appState.statusCode === "connecting" ? Theme.accent
                                                   : appState.statusCode === "partial" ? Theme.modified
                                                   : Theme.error
 
-    color: "#06131F"
+    color: Theme.faceplate
     border.color: Theme.separator
+    Accessible.role: Accessible.StatusBar
+    Accessible.name: qsTr("%1 hardware controls").arg(appState.deviceName)
+    Accessible.description: appState.statusDetail
 
     Timer {
         id: volumeWriteDebounce
@@ -62,6 +66,7 @@ Rectangle {
                     text: root.appState.deviceStatus
                     color: root.statusColor
                     font.pixelSize: 11
+                    Accessible.description: root.appState.statusDetail
                     ToolTip.visible: statusArea.containsMouse
                     ToolTip.text: root.appState.statusDetail
 
@@ -123,8 +128,13 @@ Rectangle {
 
                         background: Rectangle {
                             radius: Theme.radiusSmall
-                            color: outputButton.checked ? Qt.rgba(0, 0.78, 0.9, 0.16) : Theme.surface
-                            border.color: outputButton.checked ? Theme.accent : Theme.separator
+                            color: outputButton.checked
+                                   ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.16)
+                                   : Theme.surface
+                            border.width: outputButton.visualFocus ? 3 : 1
+                            border.color: outputButton.visualFocus
+                                          ? Theme.focus
+                                          : outputButton.checked ? Theme.accent : Theme.separator
                         }
 
                         contentItem: Label {
@@ -167,7 +177,7 @@ Rectangle {
                         Accessible.description: modelData === "High"
                                                 ? qsTr("High gain requires a deliberate safety confirmation.")
                                                 : root.appState.hardwareWriteBlockReason
-                        ToolTip.visible: hovered
+                        ToolTip.visible: hovered || activeFocus
                         ToolTip.text: Accessible.description
                     }
                 }
@@ -233,7 +243,7 @@ Rectangle {
 
                 Label {
                     Layout.preferredWidth: 38
-                text: root.appState.volumeAvailable ? root.appState.masterVolume + "%" : "—"
+                    text: root.appState.volumeAvailable ? root.appState.masterVolume + "%" : "—"
                     color: Theme.textPrimary
                     horizontalAlignment: Text.AlignRight
                     font.pixelSize: 13
@@ -286,6 +296,7 @@ Rectangle {
             flat: true
             Accessible.name: qsTr("Review %1 unsaved changes").arg(root.appState.unsavedCount)
             Accessible.ignored: !visible
+            onClicked: root.reviewRequested()
 
             contentItem: Label {
                 text: reviewButton.text

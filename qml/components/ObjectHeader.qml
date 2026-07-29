@@ -13,7 +13,9 @@ Item {
     property string statusDetail
     property bool readOnly: true
     property var options: []
+    property var returnFocusItem: null
     readonly property bool modified: stateText === "Modified"
+    readonly property bool modalOpen: saveAsDialog.visible
 
     signal saveRequested
     signal saveAsRequested(string name)
@@ -21,10 +23,25 @@ Item {
     signal selectionRequested(string name)
 
     implicitHeight: headerLayout.implicitHeight
+    Accessible.role: Accessible.Grouping
+    Accessible.name: objectTitle
+    Accessible.description: statusDetail
 
     function openSaveAs() {
+        returnFocusItem = root.Window.window ? root.Window.window.activeFocusItem : null
         saveAsName.text = currentName
         saveAsDialog.open()
+    }
+
+    function focusEditor() {
+        selector.forceActiveFocus()
+    }
+
+    function saveCurrent(forceSaveAs) {
+        if (forceSaveAs || readOnly)
+            openSaveAs()
+        else if (modified)
+            saveRequested()
     }
 
     RowLayout {
@@ -74,6 +91,8 @@ Item {
             }
 
             ComboBox {
+                id: selector
+
                 Layout.fillWidth: true
                 model: root.options
                 currentIndex: {
@@ -146,6 +165,8 @@ Item {
                 color: saveButton.down ? Qt.darker(Theme.accent, 1.25)
                                        : saveButton.hovered ? Qt.lighter(Theme.accent, 1.1)
                                                             : Theme.accent
+                border.width: saveButton.visualFocus ? 3 : 0
+                border.color: Theme.focus
             }
 
             contentItem: Label {
@@ -158,12 +179,14 @@ Item {
         }
 
         ToolButton {
+            id: actionsButton
+
             Layout.alignment: Qt.AlignBottom
             display: AbstractButton.IconOnly
             icon.name: "view-more-symbolic"
             icon.color: Theme.textSecondary
             Accessible.name: qsTr("%1 actions").arg(root.objectTitle)
-            ToolTip.visible: hovered
+            ToolTip.visible: hovered || activeFocus
             ToolTip.text: Accessible.name
             onClicked: actionsMenu.open()
 
@@ -197,6 +220,11 @@ Item {
         onOpened: {
             saveAsName.forceActiveFocus()
             saveAsName.selectAll()
+        }
+        onClosed: {
+            if (root.returnFocusItem)
+                root.returnFocusItem.forceActiveFocus()
+            root.returnFocusItem = null
         }
         onAccepted: root.saveAsRequested(saveAsName.text.trim())
 

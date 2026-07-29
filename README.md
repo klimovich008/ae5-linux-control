@@ -503,6 +503,27 @@ Then launch the Wayland UI in another terminal:
 QT_QPA_PLATFORM=wayland cargo run --features qml-gui --bin ae5-control-qml
 ```
 
+The QML application uses Qt Quick Controls Basic so its semantic component
+theme is consistent on GNOME, KDE, and other desktops. It starts in the dark
+theme; pass `--light` after Cargo's argument separator to exercise the matching
+light tokens:
+
+```sh
+QT_QPA_PLATFORM=wayland cargo run --features qml-gui --bin ae5-control-qml -- --light
+```
+
+The selected Sound screen has been checked at 1024 × 680, 1280 × 800, and
+1600 × 1000. At the minimum size the sidebar collapses to a labelled icon rail
+and the workspace scrolls vertically without horizontal overflow. `Ctrl+S`
+saves the modified object that owns focus; `Ctrl+Shift+S` opens its Save as
+flow. If both section-owned objects need attention, the hardware faceplate's
+Review action returns focus to the relevant object rather than performing a
+combined save. Status notices, the live-EQ state, object headers, the
+equalizer graph and bands, enhancement controls, and hardware faceplate expose
+typed accessibility names and descriptions. Close-with-unsaved handling,
+fractional display-scale acceptance, and the remaining failure-state tests are
+still Phase 7 work.
+
 Stopping `ae5d` deliberately puts the UI into its daemon-unavailable state.
 Starting it again restores the live faceplate on the next five-second refresh;
 the GUI does not need to restart.

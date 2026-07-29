@@ -12,12 +12,71 @@ Rectangle {
 
     color: Theme.background
 
+    function containsFocusItem(container) {
+        let item = root.Window.window ? root.Window.window.activeFocusItem : null
+        while (item) {
+            if (item === container)
+                return true
+            item = item.parent
+        }
+        return false
+    }
+
+    function revealSection(section, header) {
+        const flickable = pageScroll.contentItem
+        const position = section.mapToItem(contentColumn, 0, 0).y
+        flickable.contentY = Math.max(
+                    0, Math.min(position - 8, flickable.contentHeight - flickable.height))
+        Qt.callLater(function() { header.focusEditor() })
+    }
+
+    function reviewUnsaved() {
+        if (root.appState.effectsState === "Modified"
+                && containsFocusItem(effectsSection)) {
+            revealSection(effectsSection, effectsHeader)
+        } else if (root.appState.eqState === "Modified") {
+            revealSection(eqSection, eqHeader)
+        } else if (root.appState.effectsState === "Modified") {
+            revealSection(effectsSection, effectsHeader)
+        }
+    }
+
+    function saveFocusedObject(forceSaveAs) {
+        if (eqHeader.modalOpen || effectsHeader.modalOpen)
+            return
+
+        let header = null
+        if (containsFocusItem(eqSection))
+            header = eqHeader
+        else if (containsFocusItem(effectsSection))
+            header = effectsHeader
+        else if (root.appState.eqState === "Modified"
+                 && root.appState.effectsState !== "Modified")
+            header = eqHeader
+        else if (root.appState.effectsState === "Modified"
+                 && root.appState.eqState !== "Modified")
+            header = effectsHeader
+        else if (root.appState.eqState === "Modified"
+                 && root.appState.effectsState === "Modified") {
+            reviewUnsaved()
+            return
+        }
+
+        if (header && (forceSaveAs || header.modified))
+            header.saveCurrent(forceSaveAs)
+    }
+
     ScrollView {
+        id: pageScroll
+
         anchors.fill: parent
         clip: true
         contentWidth: availableWidth
+        ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
 
         ColumnLayout {
+            id: contentColumn
+
             width: parent.width
             spacing: 10
 
@@ -61,12 +120,16 @@ Rectangle {
             }
 
             ColumnLayout {
+                id: eqSection
+
                 Layout.fillWidth: true
                 Layout.leftMargin: root.compact ? 22 : 32
                 Layout.rightMargin: root.compact ? 22 : 32
                 spacing: 10
 
                 ObjectHeader {
+                    id: eqHeader
+
                     Layout.fillWidth: true
                     objectTitle: qsTr("Equalizer")
                     selectorLabel: qsTr("EQ preset")
@@ -121,9 +184,11 @@ Rectangle {
                                     Layout.preferredHeight: 22
                                     radius: 11
                                     color: root.appState.softwareEqState === "error"
-                                           ? Qt.rgba(0.95, 0.30, 0.32, 0.15)
+                                           ? Qt.rgba(Theme.error.r, Theme.error.g,
+                                                     Theme.error.b, 0.15)
                                            : root.appState.softwareEqActive
-                                             ? Qt.rgba(0.16, 0.82, 0.82, 0.14)
+                                             ? Qt.rgba(Theme.accent.r, Theme.accent.g,
+                                                       Theme.accent.b, 0.14)
                                              : Theme.surfaceRaised
 
                                     Label {
@@ -157,13 +222,7 @@ Rectangle {
                                 text: root.appState.softwareEqDetail
                                 color: Theme.textSecondary
                                 font.pixelSize: 11
-                                elide: Text.ElideRight
-                                ToolTip.visible: truncated && runtimeDetailHover.hovered
-                                ToolTip.text: text
-
-                                HoverHandler {
-                                    id: runtimeDetailHover
-                                }
+                                wrapMode: Text.Wrap
                             }
                         }
 
@@ -193,11 +252,16 @@ Rectangle {
                             Accessible.description: enabled
                                                     ? qsTr("Applies this draft to the live AE-5 PipeWire output.")
                                                     : blockedReason
-                            ToolTip.visible: hovered && !enabled
+                            ToolTip.visible: (hovered || activeFocus) && !enabled
                             ToolTip.text: blockedReason
                             onClicked: root.appState.applyEqDraft()
                         }
                     }
+
+                    Accessible.role: root.appState.softwareEqState === "error"
+                                     ? Accessible.AlertMessage : Accessible.StatusBar
+                    Accessible.name: qsTr("Live software EQ: %1").arg(runtimeStateLabel.text)
+                    Accessible.description: root.appState.softwareEqDetail
                 }
 
                 EqualizerGraph {
@@ -218,6 +282,8 @@ Rectangle {
             }
 
             ColumnLayout {
+                id: effectsSection
+
                 Layout.fillWidth: true
                 Layout.leftMargin: root.compact ? 22 : 32
                 Layout.rightMargin: root.compact ? 22 : 32
@@ -225,6 +291,8 @@ Rectangle {
                 spacing: 8
 
                 ObjectHeader {
+                    id: effectsHeader
+
                     Layout.fillWidth: true
                     objectTitle: qsTr("Effects")
                     selectorLabel: qsTr("Effects profile")
@@ -243,8 +311,9 @@ Rectangle {
                     Layout.fillWidth: true
                     Layout.preferredHeight: directModeRow.implicitHeight + 12
                     radius: Theme.radiusSmall
-                    color: root.appState.directMode ? Qt.rgba(0.61, 0.45, 0.96, 0.12)
-                                                        : Theme.surface
+                    color: root.appState.directMode
+                           ? Qt.rgba(Theme.focus.r, Theme.focus.g, Theme.focus.b, 0.12)
+                           : Theme.surface
                     border.color: root.appState.directMode ? Theme.focus : Theme.separator
 
                     RowLayout {

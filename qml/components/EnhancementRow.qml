@@ -19,6 +19,13 @@ Item {
     property string leftPole
     property string rightPole
     readonly property bool interactive: available && controlsEnabled && editingEnabled
+    readonly property string blockedReason: !available
+                                             ? qsTr("%1 is not present in this profile.").arg(title)
+                                             : !editingEnabled
+                                               ? unavailableReason
+                                               : !controlsEnabled
+                                                 ? qsTr("%1 is bypassed while Direct Mode is active.").arg(title)
+                                                 : ""
 
     implicitHeight: 36
 
@@ -34,17 +41,17 @@ Item {
         }
 
         ToolButton {
-            Layout.preferredWidth: 28
+            Layout.preferredWidth: 32
+            Layout.preferredHeight: 32
             display: AbstractButton.IconOnly
             icon.name: "help-about-symbolic"
             icon.color: Theme.textSecondary
             Accessible.name: qsTr("About %1").arg(root.title)
-            ToolTip.visible: hovered
-            ToolTip.text: root.available
-                          ? root.editingEnabled
-                            ? qsTr("%1 support depends on the active AE-5 capability path.").arg(root.title)
-                            : root.unavailableReason
-                          : qsTr("%1 is not present in this profile.").arg(root.title)
+            Accessible.description: root.interactive
+                                    ? qsTr("%1 support depends on the active AE-5 capability path.").arg(root.title)
+                                    : root.blockedReason
+            ToolTip.visible: hovered || activeFocus
+            ToolTip.text: Accessible.description
         }
 
         Switch {
@@ -54,8 +61,8 @@ Item {
             enabled: root.interactive
             Accessible.name: qsTr("Enable %1").arg(root.title)
             Accessible.description: enabled ? qsTr("Toggle %1").arg(root.title)
-                                            : root.unavailableReason
-            ToolTip.visible: hovered && !enabled
+                                            : root.blockedReason
+            ToolTip.visible: (hovered || activeFocus) && !enabled
             ToolTip.text: Accessible.description
             onClicked: root.appState.updateEffectsDraft(
                            root.controlKey, checked, Math.round(level.value))
@@ -80,8 +87,8 @@ Item {
             Accessible.name: root.title
             Accessible.description: enabled
                                     ? qsTr("%1 percent").arg(Math.round(value))
-                                    : root.unavailableReason
-            ToolTip.visible: hovered && !enabled
+                                    : root.blockedReason
+            ToolTip.visible: (hovered || activeFocus) && !enabled
             ToolTip.text: Accessible.description
             onMoved: root.appState.updateEffectsDraft(
                          root.controlKey, enabledSwitch.checked, Math.round(value))

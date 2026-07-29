@@ -20,6 +20,9 @@ Rectangle {
     radius: Theme.radiusSmall
     color: Qt.rgba(stateColor.r, stateColor.g, stateColor.b, 0.08)
     border.color: Qt.rgba(stateColor.r, stateColor.g, stateColor.b, 0.55)
+    Accessible.role: statusCode === "ready" ? Accessible.StatusBar : Accessible.AlertMessage
+    Accessible.name: title
+    Accessible.description: detail
 
     RowLayout {
         id: content
@@ -57,6 +60,9 @@ Rectangle {
         }
 
         Button {
+            visible: root.statusCode !== "ready"
+            enabled: visible
+            Accessible.ignored: !visible
             text: qsTr("Retry")
             flat: true
             Accessible.name: qsTr("Retry live device connection")

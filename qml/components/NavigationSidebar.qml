@@ -44,6 +44,7 @@ Rectangle {
                 required property var modelData
                 readonly property bool selected: modelData.key === root.currentKey
 
+                objectName: "nav-" + modelData.key
                 Layout.fillWidth: true
                 Layout.preferredHeight: Theme.navItemHeight
                 leftPadding: root.compact ? 0 : Theme.space4

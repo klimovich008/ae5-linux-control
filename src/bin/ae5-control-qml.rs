@@ -3,6 +3,11 @@ use cxx_qt_lib::{QGuiApplication, QQmlApplicationEngine, QQmlEngine, QQuickStyle
 use std::pin::Pin;
 
 fn main() {
+    if let Err(error) = ae5_control::qml_app_state::validate_qa_arguments() {
+        eprintln!("ae5-control-qml: {error}");
+        std::process::exit(2);
+    }
+
     // Make the generated C++ initializer a direct executable dependency.
     // CXX-Qt's automatic initializer archive otherwise appears after this
     // crate's archive, which GNU gold cannot resolve in a single pass.

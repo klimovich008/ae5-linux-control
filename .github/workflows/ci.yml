@@ -50,7 +50,7 @@ jobs:
       - run: bash scripts/check-software-eq-response.sh --self-test
       - run: bash scripts/build-transition-helper.sh
       - run: target/diagnostics/ae5-pw-renegotiate --help
-      - run: shellcheck scripts/audio-parity.sh scripts/build-transition-helper.sh scripts/check-ae5-warm-handoff.sh scripts/check-software-eq-performance.sh scripts/check-software-eq-response.sh scripts/hda-position-trace.sh scripts/install-ae5-kernel-test.sh scripts/track-transition-stress.sh
+      - run: shellcheck scripts/audio-parity.sh scripts/build-transition-helper.sh scripts/check-ae5-warm-handoff.sh scripts/check-qml-accessibility.sh scripts/check-software-eq-performance.sh scripts/check-software-eq-response.sh scripts/hda-position-trace.sh scripts/install-ae5-kernel-test.sh scripts/track-transition-stress.sh
       - run: python3 .claude/hooks/volume-guard.py --self-test
       - run: bash scripts/collect-linux-report.sh --self-test
       - run: bash scripts/collect-routing-state.sh --self-test
@@ -63,6 +63,7 @@ jobs:
       - run: appstreamcli validate --no-net --strict packaging/io.github.klimovich008.ae5control.metainfo.xml
       - run: systemd-analyze --user verify systemd/user/*
       - run: bash scripts/build-release-binaries.sh --locked
+      - run: bash scripts/check-qml-accessibility.sh target/release/ae5-control-qml
       - run: bash scripts/check-user-install.sh
       - run: cargo fmt --check
       - name: Clippy (core, GTK, daemon, and CLI)

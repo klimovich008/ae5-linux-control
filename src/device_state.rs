@@ -9,6 +9,92 @@ use crate::{
 const READ_ONLY_REASON: &str =
     "Hardware controls are read-only until their checked ae5d write path is connected.";
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DeviceStatusCode {
+    Ready,
+    Partial,
+    NoDevice,
+    FirmwareMissing,
+    PermissionDenied,
+    DeviceBusy,
+    WriteFailed,
+    DaemonUnavailable,
+    Connecting,
+    DeviceError,
+}
+
+impl DeviceStatusCode {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Ready => "ready",
+            Self::Partial => "partial",
+            Self::NoDevice => "no-device",
+            Self::FirmwareMissing => "firmware-missing",
+            Self::PermissionDenied => "permission-denied",
+            Self::DeviceBusy => "device-busy",
+            Self::WriteFailed => "write-failed",
+            Self::DaemonUnavailable => "daemon-unavailable",
+            Self::Connecting => "connecting",
+            Self::DeviceError => "device-error",
+        }
+    }
+
+    pub const fn display_name(self) -> &'static str {
+        match self {
+            Self::Ready => "Connected",
+            Self::Partial => "Partial capabilities",
+            Self::NoDevice => "Not detected",
+            Self::FirmwareMissing => "Firmware missing",
+            Self::PermissionDenied => "Permission denied",
+            Self::DeviceBusy => "Device busy",
+            Self::WriteFailed => "Write failed",
+            Self::DaemonUnavailable => "Daemon unavailable",
+            Self::Connecting => "Connecting",
+            Self::DeviceError => "Device error",
+        }
+    }
+
+    pub fn from_code(code: &str) -> Self {
+        match code {
+            "ready" => Self::Ready,
+            "partial" => Self::Partial,
+            "no-device" => Self::NoDevice,
+            "firmware-missing" => Self::FirmwareMissing,
+            "permission-denied" => Self::PermissionDenied,
+            "device-busy" => Self::DeviceBusy,
+            "write-failed" => Self::WriteFailed,
+            "daemon-unavailable" => Self::DaemonUnavailable,
+            "connecting" => Self::Connecting,
+            _ => Self::DeviceError,
+        }
+    }
+
+    pub fn from_known_error(message: &str) -> Option<Self> {
+        let normalized = message.to_ascii_lowercase();
+        if normalized.contains("permission denied")
+            || normalized.contains("operation not permitted")
+            || normalized.contains("access denied")
+            || normalized.contains("not authorized")
+        {
+            Some(Self::PermissionDenied)
+        } else if normalized.contains("device or resource busy")
+            || normalized.contains("device busy")
+            || normalized.contains("resource busy")
+        {
+            Some(Self::DeviceBusy)
+        } else if normalized.contains("firmware")
+            && (normalized.contains("missing")
+                || normalized.contains("not found")
+                || normalized.contains("no such file")
+                || normalized.contains("unavailable"))
+        {
+            Some(Self::FirmwareMissing)
+        } else {
+            None
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "daemon", derive(zbus::zvariant::Type))]
 pub struct DeviceOutputState {
@@ -57,8 +143,17 @@ struct DeviceStateParts {
 
 impl DeviceOutputState {
     pub fn capture() -> std::io::Result<Self> {
-        let Some(device) = Ae5Device::discover()? else {
-            return Ok(Self::no_device());
+        let device = match Ae5Device::discover() {
+            Ok(Some(device)) => device,
+            Ok(None) => return Ok(Self::no_device()),
+            Err(error) => {
+                let status = DeviceStatusCode::from_known_error(&error.to_string())
+                    .unwrap_or(DeviceStatusCode::DeviceError);
+                return Ok(Self::unavailable(
+                    status,
+                    format!("AE-5 discovery failed: {error}"),
+                ));
+            }
         };
         let card_index = device.card_index;
         let parts = DeviceStateParts {
@@ -74,12 +169,19 @@ impl DeviceOutputState {
     }
 
     fn no_device() -> Self {
+        Self::unavailable(
+            DeviceStatusCode::NoDevice,
+            "No compatible Sound BlasterX AE-5 was detected.".to_owned(),
+        )
+    }
+
+    fn unavailable(status: DeviceStatusCode, status_message: String) -> Self {
         Self {
             schema_version: 2,
             device_name: "Sound BlasterX AE-5".to_owned(),
             connected: false,
-            status_code: "no-device".to_owned(),
-            status_message: "No compatible Sound BlasterX AE-5 was detected.".to_owned(),
+            status_code: status.as_str().to_owned(),
+            status_message: status_message.clone(),
             audio_format: "Unavailable".to_owned(),
             audio_format_available: false,
             master_volume: 0,
@@ -96,15 +198,15 @@ impl DeviceOutputState {
             software_eq_detail: "No compatible AE-5 is available for software EQ.".to_owned(),
             software_eq_active: false,
             eq_apply_available: false,
-            eq_apply_block_reason: "No compatible Sound BlasterX AE-5 was detected.".to_owned(),
+            eq_apply_block_reason: status_message.clone(),
             hardware_write_enabled: false,
             volume_write_enabled: false,
             mute_write_enabled: false,
             output_write_enabled: false,
             headphone_gain_write_enabled: false,
             direct_mode_write_enabled: false,
-            hardware_write_block_reason: READ_ONLY_REASON.to_owned(),
-            output_write_block_reason: READ_ONLY_REASON.to_owned(),
+            hardware_write_block_reason: status_message.clone(),
+            output_write_block_reason: status_message,
             card_index: -1,
             controls_count: 0,
         }
@@ -113,9 +215,11 @@ impl DeviceOutputState {
 
 fn compose_state(device: Ae5Device, parts: DeviceStateParts) -> DeviceOutputState {
     let mut issues = Vec::new();
+    let mut specific_status = None;
     let controls = match parts.controls {
         Ok(controls) => controls,
         Err(error) => {
+            specific_status = DeviceStatusCode::from_known_error(&error);
             issues.push(format!("ALSA controls unavailable: {error}."));
             Vec::new()
         }
@@ -175,6 +279,8 @@ fn compose_state(device: Ae5Device, parts: DeviceStateParts) -> DeviceOutputStat
             (0, false, true, false)
         }
         Err(error) => {
+            specific_status =
+                specific_status.or_else(|| DeviceStatusCode::from_known_error(&error));
             issues.push(format!("PipeWire playback state unavailable: {error}."));
             (0, false, true, false)
         }
@@ -187,15 +293,19 @@ fn compose_state(device: Ae5Device, parts: DeviceStateParts) -> DeviceOutputStat
             ("Unavailable".to_owned(), false)
         }
         Err(error) => {
+            specific_status =
+                specific_status.or_else(|| DeviceStatusCode::from_known_error(&error));
             issues.push(format!("Active PipeWire format unavailable: {error}."));
             ("Unavailable".to_owned(), false)
         }
     };
 
-    let status_code = if issues.is_empty() {
-        "ready"
+    let status_code = if let Some(status) = specific_status {
+        status
+    } else if issues.is_empty() {
+        DeviceStatusCode::Ready
     } else {
-        "partial"
+        DeviceStatusCode::Partial
     };
     let status_message = if issues.is_empty() {
         "Live device state from ae5d.".to_owned()
@@ -212,7 +322,7 @@ fn compose_state(device: Ae5Device, parts: DeviceStateParts) -> DeviceOutputStat
             .codec_name
             .unwrap_or_else(|| "Sound BlasterX AE-5".to_owned()),
         connected: true,
-        status_code: status_code.to_owned(),
+        status_code: status_code.as_str().to_owned(),
         status_message,
         audio_format,
         audio_format_available,
@@ -583,6 +693,58 @@ mod tests {
             ),
             (true, "partial", false, false)
         );
+    }
+
+    #[test]
+    fn classifies_user_actionable_device_failures() {
+        assert_eq!(
+            DeviceStatusCode::from_known_error("Permission denied opening hw:1"),
+            Some(DeviceStatusCode::PermissionDenied)
+        );
+        assert_eq!(
+            DeviceStatusCode::from_known_error("Device or resource busy"),
+            Some(DeviceStatusCode::DeviceBusy)
+        );
+        assert_eq!(
+            DeviceStatusCode::from_known_error("DSP firmware file is missing"),
+            Some(DeviceStatusCode::FirmwareMissing)
+        );
+        assert_eq!(
+            DeviceStatusCode::from_known_error("wpctl unavailable"),
+            None
+        );
+    }
+
+    #[test]
+    fn compose_state_promotes_permission_failures_above_partial() {
+        let mut parts = healthy_parts();
+        parts.controls = Err("Permission denied opening ALSA controls".to_owned());
+
+        let state = compose_state(device(), parts);
+
+        assert_eq!(state.status_code, "permission-denied");
+        assert!(state.connected);
+        assert!(!state.output_available);
+        assert!(state.status_message.contains("Permission denied"));
+    }
+
+    #[test]
+    fn unavailable_state_explains_why_every_write_is_blocked() {
+        let state = DeviceOutputState::unavailable(
+            DeviceStatusCode::FirmwareMissing,
+            "Required CA0132 firmware is missing.".to_owned(),
+        );
+
+        assert_eq!(state.status_code, "firmware-missing");
+        assert_eq!(
+            state.hardware_write_block_reason,
+            "Required CA0132 firmware is missing."
+        );
+        assert_eq!(
+            state.eq_apply_block_reason,
+            "Required CA0132 firmware is missing."
+        );
+        assert!(!state.hardware_write_enabled);
     }
 
     #[test]

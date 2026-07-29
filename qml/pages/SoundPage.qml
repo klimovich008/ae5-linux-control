@@ -10,6 +10,13 @@ Rectangle {
     property var appState
     property bool compact: false
     readonly property int pageGutter: compact ? 20 : Theme.space6
+    readonly property string noticeCode:
+        root.appState.statusCode !== "ready"
+        ? root.appState.statusCode
+        : root.appState.profileCatalogStatus === "ready"
+          ? "ready"
+          : root.appState.profileCatalogStatus === "stale" ? "partial"
+                                                            : "profile-unavailable"
 
     color: Theme.background
     Accessible.role: Accessible.Pane
@@ -36,7 +43,8 @@ Rectangle {
                     0, Math.min(position - 8,
                                 contentColumn.implicitHeight - flickable.height))
         Qt.callLater(function() {
-            header.focusEditor()
+            if (!header.focusEditor())
+                section.forceActiveFocus(Qt.TabFocusReason)
             if (openSaveAs)
                 header.openSaveAs()
         })
@@ -128,19 +136,25 @@ Rectangle {
             }
 
             CapabilityNotice {
-                visible: root.appState.statusCode !== "ready"
+                visible: root.noticeCode !== "ready"
                 Layout.fillWidth: true
                 Layout.leftMargin: root.pageGutter
                 Layout.rightMargin: root.pageGutter
-                statusCode: root.appState.statusCode
-                title: root.appState.statusCode === "ready"
-                       ? qsTr("Volume, mute, profile saving and checked software EQ are live")
-                       : root.appState.deviceStatus
-                detail: root.appState.statusCode === "ready"
-                        ? root.appState.profileCatalogDetail + " "
-                          + qsTr("EQ applies only when the live device state is safe; Effects remain a preview.")
-                        : root.appState.statusDetail
-                onRetryRequested: root.appState.refreshFromDaemon()
+                statusCode: root.noticeCode
+                title: root.appState.statusCode !== "ready"
+                       ? root.appState.deviceStatus
+                       : root.appState.profileCatalogStatus === "stale"
+                         ? qsTr("Using cached profile data")
+                         : qsTr("Profile library unavailable")
+                detail: root.appState.statusCode !== "ready"
+                        ? root.appState.statusDetail
+                        : root.appState.profileCatalogDetail
+                onRetryRequested: {
+                    if (root.appState.writeErrorActive)
+                        root.appState.retryStatus()
+                    else
+                        root.appState.refreshFromDaemon()
+                }
             }
 
             ColumnLayout {
@@ -154,6 +168,7 @@ Rectangle {
                 ObjectHeader {
                     id: eqHeader
 
+                    objectKey: "eq"
                     Layout.fillWidth: true
                     objectTitle: qsTr("Equalizer")
                     selectorLabel: qsTr("EQ preset")
@@ -198,6 +213,7 @@ Rectangle {
 
                         StateBadge {
                             id: runtimeStateBadge
+                            stateKind: root.appState.softwareEqState
                             stateText: {
                                 switch (root.appState.softwareEqState) {
                                 case "current": return qsTr("Active")
@@ -228,6 +244,7 @@ Rectangle {
                         AppButton {
                             id: disableEqButton
 
+                            objectName: "live-eq-disable"
                             visible: root.appState.softwareEqActive
                             enabled: visible && root.appState.softwareEqState !== "applying"
                             Accessible.ignored: !visible
@@ -239,6 +256,7 @@ Rectangle {
                         AppButton {
                             id: applyEqButton
 
+                            objectName: "live-eq-apply"
                             readonly property string applyBlockReason: !root.appState.eqEnabled
                                                                          ? qsTr("Enable this EQ preset before applying it.")
                                                                          : root.appState.eqApplyBlockReason
@@ -293,6 +311,7 @@ Rectangle {
                 ObjectHeader {
                     id: effectsHeader
 
+                    objectKey: "effects"
                     Layout.fillWidth: true
                     objectTitle: qsTr("Effects")
                     selectorLabel: qsTr("Effects profile")
@@ -346,6 +365,7 @@ Rectangle {
                         }
 
                         AppSwitch {
+                            objectName: "direct-mode"
                             checked: root.appState.directMode
                             enabled: root.appState.directModeAvailable
                                      && root.appState.directModeWriteEnabled

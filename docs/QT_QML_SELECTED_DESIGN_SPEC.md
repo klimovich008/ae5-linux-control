@@ -1,6 +1,6 @@
 # AE5 Control Qt/QML selected design specification
 
-Status: **selected; Phase 2 visual shell implemented and accepted**
+Status: **selected; Sound-screen visual/state QA accepted**
 
 Selected direction: **Section-Owned Profiles with Hardware Faceplate**
 
@@ -576,11 +576,13 @@ is unavailable.
 
 ### Phase 7 — failure states, accessibility, and scaling
 
-Status: **in progress — accessibility, responsive layout, and close handling
-complete; exhaustive failure injection remains**
+Status: **in progress — deterministic failure rendering, responsive layout,
+focus order, and close handling complete; physical failure injection and
+screen-reader acceptance remain**
 
-- [ ] implement and test disconnected, partial, busy, permission, firmware,
-  daemon, and write-failure states as reusable component states;
+- [x] implement disconnected, partial, busy, permission, firmware, daemon,
+  write-failure, Direct Mode, and independently modified states as reusable
+  deterministic fixtures that cannot write audio hardware;
 - [x] expose meaningful AT-SPI roles, names, descriptions, values, and
   applying/error status for navigation, notices, object headers, live EQ,
   equalizer bands, enhancement controls, and the hardware faceplate;
@@ -595,8 +597,10 @@ complete; exhaustive failure injection remains**
   1600 × 1000 with no horizontal overflow, plus an X11 startup smoke test;
 - [x] implement object-scoped close-with-unsaved choices without introducing a
   combined save;
-- [ ] add automated focus-order assertions and complete screen-reader
-  reading-order acceptance;
+- [x] add exact automated focus-order assertions for healthy and both-modified
+  states, including object-scoped Save, Revert, and Review actions;
+- [ ] complete physical failure injection and screen-reader reading-order
+  acceptance;
 - [x] verify 125%, 150%, and 200% display scaling. The explicit `--light`
   palette is available now; automatic system-theme following remains later
   polish.

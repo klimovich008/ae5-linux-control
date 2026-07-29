@@ -6,6 +6,7 @@ import io.github.klimovich008.ae5control
 Item {
     id: root
 
+    property string objectKey
     property string objectTitle
     property string selectorLabel
     property string currentName
@@ -34,7 +35,14 @@ Item {
     }
 
     function focusEditor() {
-        selector.forceActiveFocus()
+        const candidates = [selector, actionsButton, revertButton, saveButton]
+        for (let index = 0; index < candidates.length; ++index) {
+            if (candidates[index].visible && candidates[index].enabled) {
+                candidates[index].forceActiveFocus(Qt.TabFocusReason)
+                return true
+            }
+        }
+        return false
     }
 
     function saveCurrent(forceSaveAs) {
@@ -99,6 +107,7 @@ Item {
             AppComboBox {
                 id: selector
 
+                objectName: root.objectKey + "-selector"
                 Layout.preferredWidth: 220
                 Layout.minimumWidth: 220
                 Layout.maximumWidth: 220
@@ -124,7 +133,8 @@ Item {
 
         StateBadge {
             Layout.alignment: Qt.AlignVCenter
-            Layout.preferredWidth: 88
+            Layout.minimumWidth: 88
+            stateKind: root.stateText.toLowerCase()
             stateText: root.stateText
         }
 
@@ -134,6 +144,9 @@ Item {
             spacing: Theme.space2
 
             AppButton {
+                id: revertButton
+
+                objectName: root.objectKey + "-revert"
                 visible: root.modified
                 enabled: visible
                 Accessible.ignored: !visible
@@ -145,6 +158,7 @@ Item {
             AppButton {
                 id: saveButton
 
+                objectName: root.objectKey + "-save"
                 visible: root.modified
                 enabled: visible
                 Accessible.ignored: !visible
@@ -163,6 +177,7 @@ Item {
             IconButton {
                 id: actionsButton
 
+                objectName: root.objectKey + "-actions"
                 iconName: "dots-three-vertical"
                 accessibleName: qsTr("%1 actions").arg(root.objectTitle)
                 onClicked: actionsMenu.open()
@@ -219,6 +234,7 @@ Item {
             TextField {
                 id: saveAsName
 
+                objectName: root.objectKey + "-save-as-name"
                 Layout.fillWidth: true
                 placeholderText: qsTr("Name")
                 Accessible.name: qsTr("%1 name").arg(root.objectTitle)

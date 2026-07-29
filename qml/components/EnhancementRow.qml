@@ -28,6 +28,11 @@ Item {
                                                  : ""
 
     implicitHeight: Math.max(Theme.controlHeightLarge, trackColumn.implicitHeight)
+    Accessible.role: Accessible.Grouping
+    Accessible.name: root.title
+    Accessible.description: root.interactive
+                            ? qsTr("%1 support depends on the active AE-5 capability path.").arg(root.title)
+                            : root.blockedReason
 
     RowLayout {
         anchors.fill: parent
@@ -41,19 +46,36 @@ Item {
             elide: Text.ElideRight
         }
 
-        IconButton {
+        Item {
             Layout.preferredWidth: Theme.iconButtonSize
             Layout.preferredHeight: Theme.iconButtonSize
-            iconName: "info"
-            accessibleName: qsTr("About %1").arg(root.title)
-            tooltipText: root.interactive
-                         ? qsTr("%1 support depends on the active AE-5 capability path.").arg(root.title)
-                         : root.blockedReason
+            Accessible.ignored: true
+
+            readonly property string helpText: root.interactive
+                                                ? qsTr("%1 support depends on the active AE-5 capability path.").arg(root.title)
+                                                : root.blockedReason
+
+            Image {
+                anchors.centerIn: parent
+                width: 18
+                height: 18
+                source: Theme.iconSource("info")
+                opacity: root.interactive ? 0.8 : 0.55
+                Accessible.ignored: true
+            }
+
+            ToolTip.visible: helpHover.hovered
+            ToolTip.text: helpText
+
+            HoverHandler {
+                id: helpHover
+            }
         }
 
         AppSwitch {
             id: enabledSwitch
 
+            objectName: "effect-" + root.controlKey + "-switch"
             checked: root.initiallyEnabled
             enabled: root.interactive
             blockedReason: root.blockedReason
@@ -73,6 +95,7 @@ Item {
             AppSlider {
                 id: level
 
+                objectName: "effect-" + root.controlKey + "-level"
                 Layout.fillWidth: true
                 from: 0
                 to: 100

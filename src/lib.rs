@@ -25,7 +25,7 @@ pub use controls::{
     snapshot_controls, unsafe_playback_control_block_reason,
 };
 pub use device::Ae5Device;
-pub use device_state::DeviceOutputState;
+pub use device_state::{DeviceOutputState, DeviceStatusCode};
 pub use eq_chain::{
     EQ_FREQUENCIES, EqBand, EqChainChange, EqChainConfig, EqChainError, bands_from_gains_tenths_db,
     bands_from_profile, disable_eq_chain, enable_eq_chain, enable_eq_chain_bands, eq_chain_config,

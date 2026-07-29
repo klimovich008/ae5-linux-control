@@ -1,131 +1,138 @@
 # AE5 Control design QA
 
-Date: 2026-07-29
-Scope: Qt 6/QML Sound screen and persistent hardware faceplate
-Result scope: healthy, connected AE-5 state only
+Date: 2026-07-30
+Scope: Qt 6/QML Sound screen, persistent hardware faceplate, deterministic
+failure states, and keyboard/accessibility behavior
+Result scope: visual and deterministic state acceptance; physical hardware
+write acceptance remains governed by the roadmap
 
 ## Visual truth and implementation evidence
 
 - Source visual truth:
   `docs/design/ae5-control-sound-selected-v2.png`
-- Default dark implementation, 1280×800 logical:
-  `docs/design/qa-2026-07-29/13-final-1280x800-dark.png`
-- Minimum dark implementation, 1024×680 logical:
-  `docs/design/qa-2026-07-29/06-final-1024x680-dark.png`
-- Wide dark implementation, 1600×1000 logical:
-  `docs/design/qa-2026-07-29/09-final-1600x1000-dark-settled.png`
-- Default light implementation, 1280×800 logical:
-  `docs/design/qa-2026-07-29/10-final-1280x800-light.png`
-- Full source/implementation comparison:
-  `docs/design/qa-2026-07-29/14-comparison-final-full.png`
-- Main-workspace comparison:
-  `docs/design/qa-2026-07-29/15-comparison-final-main.png`
-- Hardware-faceplate comparison:
-  `docs/design/qa-2026-07-29/16-comparison-final-faceplate.png`
+- Final healthy QA state, 1280×800:
+  `docs/design/qa-2026-07-30/06-final-ready-1280x800.png`
+- Final minimum layout, 1024×680:
+  `docs/design/qa-2026-07-30/02-ready-1024x680.png`
+- Final wide layout, 1600×1000:
+  `docs/design/qa-2026-07-30/03-ready-1600x1000.png`
+- Final permission failure, 1280×800:
+  `docs/design/qa-2026-07-30/07-final-permission-denied-1280x800.png`
+- Final independently modified Effects and EQ state, 1280×800:
+  `docs/design/qa-2026-07-30/10-final-both-modified-1280x800.png`
+- Same-canvas source/implementation comparison:
+  `docs/design/qa-2026-07-30/08-reference-vs-final-ready.png`
 
-The implementation captures include the 28 px KDE window decoration. Comparison
-images remove that decoration and normalize both designs to a 1280×800
-application canvas.
+All captures are decoration-free Wayland application canvases. The comparison
+normalizes the selected 1586×992 visual to the implementation's 1280×800
+canvas before placing the two images side by side.
 
-## Captured state
+## Review method
 
-- AE-5 connected through `ae5d`
-- Headphones selected
-- Medium headphone gain confirmed and read-only
-- Master volume at 20%, unmuted
-- Effects profile: `My profile`
-- EQ preset: `SHP Last`
-- Effects and EQ shown as independent Preview objects
-- Software EQ inactive because the current OutFX state blocks a second
-  processing path
-- No GUI audio control was activated while capturing or reviewing
+The selected image and final 1280×800 implementation were inspected in one
+combined comparison input. The 1024×680 and 1600×1000 layouts were then
+inspected independently. Permission-denied, write-failed, and both-modified
+states were rendered from deterministic fixtures that cannot access ALSA,
+PipeWire, D-Bus, or the AE-5.
 
-## Full-view comparison
+Claude Opus 5 (`claude-opus-5`) was used as a strict second reviewer. Its
+first review found actionable state and interaction issues. The accepted
+findings were fixed before final QA:
 
-The implementation preserves the selected direction's hierarchy: persistent
-navigation, section-owned EQ and Effects objects, a central ten-band EQ, a
-dedicated Direct Mode row, five enhancement controls, and a full-width hardware
-faceplate.
+- unsaved counts are derived from actual draft-versus-saved content;
+- modified drafts survive catalog refreshes and output changes;
+- Review lands on a safe enabled editor/menu control, not a disabled selector
+  or an immediate Save action;
+- a failed volume write restores the last confirmed slider value without a
+  polling tick cancelling a pending user edit;
+- write errors remain visible but cannot hide a later no-device, permission,
+  firmware, busy, or daemon failure;
+- live EQ apply and disable run off the Qt event thread and reject overlapping
+  operations in Rust;
+- EQ keyboard shortcuts no longer replace the slider's value binding;
+- display-state tokens use explicit normalized meanings instead of substring
+  color matching;
+- the modified-state focus chain and visible Save/Revert/Review actions are
+  covered by the automated focus audit.
 
-Intentional departures from the concept image:
+## Visual findings
 
-1. The implementation uses the real healthy Preview state instead of inventing
-   Modified or unsaved state for the screenshot.
-2. A compact Live EQ row exposes the real software-processing state and blocked
-   apply reason.
-3. Effects use two columns at 1280×800 so all five controls remain visible
-   without reducing target sizes or placing content behind the faceplate.
-4. The footer omits a decorative product thumbnail and shows confirmed device
-   text instead.
-5. Unimplemented destinations are visibly unavailable while retaining
-   deterministic icons and accessible names.
+### Hierarchy and alignment
 
-## Focused-region findings
+- Device output appears only in the persistent faceplate.
+- Effects profiles and EQ presets retain separate selectors, state badges,
+  Save/Revert actions, and drafts.
+- Equalizer and Effects headers share a stable alignment grid at 1280 and
+  1600 logical pixels.
+- The 1280 modified-state footer uses a compact `2 unsaved` action, preventing
+  Current setup or device identity from being pushed beyond the window.
+- At 1024×680 the navigation becomes an icon rail, the footer compresses to
+  SPK/HP/DIG, and the workspace scrolls vertically with no horizontal
+  overflow.
 
-### Navigation and shell
+### Color and icon language
 
-- Selected Sound state has a clipped accent rail, semantic Phosphor icon,
-  readable label, and stable 44 px target.
-- Future destinations use deterministic bundled icons rather than host-theme
-  fallbacks.
-- The 1024 px rail retains tooltips and accessible destination names.
-- No P0, P1, or P2 visual issue remains in the captured shell.
+- Cyan is reserved for selected navigation, active controls, and primary
+  action emphasis.
+- Violet is reserved for keyboard focus.
+- Green, amber, and red are semantic confirmed, modified, and error colors;
+  every state also has text.
+- Navigation and control icons are deterministic bundled Phosphor assets.
+- Disabled checked controls remain visibly selected while using disabled
+  contrast, avoiding false live affordances.
+- Healthy state stays visually quiet; permission and write failures add one
+  restrained notice and one recovery action.
 
-### EQ and Effects workspace
+### Pointer, keyboard, and accessibility behavior
 
-- EQ and Effects headers share one stable title/detail, selector, state, and
-  action grid.
-- Selector widths and action reservations no longer shift between sections.
-- Neutral Preview uses grey text/dot; cyan remains reserved for interaction and
-  current selection.
-- The EQ curve exposes the 0 dB reference, dB axis, ten frequencies, real
-  controls, hover/focus value bubbles, and drag cursors without fake spectrum
-  data.
-- All five enhancement controls are visible at 1280×800 and 1600×1000.
-- At 1024×680 the page becomes one column and shows a persistent scrollbar
-  instead of clipping a row at the faceplate.
-- No P0, P1, or P2 visual issue remains in the captured workspace.
+- Buttons and selectors use pointing-hand cursors.
+- sliders and EQ nodes use open/closed-hand drag cursors;
+- disabled controls retain the normal cursor and expose a reason by tooltip;
+- the healthy focus chain has 31 named stops;
+- the both-modified focus chain additionally covers independent Revert, Save,
+  and Review actions;
+- decorative help icons are no longer tab stops, while their explanation is
+  carried by the accessible enhancement group;
+- AT-SPI exposes page, object, graph, enhancement, output, mute, volume, and
+  status semantics.
 
-### Hardware faceplate
+## Capability and failure-state findings
 
-- Speakers, Headphones, and Digital remain represented at every width.
-- Compact SPK/HP/DIG labels have full-name tooltips and accessible names.
-- Medium gain remains selected but read-only; the UI does not add a write
-  handler or enable the backend capability.
-- Master volume, mute, connected state, format, active objects, and confirmed
-  gain remain available without duplicate controls elsewhere.
-- Full output and gain labels fit at 1280×800 and above.
-- No P0, P1, or P2 visual issue remains in the captured faceplate.
+The same components now render ten deterministic scenarios:
 
-### Theme and interaction language
+1. healthy;
+2. no compatible card;
+3. partial driver capabilities;
+4. firmware missing;
+5. permission denied;
+6. device busy;
+7. write failed with prior value authoritative;
+8. daemon unavailable;
+9. Direct Mode bypass;
+10. both sound objects modified.
 
-- Dark and light themes use semantic surface, text, selection, success,
-  modified, error, disabled, and focus tokens.
-- Buttons, icon buttons, combo boxes, switches, sliders, EQ points, and
-  navigation items use shared hover/pressed/focus styling.
-- Button-like controls use pointing-hand cursors; sliders and EQ points use
-  open/closed-hand drag cursors; disabled controls retain the normal cursor and
-  a blocked-reason tooltip.
-- The AT-SPI tree exposes the page, object selectors, EQ sliders, effect
-  controls, output routes, mute, volume, and status text. Synthetic keyboard
-  input was unavailable on this host, so focus-ring behavior was source-checked
-  rather than captured with a Tab-driven screenshot.
-- No P0, P1, or P2 visual issue remains in the captured theme states.
+Unsupported and failed states explain whether the cause is the card, driver,
+firmware, permission, daemon, output mode, or a write failure. Retry wording is
+specific to the cause. Hardware controls are disabled when the state cannot
+support a safe write.
 
-## Responsive and platform checks
-
-- Wayland captures passed at 1024×680, 1280×800, and 1600×1000.
-- Light and dark startup/rendering passed.
-- Wayland startup smoke passed with Qt scale factors 1.25, 1.5, and 2.0.
-- X11/XWayland startup remained healthy for the six-second smoke window.
-
-## Non-visual regression checks
+## Verification
 
 - `cargo fmt --check`
-- `cargo test --features qml-gui`: 147 tests passed
-- `scripts/check-feature-parity.sh`: 54 rows validated
-- `scripts/audio-parity.sh --self-test`
 - `git diff --check`
-- Qt QML lint for the final edited page/header passed
+- strict `cargo clippy` with `-D warnings`
+- 155 Rust tests passed
+- release Qt/QML build passed
+- exact focus-order audits passed for healthy and both-modified states
+- offscreen render smoke passed for all ten deterministic scenarios
+- native Wayland visual inspection passed at 1024×680, 1280×800, and
+  1600×1000
+- source and final implementation were reviewed together at the same canvas
+- no audio output, gain, mute, volume, EQ, OutFX, or Direct Mode write was
+  issued during this QA pass
+
+The remaining release work is hardware acceptance, remaining pages, and
+package refresh. Those items do not block the Sound-screen visual/state QA but
+still block the project-wide definition of done.
 
 final result: passed

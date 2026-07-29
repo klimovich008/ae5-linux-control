@@ -18,11 +18,27 @@ Rectangle {
                                          ? qsTr("Scan again")
                                          : statusCode === "daemon-unavailable"
                                            ? qsTr("Reconnect")
+                                           : statusCode === "permission-denied"
+                                             ? qsTr("Retry access")
+                                             : statusCode === "write-failed"
+                                               ? qsTr("Refresh value")
+                                             : statusCode === "profile-unavailable"
+                                               ? qsTr("Reload profiles")
                                            : qsTr("Refresh")
     readonly property string actionDescription: statusCode === "no-device"
                                                 ? qsTr("Scan again for a compatible AE-5")
                                                 : statusCode === "daemon-unavailable"
                                                   ? qsTr("Reconnect to the ae5d user service")
+                                                  : statusCode === "permission-denied"
+                                                    ? qsTr("Retry reading the AE-5 ALSA controls")
+                                                    : statusCode === "firmware-missing"
+                                                      ? qsTr("Check again after installing the required firmware")
+                                                      : statusCode === "device-busy"
+                                                        ? qsTr("Retry after the other audio control process closes")
+                                                        : statusCode === "write-failed"
+                                                          ? qsTr("Refresh the previously confirmed hardware value")
+                                                        : statusCode === "profile-unavailable"
+                                                          ? qsTr("Reload the Effects profile and EQ preset libraries")
                                                   : qsTr("Refresh live device state")
     readonly property color stateColor: statusCode === "ready" ? Theme.success
                                                : statusCode === "connecting" ? Theme.accent

@@ -132,6 +132,7 @@ Rectangle {
 
             required property int index
 
+            objectName: "eq-band-" + index
             x: root.xFor(index) - 17
             y: root.graphTop
             width: 34
@@ -198,16 +199,18 @@ Rectangle {
             }
 
             Keys.onPressed: event => {
+                let requested
                 if (event.key === Qt.Key_Home) {
-                    value = 0
+                    requested = 0
                 } else if (event.key === Qt.Key_PageUp) {
-                    value = Math.min(to, value + 1)
+                    requested = Math.min(to, value + 1)
                 } else if (event.key === Qt.Key_PageDown) {
-                    value = Math.max(from, value - 1)
+                    requested = Math.max(from, value - 1)
                 } else {
+                    event.accepted = false
                     return
                 }
-                root.setGain(index, value)
+                root.setGain(index, requested)
                 event.accepted = true
             }
         }

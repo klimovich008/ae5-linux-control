@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+binary=${1:-target/release/ae5-control-qml}
+
+if [[ ! -x "$binary" ]]; then
+    echo "Qt/QML binary is not executable: $binary" >&2
+    exit 2
+fi
+
+run_qml_check() {
+    QT_QPA_PLATFORM=offscreen \
+    QT_QUICK_BACKEND=software \
+    QT_ACCESSIBILITY=1 \
+    timeout 20s "$binary" "$@" 2>&1
+}
+
+if ! focus_output=$(run_qml_check --qa-state=ready --qa-focus-audit); then
+    printf '%s\n' "$focus_output" >&2
+    echo "QML focus-order audit did not pass." >&2
+    exit 1
+fi
+
+if ! modified_focus_output=$(run_qml_check --qa-state=both-modified --qa-focus-audit); then
+    printf '%s\n' "$modified_focus_output" >&2
+    echo "Modified-state QML focus-order audit did not pass." >&2
+    exit 1
+fi
+
+states=(
+    ready
+    no-device
+    partial
+    firmware-missing
+    permission-denied
+    device-busy
+    write-failed
+    daemon-unavailable
+    direct-mode
+    both-modified
+)
+
+for state in "${states[@]}"; do
+    if ! state_output=$(run_qml_check "--qa-state=$state" --qa-state-smoke); then
+        printf '%s\n' "$state_output" >&2
+        echo "QML state smoke failed for $state." >&2
+        exit 1
+    fi
+done
+
+echo "QML focus-order audit passed."
+echo "QML accessibility and state smoke passed for ${#states[@]} scenarios."

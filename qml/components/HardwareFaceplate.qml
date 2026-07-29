@@ -8,6 +8,7 @@ Rectangle {
 
     property var appState
     property bool compact: false
+    property bool wide: false
     signal reviewRequested
     readonly property color statusColor: appState.statusCode === "ready" ? Theme.success
                                                   : appState.statusCode === "connecting" ? Theme.accent
@@ -28,6 +29,21 @@ Rectangle {
             const requested = Math.round(masterVolumeSlider.value)
             if (masterVolumeSlider.enabled && requested !== root.appState.masterVolume)
                 root.appState.requestMasterVolume(requested)
+        }
+    }
+
+    Connections {
+        target: root.appState
+
+        function onMasterVolumeChanged() {
+            if (!masterVolumeSlider.pressed && !volumeWriteDebounce.running)
+                masterVolumeSlider.value = root.appState.masterVolume
+        }
+
+        function onHardwareStateRevisionChanged() {
+            volumeWriteDebounce.stop()
+            if (!masterVolumeSlider.pressed)
+                masterVolumeSlider.value = root.appState.masterVolume
         }
     }
 
@@ -76,7 +92,9 @@ Rectangle {
                 }
 
                 Label {
-                    visible: !root.compact && root.appState.audioFormatAvailable
+                    visible: !root.compact
+                             && root.appState.statusCode === "ready"
+                             && root.appState.audioFormatAvailable
                     text: "· " + root.appState.audioFormat
                     color: Theme.textSecondary
                     font.pixelSize: Theme.fontCaption
@@ -110,6 +128,7 @@ Rectangle {
 
                         required property string modelData
 
+                        objectName: "output-" + modelData.toLowerCase()
                         implicitWidth: root.compact
                                        ? 48
                                        : modelData === "Headphones" ? 112
@@ -152,6 +171,7 @@ Rectangle {
 
                     delegate: AppButton {
                         required property string modelData
+                        objectName: "gain-" + modelData.toLowerCase()
                         implicitWidth: modelData === "Medium" ? 84 : 72
                         implicitHeight: Theme.controlHeight
                         text: modelData
@@ -191,6 +211,7 @@ Rectangle {
                 spacing: Theme.space2
 
                 IconButton {
+                    objectName: "master-mute"
                     iconName: root.appState.muted
                               ? "speaker-simple-x"
                               : root.appState.masterVolume === 0
@@ -208,10 +229,10 @@ Rectangle {
                 AppSlider {
                     id: masterVolumeSlider
 
+                    objectName: "master-volume"
                     Layout.fillWidth: true
                     from: 0
                     to: 100
-                    value: root.appState.masterVolume
                     enabled: root.appState.volumeAvailable
                              && root.appState.volumeWriteEnabled
                     blockedReason: root.appState.hardwareWriteBlockReason
@@ -223,6 +244,7 @@ Rectangle {
                         if (enabled && Math.round(value) !== root.appState.masterVolume)
                             volumeWriteDebounce.restart()
                     }
+                    Component.onCompleted: value = root.appState.masterVolume
                 }
 
                 Label {
@@ -263,6 +285,8 @@ Rectangle {
                 visible: !root.compact
                 text: root.appState.profileStateLive
                       ? qsTr("Live state; save in each section")
+                      : root.appState.qaMode
+                        ? qsTr("QA preview · hardware writes disabled")
                       : root.appState.hardwareBacked && root.appState.connected
                         ? qsTr("Device live · drafts save by section")
                         : qsTr("Device unavailable · profiles read-only")
@@ -274,11 +298,13 @@ Rectangle {
         AppButton {
             id: reviewButton
 
+            objectName: "unsaved-review"
             visible: root.appState.unsavedCount > 0
             enabled: visible
             variant: "ghost"
-            text: root.compact ? qsTr("%1 unsaved").arg(root.appState.unsavedCount)
-                               : qsTr("%1 unsaved · Review").arg(root.appState.unsavedCount)
+            text: root.wide ? qsTr("%1 unsaved · Review").arg(root.appState.unsavedCount)
+                            : qsTr("%1 unsaved").arg(root.appState.unsavedCount)
+            tooltipText: qsTr("Review unsaved Effects and EQ changes")
             Accessible.name: qsTr("Review %1 unsaved changes").arg(root.appState.unsavedCount)
             Accessible.ignored: !visible
             onClicked: root.reviewRequested()

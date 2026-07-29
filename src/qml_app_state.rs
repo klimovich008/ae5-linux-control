@@ -15,8 +15,13 @@ pub mod qobject {
         #[qproperty(QString, device_status, cxx_name = "deviceStatus")]
         #[qproperty(QString, status_code, cxx_name = "statusCode")]
         #[qproperty(QString, status_detail, cxx_name = "statusDetail")]
+        #[qproperty(bool, write_error_active, cxx_name = "writeErrorActive")]
+        #[qproperty(QString, last_write_error, cxx_name = "lastWriteError")]
+        #[qproperty(i32, hardware_state_revision, cxx_name = "hardwareStateRevision")]
         #[qproperty(bool, daemon_available, cxx_name = "daemonAvailable")]
         #[qproperty(bool, hardware_backed, cxx_name = "hardwareBacked")]
+        #[qproperty(bool, qa_mode, cxx_name = "qaMode")]
+        #[qproperty(QString, qa_scenario, cxx_name = "qaScenario")]
         #[qproperty(bool, profile_state_live, cxx_name = "profileStateLive")]
         #[qproperty(QString, audio_format, cxx_name = "audioFormat")]
         #[qproperty(bool, audio_format_available, cxx_name = "audioFormatAvailable")]
@@ -100,6 +105,10 @@ pub mod qobject {
         fn refresh_from_daemon(self: Pin<&mut Self>);
 
         #[qinvokable]
+        #[cxx_name = "retryStatus"]
+        fn retry_status(self: Pin<&mut Self>);
+
+        #[qinvokable]
         #[cxx_name = "requestMasterVolume"]
         fn request_master_volume(self: Pin<&mut Self>, value: i32);
 
@@ -171,13 +180,88 @@ pub mod qobject {
         #[cxx_name = "saveEffectsDraftAs"]
         fn save_effects_draft_as(self: Pin<&mut Self>, name: &QString);
     }
+
+    impl cxx_qt::Threading for AppState {}
 }
 
 use core::pin::Pin;
-use cxx_qt::CxxQtType;
+use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::{QString, QStringList};
 
 pub fn initialize() {}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum UiQaScenario {
+    Ready,
+    NoDevice,
+    Partial,
+    FirmwareMissing,
+    PermissionDenied,
+    DeviceBusy,
+    WriteFailed,
+    DaemonUnavailable,
+    DirectMode,
+    BothModified,
+}
+
+impl UiQaScenario {
+    const VALID_NAMES: &'static str = "ready, no-device, partial, firmware-missing, \
+        permission-denied, device-busy, write-failed, daemon-unavailable, direct-mode, \
+        both-modified";
+
+    fn parse(name: &str) -> Option<Self> {
+        match name {
+            "ready" => Some(Self::Ready),
+            "no-device" => Some(Self::NoDevice),
+            "partial" => Some(Self::Partial),
+            "firmware-missing" => Some(Self::FirmwareMissing),
+            "permission-denied" => Some(Self::PermissionDenied),
+            "device-busy" => Some(Self::DeviceBusy),
+            "write-failed" => Some(Self::WriteFailed),
+            "daemon-unavailable" => Some(Self::DaemonUnavailable),
+            "direct-mode" => Some(Self::DirectMode),
+            "both-modified" => Some(Self::BothModified),
+            _ => None,
+        }
+    }
+
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Ready => "ready",
+            Self::NoDevice => "no-device",
+            Self::Partial => "partial",
+            Self::FirmwareMissing => "firmware-missing",
+            Self::PermissionDenied => "permission-denied",
+            Self::DeviceBusy => "device-busy",
+            Self::WriteFailed => "write-failed",
+            Self::DaemonUnavailable => "daemon-unavailable",
+            Self::DirectMode => "direct-mode",
+            Self::BothModified => "both-modified",
+        }
+    }
+}
+
+pub fn validate_qa_arguments() -> Result<(), String> {
+    for argument in std::env::args() {
+        if let Some(name) = argument.strip_prefix("--qa-state=")
+            && UiQaScenario::parse(name).is_none()
+        {
+            return Err(format!(
+                "unknown QA state '{name}'; expected one of: {}",
+                UiQaScenario::VALID_NAMES
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn qa_scenario_from_arguments() -> Option<UiQaScenario> {
+    std::env::args().find_map(|argument| {
+        argument
+            .strip_prefix("--qa-state=")
+            .and_then(UiQaScenario::parse)
+    })
+}
 
 pub struct AppStateRust {
     device_name: QString,
@@ -185,8 +269,13 @@ pub struct AppStateRust {
     device_status: QString,
     status_code: QString,
     status_detail: QString,
+    write_error_active: bool,
+    last_write_error: QString,
+    hardware_state_revision: i32,
     daemon_available: bool,
     hardware_backed: bool,
+    qa_mode: bool,
+    qa_scenario: QString,
     profile_state_live: bool,
     audio_format: QString,
     audio_format_available: bool,
@@ -259,18 +348,28 @@ pub struct AppStateRust {
     eq_id: String,
     catalog_output: String,
     catalog_warning_count: usize,
+    eq_operation_in_flight: bool,
+    eq_operation_generation: u64,
 }
 
 impl Default for AppStateRust {
     fn default() -> Self {
-        Self {
+        let qa_fixture = qa_scenario_from_arguments();
+        let mut state = Self {
             device_name: QString::from("Sound BlasterX AE-5"),
             connected: false,
             device_status: QString::from("Connecting"),
             status_code: QString::from("connecting"),
             status_detail: QString::from("Connecting to the ae5d user service…"),
+            write_error_active: false,
+            last_write_error: QString::default(),
+            hardware_state_revision: 0,
             daemon_available: false,
             hardware_backed: false,
+            qa_mode: qa_fixture.is_some(),
+            qa_scenario: qa_fixture.map_or_else(QString::default, |scenario| {
+                QString::from(scenario.as_str())
+            }),
             profile_state_live: false,
             audio_format: QString::from("Unavailable"),
             audio_format_available: false,
@@ -351,12 +450,325 @@ impl Default for AppStateRust {
             eq_id: String::new(),
             catalog_output: String::new(),
             catalog_warning_count: 0,
+            eq_operation_in_flight: false,
+            eq_operation_generation: 0,
+        };
+        if let Some(scenario) = qa_fixture {
+            state.apply_qa_scenario(scenario);
         }
+        state
+    }
+}
+
+impl AppStateRust {
+    fn apply_qa_scenario(&mut self, scenario: UiQaScenario) {
+        let effects = qa_effects_entry();
+        let eq = qa_eq_entry();
+
+        self.device_name = QString::from("Creative Sound BlasterX AE-5");
+        self.connected = true;
+        self.device_status = QString::from("Connected");
+        self.status_code = QString::from("ready");
+        self.status_detail = QString::from(
+            "Deterministic QA preview. Hardware and session audio writes are disabled.",
+        );
+        self.write_error_active = false;
+        self.last_write_error = QString::default();
+        self.hardware_state_revision = 1;
+        self.daemon_available = true;
+        self.hardware_backed = false;
+        self.profile_state_live = false;
+        self.audio_format = QString::from("S16LE · 96 kHz");
+        self.audio_format_available = true;
+        self.master_volume = 20;
+        self.volume_available = true;
+        self.muted = false;
+        self.mute_available = true;
+        self.output = QString::from("Headphones");
+        self.output_available = true;
+        self.headphone_gain = QString::from("Medium");
+        self.headphone_gain_available = true;
+        self.eq_preset = QString::from(&eq.name);
+        self.eq_state = QString::from("Preview");
+        self.eq_source = QString::from(&eq.source);
+        self.eq_detail =
+            QString::from("QA preset loaded. Draft editing is local and cannot change live audio.");
+        self.eq_read_only = false;
+        self.eq_preset_names = qstring_list(std::iter::once(eq.name.as_str()));
+        self.eq_band_gains_tenths_db = qstring_gains(&eq.gains_tenths_db);
+        self.eq_enabled = true;
+        self.eq_selection_revision = 1;
+        self.software_eq_state = QString::from("inactive");
+        self.software_eq_detail =
+            QString::from("QA preview never installs or changes a PipeWire filter graph.");
+        self.software_eq_active = false;
+        self.eq_apply_available = false;
+        self.eq_apply_block_reason =
+            QString::from("Live EQ writes are disabled in deterministic QA preview.");
+        self.effects_profile = QString::from(&effects.name);
+        self.effects_state = QString::from("Preview");
+        self.effects_source = QString::from(&effects.source);
+        self.effects_detail = QString::from(
+            "QA Effects profile loaded. Draft editing is local and cannot change live audio.",
+        );
+        self.effects_read_only = false;
+        self.effects_profile_names = qstring_list(std::iter::once(effects.name.as_str()));
+        self.effects_outfx_enabled = effects.outfx_enabled;
+        self.surround_available = effects.surround_available;
+        self.surround_enabled = effects.surround_enabled;
+        self.surround_level = i32::from(effects.surround_level);
+        self.crystalizer_available = effects.crystalizer_available;
+        self.crystalizer_enabled = effects.crystalizer_enabled;
+        self.crystalizer_level = i32::from(effects.crystalizer_level);
+        self.bass_available = effects.bass_available;
+        self.bass_enabled = effects.bass_enabled;
+        self.bass_level = i32::from(effects.bass_level);
+        self.smart_volume_available = effects.smart_volume_available;
+        self.smart_volume_enabled = effects.smart_volume_enabled;
+        self.smart_volume_level = i32::from(effects.smart_volume_level);
+        self.smart_volume_mode = QString::from(&effects.smart_volume_mode);
+        self.dialog_available = effects.dialog_available;
+        self.dialog_enabled = effects.dialog_enabled;
+        self.dialog_level = i32::from(effects.dialog_level);
+        self.effects_selection_revision = 1;
+        self.profile_catalog_status = QString::from("ready");
+        self.profile_catalog_detail =
+            QString::from("One Effects profile and one EQ preset loaded for QA.");
+        self.unsaved_count = 0;
+        self.direct_mode = false;
+        self.direct_mode_available = true;
+        self.hardware_write_enabled = true;
+        self.volume_write_enabled = true;
+        self.mute_write_enabled = true;
+        self.output_write_enabled = true;
+        self.headphone_gain_write_enabled = false;
+        self.direct_mode_write_enabled = true;
+        self.hardware_write_block_reason =
+            QString::from("This deterministic QA preview cannot write hardware.");
+        self.output_write_block_reason = QString::default();
+        self.card_index = 1;
+        self.controls_count = 42;
+        self.effects_entries = vec![effects.clone()];
+        self.eq_entries = vec![eq.clone()];
+        self.effects_draft = Some(effects);
+        self.eq_draft = Some(eq);
+        self.effects_id = "effects:qa".to_owned();
+        self.eq_id = "eq:qa".to_owned();
+        self.catalog_output = "Headphones".to_owned();
+        self.catalog_warning_count = 0;
+        self.eq_operation_in_flight = false;
+
+        match scenario {
+            UiQaScenario::Ready => {}
+            UiQaScenario::BothModified => {
+                self.effects_state = QString::from("Modified");
+                self.effects_detail = QString::from(
+                    "Draft changed locally. Live audio and the saved Effects profile are unchanged.",
+                );
+                self.bass_level += 1;
+                self.effects_draft
+                    .as_mut()
+                    .expect("QA Effects draft")
+                    .bass_level += 1;
+                self.eq_state = QString::from("Modified");
+                self.eq_detail = QString::from(
+                    "Draft changed locally. Live audio and the saved EQ preset are unchanged.",
+                );
+                self.eq_draft.as_mut().expect("QA EQ draft").gains_tenths_db[0] = 40;
+                self.eq_band_gains_tenths_db =
+                    qstring_gains(&self.eq_draft.as_ref().expect("QA EQ draft").gains_tenths_db);
+                self.unsaved_count = 2;
+            }
+            UiQaScenario::DirectMode => {
+                self.direct_mode = true;
+                self.status_detail = QString::from(
+                    "Direct Mode is active in QA preview; EQ and enhancements are bypassed.",
+                );
+            }
+            UiQaScenario::Partial => {
+                self.device_status = QString::from("Partial capabilities");
+                self.status_code = QString::from("partial");
+                self.status_detail = QString::from(
+                    "The driver is loaded, but Direct Mode and guarded output switching are unavailable.",
+                );
+                self.output_write_enabled = false;
+                self.direct_mode_available = false;
+                self.direct_mode_write_enabled = false;
+                self.output_write_block_reason = QString::from(
+                    "The current kernel does not expose a verified output-write path.",
+                );
+            }
+            UiQaScenario::WriteFailed => {
+                self.device_status = QString::from("Write failed");
+                self.status_code = QString::from("write-failed");
+                self.status_detail = QString::from(
+                    "The requested value was not confirmed. The previous value, 20%, remains authoritative.",
+                );
+                self.write_error_active = true;
+                self.last_write_error = self.status_detail.clone();
+            }
+            UiQaScenario::DeviceBusy => {
+                self.device_status = QString::from("Device busy");
+                self.status_code = QString::from("device-busy");
+                self.status_detail = QString::from(
+                    "Another process is using the AE-5 controls. Close it, then retry.",
+                );
+                self.disable_qa_hardware_writes();
+            }
+            UiQaScenario::PermissionDenied => {
+                self.device_status = QString::from("Permission denied");
+                self.status_code = QString::from("permission-denied");
+                self.status_detail = QString::from(
+                    "The AE-5 was detected, but this user cannot read its ALSA controls.",
+                );
+                self.output = QString::from("Unavailable");
+                self.output_available = false;
+                self.headphone_gain = QString::from("Unavailable");
+                self.headphone_gain_available = false;
+                self.disable_qa_hardware_writes();
+            }
+            UiQaScenario::FirmwareMissing => {
+                self.device_status = QString::from("Firmware missing");
+                self.status_code = QString::from("firmware-missing");
+                self.status_detail = QString::from(
+                    "The driver is loaded, but required CA0132 firmware is unavailable.",
+                );
+                self.connected = false;
+                self.disable_qa_hardware_values();
+            }
+            UiQaScenario::NoDevice => {
+                self.device_status = QString::from("Not detected");
+                self.status_code = QString::from("no-device");
+                self.status_detail =
+                    QString::from("No compatible Sound BlasterX AE-5 was detected.");
+                self.connected = false;
+                self.disable_qa_hardware_values();
+            }
+            UiQaScenario::DaemonUnavailable => {
+                self.device_status = QString::from("Daemon unavailable");
+                self.status_code = QString::from("daemon-unavailable");
+                self.status_detail = QString::from("The ae5d user service is not responding.");
+                self.connected = false;
+                self.daemon_available = false;
+                self.disable_qa_hardware_values();
+                self.profile_catalog_status = QString::from("unavailable");
+                self.profile_catalog_detail =
+                    QString::from("Profiles are unavailable until ae5d reconnects.");
+                self.effects_state = QString::from("Unavailable");
+                self.effects_detail =
+                    QString::from("Effects profiles are unavailable until ae5d reconnects.");
+                self.eq_state = QString::from("Unavailable");
+                self.eq_detail = QString::from("EQ presets are unavailable until ae5d reconnects.");
+            }
+        }
+    }
+
+    fn disable_qa_hardware_writes(&mut self) {
+        self.hardware_write_enabled = false;
+        self.volume_write_enabled = false;
+        self.mute_write_enabled = false;
+        self.output_write_enabled = false;
+        self.headphone_gain_write_enabled = false;
+        self.direct_mode_write_enabled = false;
+        let reason = self.status_detail.clone();
+        self.hardware_write_block_reason = reason.clone();
+        self.output_write_block_reason = reason;
+    }
+
+    fn disable_qa_hardware_values(&mut self) {
+        self.audio_format = QString::from("Unavailable");
+        self.audio_format_available = false;
+        self.volume_available = false;
+        self.muted = true;
+        self.mute_available = false;
+        self.output = QString::from("Unavailable");
+        self.output_available = false;
+        self.headphone_gain = QString::from("Unavailable");
+        self.headphone_gain_available = false;
+        self.direct_mode = false;
+        self.direct_mode_available = false;
+        self.software_eq_state = QString::from("unavailable");
+        self.software_eq_detail =
+            QString::from("Live software EQ is unavailable in this device state.");
+        self.eq_apply_available = false;
+        self.eq_apply_block_reason = self.status_detail.clone();
+        self.disable_qa_hardware_writes();
+        self.card_index = -1;
+        self.controls_count = 0;
+    }
+
+    fn effects_modified(&self) -> bool {
+        self.effects_draft.as_ref()
+            != self
+                .effects_entries
+                .iter()
+                .find(|entry| entry.id == self.effects_id)
+    }
+
+    fn eq_modified(&self) -> bool {
+        self.eq_draft.as_ref() != self.eq_entries.iter().find(|entry| entry.id == self.eq_id)
+    }
+
+    fn begin_eq_operation(&mut self) -> Option<u64> {
+        if self.eq_operation_in_flight {
+            return None;
+        }
+        self.eq_operation_generation = self.eq_operation_generation.saturating_add(1);
+        self.eq_operation_in_flight = true;
+        Some(self.eq_operation_generation)
+    }
+
+    fn finish_eq_operation(&mut self, generation: u64) -> bool {
+        if !self.eq_operation_in_flight || self.eq_operation_generation != generation {
+            return false;
+        }
+        self.eq_operation_in_flight = false;
+        true
+    }
+}
+
+fn qa_effects_entry() -> crate::EffectsProfileEntry {
+    crate::EffectsProfileEntry {
+        id: "effects:qa".to_owned(),
+        name: "QA Effects".to_owned(),
+        source: "Deterministic QA".to_owned(),
+        read_only: false,
+        outfx_enabled: false,
+        surround_available: true,
+        surround_enabled: true,
+        surround_level: 35,
+        crystalizer_available: true,
+        crystalizer_enabled: true,
+        crystalizer_level: 50,
+        bass_available: true,
+        bass_enabled: true,
+        bass_level: 53,
+        smart_volume_available: true,
+        smart_volume_enabled: true,
+        smart_volume_level: 15,
+        smart_volume_mode: "Normal".to_owned(),
+        dialog_available: true,
+        dialog_enabled: true,
+        dialog_level: 20,
+    }
+}
+
+fn qa_eq_entry() -> crate::EqPresetEntry {
+    crate::EqPresetEntry {
+        id: "eq:qa".to_owned(),
+        name: "QA Curve".to_owned(),
+        source: "Deterministic QA".to_owned(),
+        read_only: false,
+        enabled: true,
+        gains_tenths_db: vec![30, 10, 20, 0, -10, -20, -20, 0, 20, 20],
     }
 }
 
 impl qobject::AppState {
     pub fn refresh_from_daemon(mut self: Pin<&mut Self>) {
+        if *self.as_ref().qa_mode() {
+            return;
+        }
         match crate::device_service::read_device_state() {
             Ok(state) => {
                 let output_changed = self.as_ref().rust().catalog_output != state.output;
@@ -373,15 +785,17 @@ impl qobject::AppState {
                 }
             }
             Err(error) => {
+                let status = status_for_daemon_error(&error.to_string());
                 self.as_mut().set_connected(false);
                 self.as_mut()
-                    .set_device_status(QString::from("Daemon unavailable"));
+                    .set_device_status(QString::from(status.display_name()));
                 self.as_mut()
-                    .set_status_code(QString::from("daemon-unavailable"));
+                    .set_status_code(QString::from(status.as_str()));
                 self.as_mut().set_status_detail(QString::from(format!(
                     "Cannot read live AE-5 state from ae5d: {error}"
                 )));
-                self.as_mut().set_daemon_available(false);
+                self.as_mut()
+                    .set_daemon_available(status != crate::DeviceStatusCode::DaemonUnavailable);
                 self.as_mut().set_hardware_backed(false);
                 self.as_mut().set_audio_format_available(false);
                 self.as_mut().set_volume_available(false);
@@ -416,14 +830,57 @@ impl qobject::AppState {
         }
     }
 
+    pub fn retry_status(mut self: Pin<&mut Self>) {
+        if *self.as_ref().qa_mode() {
+            self.as_mut().clear_write_error();
+            self.as_mut().set_device_status(QString::from("Connected"));
+            self.as_mut().set_status_code(QString::from("ready"));
+            self.as_mut().set_status_detail(QString::from(
+                "Deterministic QA preview. Hardware and session audio writes are disabled.",
+            ));
+            self.as_mut().bump_hardware_state_revision();
+            return;
+        }
+        self.as_mut().clear_write_error();
+        self.as_mut().refresh_from_daemon();
+    }
+
+    fn clear_write_error(mut self: Pin<&mut Self>) {
+        self.as_mut().set_write_error_active(false);
+        self.as_mut().set_last_write_error(QString::default());
+    }
+
+    fn bump_hardware_state_revision(mut self: Pin<&mut Self>) {
+        let revision = *self.as_ref().hardware_state_revision();
+        self.as_mut()
+            .set_hardware_state_revision(revision.saturating_add(1));
+    }
+
+    fn apply_successful_write_state(
+        mut self: Pin<&mut Self>,
+        state: &crate::DeviceOutputState,
+        sync_hardware_controls: bool,
+    ) {
+        self.as_mut().clear_write_error();
+        self.as_mut().apply_device_state(state);
+        if sync_hardware_controls {
+            self.as_mut().bump_hardware_state_revision();
+        }
+    }
+
     pub fn request_master_volume(mut self: Pin<&mut Self>, value: i32) {
+        if *self.as_ref().qa_mode() {
+            self.as_mut().set_preview_volume(value);
+            self.as_mut().bump_hardware_state_revision();
+            return;
+        }
         let Ok(percent) = u16::try_from(value) else {
             self.as_mut()
                 .set_write_failure("Master volume must be between 0 and 100 percent.");
             return;
         };
         match crate::device_service::write_master_volume(percent) {
-            Ok(state) => self.as_mut().apply_device_state(&state),
+            Ok(state) => self.as_mut().apply_successful_write_state(&state, true),
             Err(error) => self
                 .as_mut()
                 .set_write_failure(&format!("Master volume was not changed: {error}")),
@@ -431,8 +888,13 @@ impl qobject::AppState {
     }
 
     pub fn request_muted(mut self: Pin<&mut Self>, muted: bool) {
+        if *self.as_ref().qa_mode() {
+            self.as_mut().set_muted(muted);
+            self.as_mut().bump_hardware_state_revision();
+            return;
+        }
         match crate::device_service::write_muted(muted) {
-            Ok(state) => self.as_mut().apply_device_state(&state),
+            Ok(state) => self.as_mut().apply_successful_write_state(&state, true),
             Err(error) => self
                 .as_mut()
                 .set_write_failure(&format!("Mute was not changed: {error}")),
@@ -440,9 +902,21 @@ impl qobject::AppState {
     }
 
     pub fn apply_eq_draft(mut self: Pin<&mut Self>) {
-        let Some(draft) = self.as_ref().rust().eq_draft.clone() else {
+        if *self.as_ref().qa_mode() {
             self.as_mut()
-                .set_eq_runtime_failure("No EQ draft is selected.");
+                .set_software_eq_state(QString::from("unavailable"));
+            self.as_mut().set_software_eq_detail(QString::from(
+                "Deterministic QA preview cannot apply a live PipeWire graph.",
+            ));
+            return;
+        }
+        let Some(draft) = self.as_ref().rust().eq_draft.clone() else {
+            self.as_mut().set_software_eq_state(QString::from("error"));
+            self.as_mut()
+                .set_software_eq_detail(QString::from("No EQ draft is selected."));
+            return;
+        };
+        let Some(generation) = self.as_mut().rust_mut().begin_eq_operation() else {
             return;
         };
         self.as_mut()
@@ -450,52 +924,171 @@ impl qobject::AppState {
         self.as_mut().set_software_eq_detail(QString::from(
             "Applying the selected EQ draft and verifying PipeWire readback…",
         ));
-        match crate::device_service::apply_eq_preset(&draft) {
-            Ok(state) => self.as_mut().apply_device_state(&state),
-            Err(error) => self
-                .as_mut()
-                .set_eq_runtime_failure(&format!("Software EQ was not applied: {error}")),
-        }
+        let qt_thread = self.qt_thread();
+        let watchdog_thread = qt_thread.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_secs(30));
+            watchdog_thread
+                .queue(move |mut app_state| {
+                    if app_state
+                        .as_mut()
+                        .rust_mut()
+                        .finish_eq_operation(generation)
+                    {
+                        app_state
+                            .as_mut()
+                            .set_software_eq_state(QString::from("error"));
+                        let detail =
+                            "Software EQ timed out. Live state will refresh automatically.";
+                        app_state
+                            .as_mut()
+                            .set_software_eq_detail(QString::from(detail));
+                        app_state.as_mut().present_write_failure(detail);
+                    }
+                })
+                .ok();
+        });
+        std::thread::spawn(move || {
+            let result = crate::device_service::apply_eq_preset(&draft).map_err(|error| {
+                (
+                    format!("Software EQ was not applied: {error}"),
+                    crate::device_service::read_device_state().ok(),
+                )
+            });
+            qt_thread
+                .queue(move |mut app_state| {
+                    if !app_state
+                        .as_mut()
+                        .rust_mut()
+                        .finish_eq_operation(generation)
+                    {
+                        return;
+                    }
+                    match result {
+                        Ok(state) => app_state
+                            .as_mut()
+                            .apply_successful_write_state(&state, false),
+                        Err((detail, confirmed_state)) => app_state
+                            .as_mut()
+                            .set_async_eq_runtime_failure(&detail, confirmed_state.as_ref()),
+                    }
+                })
+                .ok();
+        });
     }
 
     pub fn disable_software_eq(mut self: Pin<&mut Self>) {
+        if *self.as_ref().qa_mode() {
+            self.as_mut()
+                .set_software_eq_state(QString::from("inactive"));
+            self.as_mut().set_software_eq_detail(QString::from(
+                "Deterministic QA preview has no live PipeWire graph.",
+            ));
+            self.as_mut().set_software_eq_active(false);
+            return;
+        }
+        let Some(generation) = self.as_mut().rust_mut().begin_eq_operation() else {
+            return;
+        };
         self.as_mut()
             .set_software_eq_state(QString::from("applying"));
         self.as_mut().set_software_eq_detail(QString::from(
             "Disabling the AE-5 software EQ and verifying PipeWire readback…",
         ));
-        match crate::device_service::disable_software_eq() {
-            Ok(state) => self.as_mut().apply_device_state(&state),
-            Err(error) => self
-                .as_mut()
-                .set_eq_runtime_failure(&format!("Software EQ was not disabled: {error}")),
-        }
+        let qt_thread = self.qt_thread();
+        let watchdog_thread = qt_thread.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_secs(30));
+            watchdog_thread
+                .queue(move |mut app_state| {
+                    if app_state
+                        .as_mut()
+                        .rust_mut()
+                        .finish_eq_operation(generation)
+                    {
+                        app_state
+                            .as_mut()
+                            .set_software_eq_state(QString::from("error"));
+                        let detail =
+                            "Disabling software EQ timed out. Live state will refresh automatically.";
+                        app_state
+                            .as_mut()
+                            .set_software_eq_detail(QString::from(detail));
+                        app_state.as_mut().present_write_failure(detail);
+                    }
+                })
+                .ok();
+        });
+        std::thread::spawn(move || {
+            let result = crate::device_service::disable_software_eq().map_err(|error| {
+                (
+                    format!("Software EQ was not disabled: {error}"),
+                    crate::device_service::read_device_state().ok(),
+                )
+            });
+            qt_thread
+                .queue(move |mut app_state| {
+                    if !app_state
+                        .as_mut()
+                        .rust_mut()
+                        .finish_eq_operation(generation)
+                    {
+                        return;
+                    }
+                    match result {
+                        Ok(state) => app_state
+                            .as_mut()
+                            .apply_successful_write_state(&state, false),
+                        Err((detail, confirmed_state)) => app_state
+                            .as_mut()
+                            .set_async_eq_runtime_failure(&detail, confirmed_state.as_ref()),
+                    }
+                })
+                .ok();
+        });
     }
 
-    fn set_eq_runtime_failure(mut self: Pin<&mut Self>, detail: &str) {
-        if let Ok(state) = crate::device_service::read_device_state() {
-            self.as_mut().apply_device_state(&state);
+    fn set_async_eq_runtime_failure(
+        mut self: Pin<&mut Self>,
+        detail: &str,
+        confirmed_state: Option<&crate::DeviceOutputState>,
+    ) {
+        if let Some(state) = confirmed_state {
+            self.as_mut().apply_device_state(state);
         }
         self.as_mut().set_software_eq_state(QString::from("error"));
         self.as_mut().set_software_eq_detail(QString::from(detail));
-        self.as_mut().set_write_failure(detail);
+        self.as_mut().present_write_failure(detail);
     }
 
     fn apply_device_state(mut self: Pin<&mut Self>, state: &crate::DeviceOutputState) {
-        let status = match state.status_code.as_str() {
-            "ready" => "Connected",
-            "partial" => "Partial capabilities",
-            "no-device" => "Not detected",
-            _ => "Device error",
-        };
+        let status = crate::DeviceStatusCode::from_code(&state.status_code);
+        let write_error_active = *self.as_ref().write_error_active();
+        let last_write_error = self.as_ref().last_write_error().clone();
+        let show_write_error = should_show_write_error(write_error_active, status);
+        if write_error_active && !show_write_error {
+            self.as_mut().clear_write_error();
+        }
         self.as_mut()
             .set_device_name(QString::from(&state.device_name));
         self.as_mut().set_connected(state.connected);
-        self.as_mut().set_device_status(QString::from(status));
         self.as_mut()
-            .set_status_code(QString::from(&state.status_code));
+            .set_device_status(QString::from(if show_write_error {
+                crate::DeviceStatusCode::WriteFailed.display_name()
+            } else {
+                status.display_name()
+            }));
         self.as_mut()
-            .set_status_detail(QString::from(&state.status_message));
+            .set_status_code(QString::from(if show_write_error {
+                crate::DeviceStatusCode::WriteFailed.as_str()
+            } else {
+                &state.status_code
+            }));
+        self.as_mut().set_status_detail(if show_write_error {
+            last_write_error
+        } else {
+            QString::from(&state.status_message)
+        });
         self.as_mut().set_daemon_available(true);
         self.as_mut().set_hardware_backed(true);
         self.as_mut()
@@ -513,12 +1106,14 @@ impl qobject::AppState {
             .set_headphone_gain(QString::from(&state.headphone_gain));
         self.as_mut()
             .set_headphone_gain_available(state.headphone_gain_available);
-        self.as_mut()
-            .set_software_eq_state(QString::from(&state.software_eq_state));
-        self.as_mut()
-            .set_software_eq_detail(QString::from(&state.software_eq_detail));
-        self.as_mut()
-            .set_software_eq_active(state.software_eq_active);
+        if !self.as_ref().rust().eq_operation_in_flight {
+            self.as_mut()
+                .set_software_eq_state(QString::from(&state.software_eq_state));
+            self.as_mut()
+                .set_software_eq_detail(QString::from(&state.software_eq_detail));
+            self.as_mut()
+                .set_software_eq_active(state.software_eq_active);
+        }
         self.as_mut()
             .set_eq_apply_available(state.eq_apply_available);
         self.as_mut()
@@ -554,6 +1149,9 @@ impl qobject::AppState {
     ) {
         let current_effects_id = self.as_ref().rust().effects_id.clone();
         let current_eq_id = self.as_ref().rust().eq_id.clone();
+        let effects_modified = self.as_ref().rust().effects_modified();
+        let eq_modified = self.as_ref().rust().eq_modified();
+        let output_changed = self.as_ref().rust().catalog_output != output;
         let warning_count = catalog.warnings.len();
         let selected_effects =
             preferred_effects_entry(&catalog.effects_profiles, &current_effects_id).cloned();
@@ -595,12 +1193,64 @@ impl qobject::AppState {
             rust.catalog_warning_count = warning_count;
         }
 
-        if let Some(entry) = selected_effects {
+        let effects_still_modified = self.as_ref().rust().effects_modified();
+        let eq_still_modified = self.as_ref().rust().eq_modified();
+
+        if effects_modified && effects_still_modified {
+            let selected_still_exists = self
+                .as_ref()
+                .rust()
+                .effects_entries
+                .iter()
+                .any(|entry| entry.id == current_effects_id);
+            if !selected_still_exists {
+                self.as_mut().set_effects_read_only(true);
+            }
+            self.as_mut().set_effects_state(QString::from("Modified"));
+            self.as_mut().set_effects_detail(QString::from(if output_changed {
+                format!(
+                    "Draft preserved after the live output changed to {output}. Use Save as or Revert before selecting another profile."
+                )
+            } else {
+                "Draft preserved while the Effects library refreshed.".to_owned()
+            }));
+        } else if let Some(entry) = selected_effects {
             self.as_mut().apply_effects_entry(&entry);
+        } else {
+            self.as_mut()
+                .set_effects_state(QString::from("Unavailable"));
+            self.as_mut().set_effects_detail(QString::from(
+                "No Effects profile is available for the current output.",
+            ));
         }
-        if let Some(entry) = selected_eq {
+
+        if eq_modified && eq_still_modified {
+            let selected_still_exists = self
+                .as_ref()
+                .rust()
+                .eq_entries
+                .iter()
+                .any(|entry| entry.id == current_eq_id);
+            if !selected_still_exists {
+                self.as_mut().set_eq_read_only(true);
+            }
+            self.as_mut().set_eq_state(QString::from("Modified"));
+            self.as_mut().set_eq_detail(QString::from(if output_changed {
+                format!(
+                    "Draft preserved after the live output changed to {output}. Use Save as or Revert before selecting another preset."
+                )
+            } else {
+                "Draft preserved while the EQ library refreshed.".to_owned()
+            }));
+        } else if let Some(entry) = selected_eq {
             self.as_mut().apply_eq_entry(&entry);
+        } else {
+            self.as_mut().set_eq_state(QString::from("Unavailable"));
+            self.as_mut().set_eq_detail(QString::from(
+                "No EQ preset is available for the current output.",
+            ));
         }
+        self.as_mut().refresh_unsaved_count();
     }
 
     fn apply_effects_entry(mut self: Pin<&mut Self>, entry: &crate::EffectsProfileEntry) {
@@ -619,6 +1269,15 @@ impl qobject::AppState {
                 "User Effects profile loaded. Live audio is unchanged until Effects apply is connected."
             },
         ));
+        self.as_mut().apply_effects_draft_values(entry);
+        let revision = *self.as_ref().effects_selection_revision();
+        self.as_mut()
+            .set_effects_selection_revision(revision.saturating_add(1));
+        self.as_mut().rust_mut().effects_id = entry.id.clone();
+        self.as_mut().refresh_unsaved_count();
+    }
+
+    fn apply_effects_draft_values(mut self: Pin<&mut Self>, entry: &crate::EffectsProfileEntry) {
         self.as_mut().set_effects_outfx_enabled(entry.outfx_enabled);
         self.as_mut()
             .set_surround_available(entry.surround_available);
@@ -646,14 +1305,7 @@ impl qobject::AppState {
         self.as_mut().set_dialog_enabled(entry.dialog_enabled);
         self.as_mut()
             .set_dialog_level(i32::from(entry.dialog_level));
-        let revision = *self.as_ref().effects_selection_revision();
-        self.as_mut()
-            .set_effects_selection_revision(revision.saturating_add(1));
-        {
-            let mut rust = self.as_mut().rust_mut();
-            rust.effects_id = entry.id.clone();
-            rust.effects_draft = Some(entry.clone());
-        }
+        self.as_mut().rust_mut().effects_draft = Some(entry.clone());
     }
 
     fn apply_eq_entry(mut self: Pin<&mut Self>, entry: &crate::EqPresetEntry) {
@@ -670,31 +1322,29 @@ impl qobject::AppState {
                 "User EQ preset loaded. Use Apply EQ to change live audio."
             },
         ));
-        self.as_mut().set_eq_enabled(entry.enabled);
-        self.as_mut().set_eq_band_gains_tenths_db(qstring_list(
-            entry
-                .gains_tenths_db
-                .iter()
-                .map(|gain| gain.to_string())
-                .collect::<Vec<_>>()
-                .iter()
-                .map(String::as_str),
-        ));
+        self.as_mut().apply_eq_draft_values(entry);
         let revision = *self.as_ref().eq_selection_revision();
         self.as_mut()
             .set_eq_selection_revision(revision.saturating_add(1));
-        {
-            let mut rust = self.as_mut().rust_mut();
-            rust.eq_id = entry.id.clone();
-            rust.eq_draft = Some(entry.clone());
-        }
+        self.as_mut().rust_mut().eq_id = entry.id.clone();
+        self.as_mut().refresh_unsaved_count();
+    }
+
+    fn apply_eq_draft_values(mut self: Pin<&mut Self>, entry: &crate::EqPresetEntry) {
+        self.as_mut().set_eq_enabled(entry.enabled);
+        self.as_mut()
+            .set_eq_band_gains_tenths_db(qstring_gains(&entry.gains_tenths_db));
+        self.as_mut().rust_mut().eq_draft = Some(entry.clone());
     }
 
     fn set_catalog_failure(mut self: Pin<&mut Self>, error: &str) {
-        let has_catalog = !self.as_ref().rust().effects_entries.is_empty()
-            && !self.as_ref().rust().eq_entries.is_empty();
+        let effects_modified = self.as_ref().rust().effects_modified();
+        let eq_modified = self.as_ref().rust().eq_modified();
+        let has_effects_catalog = !self.as_ref().rust().effects_entries.is_empty();
+        let has_eq_catalog = !self.as_ref().rust().eq_entries.is_empty();
+        let has_cached_catalog = has_effects_catalog || has_eq_catalog;
         self.as_mut()
-            .set_profile_catalog_status(QString::from(if has_catalog {
+            .set_profile_catalog_status(QString::from(if has_cached_catalog {
                 "stale"
             } else {
                 "unavailable"
@@ -704,18 +1354,41 @@ impl qobject::AppState {
                 "Cannot read the profile library from ae5d: {error}"
             )));
         self.as_mut().set_profile_state_live(false);
-        if !has_catalog {
+        if !has_effects_catalog && !effects_modified {
             self.as_mut()
                 .set_effects_state(QString::from("Unavailable"));
             self.as_mut()
                 .set_effects_detail(QString::from("Effects profiles are unavailable."));
+        } else if effects_modified {
+            self.as_mut().set_effects_detail(QString::from(
+                "Unsaved Effects draft preserved; the profile library is currently unavailable.",
+            ));
+        }
+        if !has_eq_catalog && !eq_modified {
             self.as_mut().set_eq_state(QString::from("Unavailable"));
             self.as_mut()
                 .set_eq_detail(QString::from("EQ presets are unavailable."));
+        } else if eq_modified {
+            self.as_mut().set_eq_detail(QString::from(
+                "Unsaved EQ draft preserved; the preset library is currently unavailable.",
+            ));
         }
+        self.as_mut().refresh_unsaved_count();
     }
 
     fn set_write_failure(mut self: Pin<&mut Self>, detail: &str) {
+        if !*self.as_ref().qa_mode()
+            && let Ok(state) = crate::device_service::read_device_state()
+        {
+            self.as_mut().apply_device_state(&state);
+        }
+        self.as_mut().bump_hardware_state_revision();
+        self.as_mut().present_write_failure(detail);
+    }
+
+    fn present_write_failure(mut self: Pin<&mut Self>, detail: &str) {
+        self.as_mut().set_write_error_active(true);
+        self.as_mut().set_last_write_error(QString::from(detail));
         self.as_mut()
             .set_device_status(QString::from("Write failed"));
         self.as_mut().set_status_code(QString::from("write-failed"));
@@ -752,7 +1425,6 @@ impl qobject::AppState {
     }
 
     pub fn update_eq_band(mut self: Pin<&mut Self>, index: i32, gain_tenths_db: i32) {
-        let was_modified = self.as_ref().eq_state().to_string() == "Modified";
         let Some(mut draft) = self.as_ref().rust().eq_draft.clone() else {
             return;
         };
@@ -761,8 +1433,8 @@ impl qobject::AppState {
                 .set_eq_detail(QString::from(format!("EQ draft was not changed: {error}")));
             return;
         }
-        self.as_mut().apply_eq_entry(&draft);
-        self.as_mut().sync_eq_modified_state(was_modified);
+        self.as_mut().apply_eq_draft_values(&draft);
+        self.as_mut().sync_eq_modified_state();
     }
 
     pub fn select_eq_preset(mut self: Pin<&mut Self>, name: &QString) {
@@ -791,7 +1463,6 @@ impl qobject::AppState {
         enabled: bool,
         level: i32,
     ) {
-        let was_modified = self.as_ref().effects_state().to_string() == "Modified";
         let Some(mut draft) = self.as_ref().rust().effects_draft.clone() else {
             return;
         };
@@ -801,8 +1472,8 @@ impl qobject::AppState {
             )));
             return;
         }
-        self.as_mut().apply_effects_entry(&draft);
-        self.as_mut().sync_effects_modified_state(was_modified);
+        self.as_mut().apply_effects_draft_values(&draft);
+        self.as_mut().sync_effects_modified_state();
     }
 
     pub fn select_effects_profile(mut self: Pin<&mut Self>, name: &QString) {
@@ -826,38 +1497,28 @@ impl qobject::AppState {
     }
 
     pub fn revert_eq_draft(mut self: Pin<&mut Self>) {
-        let was_modified = self.as_ref().eq_state().to_string() == "Modified";
         let id = self.as_ref().rust().eq_id.clone();
-        let entry = self
-            .as_ref()
-            .rust()
-            .eq_entries
+        let entries = self.as_ref().rust().eq_entries.clone();
+        let entry = entries
             .iter()
             .find(|entry| entry.id == id)
+            .or_else(|| preferred_eq_entry(&entries, &id))
             .cloned();
         if let Some(entry) = entry {
             self.as_mut().apply_eq_entry(&entry);
-            if was_modified {
-                self.as_mut().decrement_unsaved_count();
-            }
         }
     }
 
     pub fn revert_effects_draft(mut self: Pin<&mut Self>) {
-        let was_modified = self.as_ref().effects_state().to_string() == "Modified";
         let id = self.as_ref().rust().effects_id.clone();
-        let entry = self
-            .as_ref()
-            .rust()
-            .effects_entries
+        let entries = self.as_ref().rust().effects_entries.clone();
+        let entry = entries
             .iter()
             .find(|entry| entry.id == id)
+            .or_else(|| preferred_effects_entry(&entries, &id))
             .cloned();
         if let Some(entry) = entry {
             self.as_mut().apply_effects_entry(&entry);
-            if was_modified {
-                self.as_mut().decrement_unsaved_count();
-            }
         }
     }
 
@@ -871,6 +1532,10 @@ impl qobject::AppState {
         let Some(draft) = self.as_ref().rust().eq_draft.clone() else {
             return;
         };
+        if *self.as_ref().qa_mode() {
+            self.as_mut().accept_saved_eq(draft);
+            return;
+        }
         match crate::device_service::write_eq_preset(&draft) {
             Ok(saved) => self.as_mut().accept_saved_eq(saved),
             Err(error) => self.as_mut().set_eq_save_failure(&error.to_string()),
@@ -881,6 +1546,14 @@ impl qobject::AppState {
         let Some(draft) = self.as_ref().rust().eq_draft.clone() else {
             return;
         };
+        if *self.as_ref().qa_mode() {
+            let mut saved = draft;
+            saved.id = format!("eq:qa:{}", name.to_string().to_lowercase());
+            saved.name = name.to_string();
+            saved.read_only = false;
+            self.as_mut().accept_saved_eq(saved);
+            return;
+        }
         match crate::device_service::write_eq_preset_as(&draft, &name.to_string()) {
             Ok(saved) => self.as_mut().accept_saved_eq(saved),
             Err(error) => self.as_mut().set_eq_save_failure(&error.to_string()),
@@ -897,6 +1570,10 @@ impl qobject::AppState {
         let Some(draft) = self.as_ref().rust().effects_draft.clone() else {
             return;
         };
+        if *self.as_ref().qa_mode() {
+            self.as_mut().accept_saved_effects(draft);
+            return;
+        }
         match crate::device_service::write_effects_profile(&draft) {
             Ok(saved) => self.as_mut().accept_saved_effects(saved),
             Err(error) => self.as_mut().set_effects_save_failure(&error.to_string()),
@@ -907,20 +1584,22 @@ impl qobject::AppState {
         let Some(draft) = self.as_ref().rust().effects_draft.clone() else {
             return;
         };
+        if *self.as_ref().qa_mode() {
+            let mut saved = draft;
+            saved.id = format!("effects:qa:{}", name.to_string().to_lowercase());
+            saved.name = name.to_string();
+            saved.read_only = false;
+            self.as_mut().accept_saved_effects(saved);
+            return;
+        }
         match crate::device_service::write_effects_profile_as(&draft, &name.to_string()) {
             Ok(saved) => self.as_mut().accept_saved_effects(saved),
             Err(error) => self.as_mut().set_effects_save_failure(&error.to_string()),
         }
     }
 
-    fn sync_eq_modified_state(mut self: Pin<&mut Self>, was_modified: bool) {
-        let modified = {
-            let this = self.as_ref();
-            let rust = this.rust();
-            rust.eq_draft.as_ref() != rust.eq_entries.iter().find(|entry| entry.id == rust.eq_id)
-        };
-        self.as_mut()
-            .set_section_modified_count(was_modified, modified);
+    fn sync_eq_modified_state(mut self: Pin<&mut Self>) {
+        let modified = self.as_ref().rust().eq_modified();
         self.as_mut()
             .set_eq_state(QString::from(if modified { "Modified" } else { "Preview" }));
         self.as_mut().set_eq_detail(QString::from(if modified {
@@ -928,20 +1607,11 @@ impl qobject::AppState {
         } else {
             "Draft matches the saved preset. Use Apply EQ to change live audio."
         }));
+        self.as_mut().refresh_unsaved_count();
     }
 
-    fn sync_effects_modified_state(mut self: Pin<&mut Self>, was_modified: bool) {
-        let modified = {
-            let this = self.as_ref();
-            let rust = this.rust();
-            rust.effects_draft.as_ref()
-                != rust
-                    .effects_entries
-                    .iter()
-                    .find(|entry| entry.id == rust.effects_id)
-        };
-        self.as_mut()
-            .set_section_modified_count(was_modified, modified);
+    fn sync_effects_modified_state(mut self: Pin<&mut Self>) {
+        let modified = self.as_ref().rust().effects_modified();
         self.as_mut().set_effects_state(QString::from(if modified {
             "Modified"
         } else {
@@ -952,24 +1622,19 @@ impl qobject::AppState {
         } else {
             "Draft matches the saved profile. Live audio is unchanged."
         }));
+        self.as_mut().refresh_unsaved_count();
     }
 
-    fn set_section_modified_count(mut self: Pin<&mut Self>, was_modified: bool, modified: bool) {
-        let count = *self.as_ref().unsaved_count();
-        if modified && !was_modified {
-            self.as_mut().set_unsaved_count(count.saturating_add(1));
-        } else if was_modified && !modified {
-            self.as_mut().set_unsaved_count((count - 1).max(0));
-        }
-    }
-
-    fn decrement_unsaved_count(mut self: Pin<&mut Self>) {
-        let count = *self.as_ref().unsaved_count();
-        self.as_mut().set_unsaved_count((count - 1).max(0));
+    fn refresh_unsaved_count(mut self: Pin<&mut Self>) {
+        let count = {
+            let this = self.as_ref();
+            let rust = this.rust();
+            i32::from(rust.effects_modified()) + i32::from(rust.eq_modified())
+        };
+        self.as_mut().set_unsaved_count(count);
     }
 
     fn accept_saved_eq(mut self: Pin<&mut Self>, entry: crate::EqPresetEntry) {
-        let was_modified = self.as_ref().eq_state().to_string() == "Modified";
         {
             let mut rust = self.as_mut().rust_mut();
             if let Some(existing) = rust
@@ -1001,13 +1666,10 @@ impl qobject::AppState {
         self.as_mut().set_eq_detail(QString::from(
             "EQ preset saved independently. Use Apply EQ to change live audio.",
         ));
-        if was_modified {
-            self.as_mut().decrement_unsaved_count();
-        }
+        self.as_mut().refresh_unsaved_count();
     }
 
     fn accept_saved_effects(mut self: Pin<&mut Self>, entry: crate::EffectsProfileEntry) {
-        let was_modified = self.as_ref().effects_state().to_string() == "Modified";
         {
             let mut rust = self.as_mut().rust_mut();
             if let Some(existing) = rust
@@ -1039,9 +1701,7 @@ impl qobject::AppState {
         self.as_mut().set_effects_detail(QString::from(
             "Effects profile saved independently. Live audio is unchanged.",
         ));
-        if was_modified {
-            self.as_mut().decrement_unsaved_count();
-        }
+        self.as_mut().refresh_unsaved_count();
     }
 
     fn set_eq_save_failure(mut self: Pin<&mut Self>, error: &str) {
@@ -1086,6 +1746,41 @@ fn qstring_list<'a>(items: impl Iterator<Item = &'a str>) -> QStringList {
     items.map(QString::from).collect()
 }
 
+fn qstring_gains(gains: &[i16]) -> QStringList {
+    gains
+        .iter()
+        .map(|gain| QString::from(gain.to_string()))
+        .collect()
+}
+
+fn status_for_daemon_error(error: &str) -> crate::DeviceStatusCode {
+    if let Some(status) = crate::DeviceStatusCode::from_known_error(error) {
+        return status;
+    }
+    let normalized = error.to_ascii_lowercase();
+    if normalized.contains("serviceunknown")
+        || normalized.contains("namehasnoowner")
+        || normalized.contains("no reply")
+        || normalized.contains("disconnected")
+        || normalized.contains("failed to connect")
+        || normalized.contains("session bus")
+    {
+        crate::DeviceStatusCode::DaemonUnavailable
+    } else {
+        crate::DeviceStatusCode::DeviceError
+    }
+}
+
+fn should_show_write_error(active: bool, status: crate::DeviceStatusCode) -> bool {
+    active
+        && matches!(
+            status,
+            crate::DeviceStatusCode::Ready
+                | crate::DeviceStatusCode::Partial
+                | crate::DeviceStatusCode::WriteFailed
+        )
+}
+
 fn preferred_effects_entry<'a>(
     entries: &'a [crate::EffectsProfileEntry],
     current_id: &str,
@@ -1116,4 +1811,172 @@ fn preferred_eq_entry<'a>(
         })
         .or_else(|| entries.iter().find(|entry| !entry.read_only))
         .or_else(|| entries.first())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn qa_scenarios_cover_every_required_failure_family_without_hardware_backing() {
+        let scenarios = [
+            (UiQaScenario::Ready, "ready"),
+            (UiQaScenario::NoDevice, "no-device"),
+            (UiQaScenario::Partial, "partial"),
+            (UiQaScenario::FirmwareMissing, "firmware-missing"),
+            (UiQaScenario::PermissionDenied, "permission-denied"),
+            (UiQaScenario::DeviceBusy, "device-busy"),
+            (UiQaScenario::WriteFailed, "write-failed"),
+            (UiQaScenario::DaemonUnavailable, "daemon-unavailable"),
+            (UiQaScenario::DirectMode, "ready"),
+            (UiQaScenario::BothModified, "ready"),
+        ];
+
+        for (scenario, expected_status) in scenarios {
+            let mut state = AppStateRust::default();
+            state.apply_qa_scenario(scenario);
+
+            assert!(!state.hardware_backed, "scenario {}", scenario.as_str());
+            assert_eq!(
+                state.status_code.to_string(),
+                expected_status,
+                "scenario {}",
+                scenario.as_str()
+            );
+            assert_eq!(state.master_volume, 20, "scenario {}", scenario.as_str());
+            assert_eq!(state.effects_entries.len(), 1);
+            assert_eq!(state.eq_entries.len(), 1);
+        }
+    }
+
+    #[test]
+    fn unavailable_qa_states_disable_every_hardware_write() {
+        for scenario in [
+            UiQaScenario::NoDevice,
+            UiQaScenario::FirmwareMissing,
+            UiQaScenario::PermissionDenied,
+            UiQaScenario::DeviceBusy,
+            UiQaScenario::DaemonUnavailable,
+        ] {
+            let mut state = AppStateRust::default();
+            state.apply_qa_scenario(scenario);
+
+            assert!(!state.hardware_write_enabled);
+            assert!(!state.volume_write_enabled);
+            assert!(!state.mute_write_enabled);
+            assert!(!state.output_write_enabled);
+            assert!(!state.headphone_gain_write_enabled);
+            assert!(!state.direct_mode_write_enabled);
+        }
+    }
+
+    #[test]
+    fn daemon_error_mapping_preserves_actionable_device_causes() {
+        assert_eq!(
+            status_for_daemon_error("org.freedesktop.DBus.Error.ServiceUnknown"),
+            crate::DeviceStatusCode::DaemonUnavailable
+        );
+        assert_eq!(
+            status_for_daemon_error("Permission denied opening hw:1"),
+            crate::DeviceStatusCode::PermissionDenied
+        );
+        assert_eq!(
+            status_for_daemon_error("Device or resource busy"),
+            crate::DeviceStatusCode::DeviceBusy
+        );
+        assert_eq!(
+            status_for_daemon_error("unexpected backend failure"),
+            crate::DeviceStatusCode::DeviceError
+        );
+    }
+
+    #[test]
+    fn sticky_write_errors_never_hide_a_more_severe_device_failure() {
+        assert!(should_show_write_error(
+            true,
+            crate::DeviceStatusCode::Ready
+        ));
+        assert!(should_show_write_error(
+            true,
+            crate::DeviceStatusCode::Partial
+        ));
+        for status in [
+            crate::DeviceStatusCode::NoDevice,
+            crate::DeviceStatusCode::FirmwareMissing,
+            crate::DeviceStatusCode::PermissionDenied,
+            crate::DeviceStatusCode::DeviceBusy,
+            crate::DeviceStatusCode::DaemonUnavailable,
+            crate::DeviceStatusCode::DeviceError,
+        ] {
+            assert!(!should_show_write_error(true, status), "{status:?}");
+        }
+    }
+
+    #[test]
+    fn unsaved_state_is_derived_from_draft_contents() {
+        let mut state = AppStateRust::default();
+        state.apply_qa_scenario(UiQaScenario::Ready);
+
+        assert!(!state.effects_modified());
+        assert!(!state.eq_modified());
+
+        state
+            .effects_draft
+            .as_mut()
+            .expect("QA Effects draft")
+            .bass_level += 1;
+        state
+            .eq_draft
+            .as_mut()
+            .expect("QA EQ draft")
+            .gains_tenths_db[0] += 1;
+
+        assert!(state.effects_modified());
+        assert!(state.eq_modified());
+
+        state.effects_draft = state.effects_entries.first().cloned();
+        state.eq_draft = state.eq_entries.first().cloned();
+        assert!(!state.effects_modified());
+        assert!(!state.eq_modified());
+    }
+
+    #[test]
+    fn catalog_replacement_cannot_make_an_existing_draft_look_saved() {
+        let mut state = AppStateRust::default();
+        state.apply_qa_scenario(UiQaScenario::Ready);
+        state
+            .eq_draft
+            .as_mut()
+            .expect("QA EQ draft")
+            .gains_tenths_db[4] -= 10;
+
+        state.eq_entries.clear();
+
+        assert!(state.eq_modified());
+        assert_eq!(
+            state
+                .eq_draft
+                .as_ref()
+                .expect("preserved EQ draft")
+                .gains_tenths_db[4],
+            -20
+        );
+    }
+
+    #[test]
+    fn eq_operation_ownership_rejects_overlap_and_stale_completion() {
+        let mut state = AppStateRust::default();
+
+        let first = state.begin_eq_operation().expect("first operation");
+        assert!(state.begin_eq_operation().is_none());
+        assert!(!state.finish_eq_operation(first.saturating_add(1)));
+        assert!(state.eq_operation_in_flight);
+        assert!(state.finish_eq_operation(first));
+        assert!(!state.eq_operation_in_flight);
+
+        let second = state.begin_eq_operation().expect("second operation");
+        assert!(second > first);
+        assert!(!state.finish_eq_operation(first));
+        assert!(state.finish_eq_operation(second));
+    }
 }

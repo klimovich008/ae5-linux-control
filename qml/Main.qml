@@ -8,8 +8,22 @@ import "pages"
 ApplicationWindow {
     id: root
 
-    width: 1280
-    height: 800
+    function qaWindowDimension(part, fallback) {
+        for (let index = 0; index < Qt.application.arguments.length; ++index) {
+            const argument = Qt.application.arguments[index]
+            if (!argument.startsWith("--qa-window="))
+                continue
+            const dimensions = argument.substring(12).split("x")
+            if (dimensions.length !== 2)
+                return fallback
+            const parsed = Number(dimensions[part])
+            return Number.isFinite(parsed) ? parsed : fallback
+        }
+        return fallback
+    }
+
+    width: qaWindowDimension(0, 1280)
+    height: qaWindowDimension(1, 800)
     minimumWidth: 1024
     minimumHeight: 680
     visible: true
@@ -38,6 +52,10 @@ ApplicationWindow {
     readonly property bool wide: width >= Theme.wideBreakpoint
     readonly property bool effectsModified: appState.effectsState === "Modified"
     readonly property bool eqModified: appState.eqState === "Modified"
+    readonly property bool qaFocusAuditRequested:
+        Qt.application.arguments.indexOf("--qa-focus-audit") >= 0
+    readonly property bool qaStateSmokeRequested:
+        Qt.application.arguments.indexOf("--qa-state-smoke") >= 0
     property bool closeConfirmed: false
     property var closeReturnFocusItem: null
 
@@ -83,6 +101,108 @@ ApplicationWindow {
         root.close()
     }
 
+    function collectTabStops(item, result) {
+        if (!item || item.visible === false || item.enabled === false)
+            return
+        if (item.activeFocusOnTab === true)
+            result.push(item)
+        if (!item.children)
+            return
+        for (let index = 0; index < item.children.length; ++index)
+            collectTabStops(item.children[index], result)
+    }
+
+    function expectedQaFocusOrder() {
+        let order = ["nav-sound"]
+        if (appState.qaScenario === "both-modified")
+            order.push("eq-revert", "eq-save", "eq-actions")
+        else
+            order.push("eq-selector", "eq-actions")
+        order.push(
+            "eq-band-0", "eq-band-1", "eq-band-2", "eq-band-3", "eq-band-4",
+            "eq-band-5", "eq-band-6", "eq-band-7", "eq-band-8", "eq-band-9",
+        )
+        if (appState.qaScenario === "both-modified")
+            order.push("effects-revert", "effects-save", "effects-actions")
+        else
+            order.push("effects-selector", "effects-actions")
+        order.push(
+            "direct-mode",
+            "effect-surround-switch", "effect-surround-level",
+            "effect-crystalizer-switch",
+            "effect-crystalizer-level",
+            "effect-bass-switch", "effect-bass-level",
+            "effect-smart-volume-switch",
+            "effect-smart-volume-level",
+            "effect-dialog-switch", "effect-dialog-level",
+            "output-speakers", "output-headphones", "output-digital",
+            "master-mute", "master-volume"
+        )
+        if (appState.qaScenario === "both-modified")
+            order.push("unsaved-review")
+        return order
+    }
+
+    function runQaFocusAudit() {
+        if (!appState.qaMode
+                || (appState.qaScenario !== "ready"
+                    && appState.qaScenario !== "both-modified")) {
+            console.error("AE5_QML_FOCUS_AUDIT requires --qa-state=ready or both-modified")
+            Qt.exit(2)
+            return
+        }
+
+        const expected = expectedQaFocusOrder()
+        let discovered = []
+        collectTabStops(root.contentItem, discovered)
+        const discoveredNames = discovered.map(item => item.objectName)
+        let failures = []
+
+        for (let index = 0; index < discoveredNames.length; ++index) {
+            if (discoveredNames[index].length === 0)
+                failures.push("unnamed tab stop at discovered index " + index)
+            if (discoveredNames.indexOf(discoveredNames[index]) !== index)
+                failures.push("duplicate tab stop " + discoveredNames[index])
+        }
+        for (let index = 0; index < expected.length; ++index) {
+            if (discoveredNames.indexOf(expected[index]) < 0)
+                failures.push("missing tab stop " + expected[index])
+        }
+        for (let index = 0; index < discoveredNames.length; ++index) {
+            if (expected.indexOf(discoveredNames[index]) < 0)
+                failures.push("unexpected tab stop " + discoveredNames[index])
+        }
+
+        const first = discovered.find(item => item.objectName === expected[0])
+        let actual = []
+        if (!first) {
+            failures.push("cannot focus the first expected tab stop")
+        } else {
+            first.forceActiveFocus(Qt.TabFocusReason)
+            let current = first
+            for (let index = 0; index < expected.length + 2; ++index) {
+                if (!current || actual.indexOf(current.objectName) >= 0)
+                    break
+                actual.push(current.objectName)
+                current = current.nextItemInFocusChain(true)
+            }
+        }
+
+        if (actual.join("|") !== expected.join("|")) {
+            failures.push("focus chain differs: expected=" + expected.join(",")
+                          + " actual=" + actual.join(","))
+        }
+
+        if (failures.length > 0) {
+            console.error("AE5_QML_FOCUS_AUDIT result=failed " + failures.join("; "))
+            Qt.exit(1)
+        } else {
+            console.log("AE5_QML_FOCUS_AUDIT result=passed count=" + expected.length
+                        + " order=" + actual.join(","))
+            Qt.exit(0)
+        }
+    }
+
     onClosing: function(closeEvent) {
         if (!closeConfirmed && appState.unsavedCount > 0) {
             closeEvent.accepted = false
@@ -104,8 +224,31 @@ ApplicationWindow {
     Timer {
         interval: 5000
         repeat: true
-        running: true
+        running: !appState.qaMode && appState.softwareEqState !== "applying"
         onTriggered: appState.refreshFromDaemon()
+    }
+
+    Timer {
+        interval: 120
+        running: root.qaFocusAuditRequested
+        repeat: false
+        onTriggered: root.runQaFocusAudit()
+    }
+
+    Timer {
+        interval: 120
+        running: root.qaStateSmokeRequested && !root.qaFocusAuditRequested
+        repeat: false
+        onTriggered: {
+            if (!appState.qaMode) {
+                console.error("AE5_QML_STATE_SMOKE requires --qa-state")
+                Qt.exit(2)
+            } else {
+                console.log("AE5_QML_STATE_SMOKE result=rendered state="
+                            + appState.qaScenario + " status=" + appState.statusCode)
+                Qt.exit(0)
+            }
+        }
     }
 
     ColumnLayout {
@@ -143,6 +286,7 @@ ApplicationWindow {
                                     : Theme.faceplateHeight
             appState: appState
             compact: root.compact
+            wide: root.wide
             onReviewRequested: soundPage.reviewUnsaved()
         }
     }

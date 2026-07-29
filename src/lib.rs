@@ -14,8 +14,9 @@ pub use builtin_profiles::{BuiltinProfile, COMMAND_DEFAULT_PROFILE_COUNT, builti
 pub use controls::{
     Ae5Mixer, ChannelLevel, ControlError, ControlSnapshot, DIRECT_MODE_CONTROL, DecibelRange,
     Level, capture_control_block_reason, direct_mode_block_reason, equalizer_band_block_reason,
-    front_vmaster_clamp_warning, headphone_playback_issue, playback_switch_block_reason,
-    smart_volume_level_block_reason, snapshot_controls, unsafe_playback_control_block_reason,
+    front_vmaster_clamp_warning, hardware_outfx_lab_active, headphone_playback_issue,
+    playback_switch_block_reason, smart_volume_level_block_reason, snapshot_controls,
+    unsafe_playback_control_block_reason,
 };
 pub use device::Ae5Device;
 pub use eq_chain::{

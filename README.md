@@ -20,6 +20,11 @@ initializes OutFX off and rejects an enable request with `-EOPNOTSUPP`.
 Windows Command's OutFX is a software APO master switch; it is not equivalent
 to Linux's unsafe CA0132 hardware control.
 
+An intentionally separate, triple-gated diagnostic build can expose that
+hardware control for physically isolated corruption testing. It is never a
+normal listening mode and does not weaken the production defaults. See
+[docs/OUTFX_HARDWARE_LAB.md](docs/OUTFX_HARDWARE_LAB.md).
+
 Waveform-qualified tests found a second trigger: clearing and later
 reassigning the AE-5 HDA playback converter could change a clean stream into
 approximately 26.4% THD even with OutFX off. The current kernel queue fixes

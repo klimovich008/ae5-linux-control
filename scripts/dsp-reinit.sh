@@ -75,9 +75,40 @@ hard_mute() {
     command -v wpctl >/dev/null 2>&1 && wpctl set-mute @DEFAULT_AUDIO_SINK@ 1 || true
 }
 
+find_card() {
+    local card path
+    for path in /sys/class/sound/card[0-9]*; do
+        [ -r "$path/device/vendor" ] || continue
+        [ "$(cat "$path/device/vendor")" = "0x1102" ] || continue
+        [ "$(cat "$path/device/device")" = "0x0012" ] || continue
+        [ "$(cat "$path/device/subsystem_vendor")" = "0x1102" ] || continue
+        [ "$(cat "$path/device/subsystem_device")" = "0x0051" ] || continue
+        card="${path##*/card}"
+        printf '%s\n' "$card"
+        return 0
+    done
+    return 1
+}
+
+authorize_rebind() {
+    ELEVATE=()
+    [ "$(id -u)" -eq 0 ] && return
+
+    if command -v pkexec >/dev/null 2>&1; then
+        note "requesting desktop authorization for the later PCI rebind"
+        pkexec /usr/bin/true ||
+            die "desktop authorization for the PCI rebind failed"
+        ELEVATE=(pkexec)
+        return
+    fi
+
+    command -v sudo >/dev/null 2>&1 ||
+        die "root, pkexec, or sudo is required for the PCI rebind"
+    sudo -v || die "sudo authorization for the PCI rebind failed"
+    ELEVATE=(sudo)
+}
+
 main() {
-    [ "$(id -u)" -eq 0 ] || command -v sudo >/dev/null 2>&1 \
-        || die "root or sudo is required for the PCI rebind"
     command -v lspci >/dev/null 2>&1 || die "lspci is required"
 
     local slot
@@ -99,6 +130,9 @@ main() {
         case "$reply" in y|Y|yes|YES) ;; *) note "aborted"; exit 1 ;; esac
     fi
 
+    local -a ELEVATE
+    authorize_rebind
+
     note "hard-muting output"
     hard_mute
     sleep 1
@@ -108,24 +142,22 @@ main() {
         wireplumber.service pipewire.service pipewire-pulse.service 2>/dev/null || true
     sleep 2
 
-    local SUDO=""
-    [ "$(id -u)" -eq 0 ] || SUDO="sudo"
-
     note "unbinding $slot"
-    $SUDO sh -c "echo $slot > /sys/bus/pci/drivers/$DRIVER/unbind" \
+    "${ELEVATE[@]}" sh -c "echo $slot > /sys/bus/pci/drivers/$DRIVER/unbind" \
         || die "unbind failed"
     sleep 3
     note "rebinding $slot"
-    $SUDO sh -c "echo $slot > /sys/bus/pci/drivers/$DRIVER/bind" \
+    "${ELEVATE[@]}" sh -c "echo $slot > /sys/bus/pci/drivers/$DRIVER/bind" \
         || die "rebind failed — a reboot will restore the card"
     # The card returns with Master and Front ON at their 0 dB points. Re-mute
     # immediately: everything below (log check, PipeWire restart, profile
     # reapply) would otherwise run with a live analog output, which is
     # audible to anyone wearing the headphones.
     for _ in 1 2 3 4 5 6 7 8 9 10; do
-        [ -e /proc/asound/card0/pcm0p ] && break
+        find_card >/dev/null && break
         sleep 0.5
     done
+    find_card >/dev/null || die "AE-5 did not return after rebind"
     hard_mute
     sleep 3
 
@@ -169,8 +201,8 @@ usage: dsp-reinit.sh
 
 Clears the CA0132 idle DSP self-oscillation by rebinding the AE-5 PCI
 device so the driver re-downloads the DSP. Scoped to PCI 1102:0012 /
-subsystem 1102:0051; refuses to touch anything else. Needs root for the
-rebind and stops the PipeWire session briefly.
+subsystem 1102:0051; refuses to touch anything else. Requests desktop
+authorization (or sudo as a fallback) before it stops PipeWire.
 
 Environment:
   AE5_REINIT_PROFILE  profile JSON to reapply afterwards

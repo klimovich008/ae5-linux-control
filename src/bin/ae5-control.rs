@@ -10,12 +10,12 @@ use ae5_control::{
     apply_software_eq, builtin_profiles, capture_control_block_reason, direct_mode_block_reason,
     disable_eq_chain, discover_sbcommand_installation, enable_eq_chain, eq_chain_config,
     equalizer_band_block_reason, export_library_profile, front_vmaster_clamp_warning,
-    headphone_playback_issue, import_discovered_sbcommand_profile_with_report,
-    import_sbcommand_profile_with_report, library_profile, native_rates_config,
-    playback_switch_block_reason, profile_library, profile_library_directory,
-    rename_library_profile, set_ae5_default_input, set_ae5_default_output,
-    set_native_rates_enabled, set_saved_led, set_saved_lighting, smart_volume_level_block_reason,
-    snapshot_controls, software_eq_output, unload_software_eq,
+    hardware_outfx_lab_active, headphone_playback_issue,
+    import_discovered_sbcommand_profile_with_report, import_sbcommand_profile_with_report,
+    library_profile, native_rates_config, playback_switch_block_reason, profile_library,
+    profile_library_directory, rename_library_profile, set_ae5_default_input,
+    set_ae5_default_output, set_native_rates_enabled, set_saved_led, set_saved_lighting,
+    smart_volume_level_block_reason, snapshot_controls, software_eq_output, unload_software_eq,
     unsafe_playback_control_block_reason, validate_eq_chain_activation,
     validate_linux_driver_defaults,
 };
@@ -778,11 +778,14 @@ fn sound_effects_page(
     }
     page.append(&header);
 
-    let safety = gtk::Label::new(Some(
+    let safety = gtk::Label::new(Some(if hardware_outfx_lab_active() {
+        "UNSAFE OUTFX LAB ACTIVE — analog outputs must remain physically disconnected. Every \
+         hardware effect change can corrupt the DSP until a driver rebind or cold boot."
+    } else {
         "Hardware OutFX is disabled: repeated tests produced severe distortion and required \
          codec reinitialization. These values are retained for the Windows-like software \
-         effects implementation.",
-    ));
+         effects implementation."
+    }));
     safety.set_xalign(0.0);
     safety.set_wrap(true);
     safety.add_css_class("warning-label");

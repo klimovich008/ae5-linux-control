@@ -1,0 +1,30 @@
+diff --git a/sound/hda/codecs/ca0132.c b/sound/hda/codecs/ca0132.c
+--- a/sound/hda/codecs/ca0132.c
++++ b/sound/hda/codecs/ca0132.c
+@@ -76,5 +76,10 @@ MODULE_FIRMWARE(R3DI_EFX_FILE);
+ #endif
+ 
++static bool ae5_unsafe_outfx_lab;
++module_param(ae5_unsafe_outfx_lab, bool, 0644);
++MODULE_PARM_DESC(ae5_unsafe_outfx_lab,
++		 "Allow unsafe AE-5 hardware OutFX writes for diagnostics");
++
+ static const char *const dirstr[2] = { "Playback", "Capture" };
+ 
+ #define NUM_OF_OUTPUTS 2
+@@ -6323,10 +6328,14 @@ static int ca0132_switch_put(struct snd_kcontrol *kcontrol,
+ 		 * codec.  Keep the safe route selected until that DSP sequence
+ 		 * is understood.
+ 		 */
+-		if (ca0132_quirk(spec) == QUIRK_AE5 && *valp) {
++		if (ca0132_quirk(spec) == QUIRK_AE5 && *valp &&
++		    !ae5_unsafe_outfx_lab) {
+ 			codec_dbg(codec, "AE-5 hardware OutFX enable rejected\n");
+ 			return -EOPNOTSUPP;
+ 		}
++		if (ca0132_quirk(spec) == QUIRK_AE5 && *valp)
++			codec_warn(codec,
++				   "AE-5 unsafe hardware OutFX lab enable accepted\n");
+ 		spec->effects_switch[nid - EFFECT_START_NID] = *valp;
+ 		return ca0132_pe_switch_set(codec);
+ 	}

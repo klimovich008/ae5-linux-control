@@ -22,6 +22,10 @@ const CHANNELS: &[SelemChannelId] = &[
 ];
 const ROUTE_PLAYBACK_CONTROLS: &[&str] = &["Master", "Front", "Surround", "Center", "LFE", "PCM"];
 const QUALIFIED_STABLE_PLAYBACK_KERNEL: &str = "7.1.4-ae5-stable";
+const OUTFX_LAB_KERNEL_RELEASE: &str = "7.1.4-ae5-outfx-lab";
+const OUTFX_LAB_KERNEL_PARAMETER: &str =
+    "/sys/module/snd_hda_codec_ca0132/parameters/ae5_unsafe_outfx_lab";
+const OUTFX_LAB_CONFIRMATION: &str = "I_ACCEPT_AE5_DSP_CORRUPTION";
 
 pub(crate) const EQUALIZER_PRESET_CONTROL: &str = "FX: Equalizer Preset";
 pub const DIRECT_MODE_CONTROL: &str = "AE-5: Direct Mode";
@@ -131,22 +135,49 @@ pub fn playback_switch_block_reason(
 }
 
 pub fn unsafe_playback_control_block_reason(name: &str) -> Option<&'static str> {
-    playback_control_block_reason_for_kernel(name, qualified_stable_playback_kernel_active())
+    playback_control_block_reason_for_kernel(
+        name,
+        qualified_stable_playback_kernel_active(),
+        hardware_outfx_lab_active(),
+    )
 }
 
 fn playback_control_block_reason_for_kernel(
     name: &str,
     stable_playback_kernel: bool,
+    outfx_lab_active: bool,
 ) -> Option<&'static str> {
     if name == DIRECT_MODE_CONTROL {
         Some(UNSAFE_DIRECT_MODE)
     } else if is_unsafe_output_route_control(name) && !stable_playback_kernel {
         Some(UNSAFE_OUTPUT_ROUTE_TRANSITION)
-    } else if is_unsafe_hardware_playback_control(name) {
+    } else if is_unsafe_hardware_playback_control(name)
+        && !(outfx_lab_active && is_outfx_lab_control(name))
+    {
         Some(UNSAFE_HARDWARE_OUTFX)
     } else {
         None
     }
+}
+
+pub fn hardware_outfx_lab_active() -> bool {
+    #[cfg(feature = "outfx-lab")]
+    {
+        let confirmation = std::env::var("AE5_OUTFX_LAB").ok();
+        let release = fs::read_to_string("/proc/sys/kernel/osrelease").unwrap_or_default();
+        let parameter = fs::read_to_string(OUTFX_LAB_KERNEL_PARAMETER).unwrap_or_default();
+        outfx_lab_active_for(confirmation.as_deref(), &release, &parameter)
+    }
+    #[cfg(not(feature = "outfx-lab"))]
+    {
+        false
+    }
+}
+
+fn outfx_lab_active_for(confirmation: Option<&str>, release: &str, parameter: &str) -> bool {
+    confirmation == Some(OUTFX_LAB_CONFIRMATION)
+        && release.trim() == OUTFX_LAB_KERNEL_RELEASE
+        && parameter.trim() == "Y"
 }
 
 fn qualified_stable_playback_kernel_active() -> bool {
@@ -317,6 +348,10 @@ pub(crate) fn is_unsafe_hardware_playback_control(name: &str) -> bool {
                 | "FX: Equalizer"
                 | EQUALIZER_PRESET_CONTROL
         )
+}
+
+fn is_outfx_lab_control(name: &str) -> bool {
+    name != DIRECT_MODE_CONTROL && is_unsafe_hardware_playback_control(name)
 }
 
 pub(crate) fn is_unsafe_output_route_control(name: &str) -> bool {
@@ -1489,24 +1524,60 @@ mod tests {
     #[test]
     fn permits_output_routes_only_on_the_qualified_clean_kernel() {
         assert_eq!(
-            playback_control_block_reason_for_kernel("Output Select", false),
+            playback_control_block_reason_for_kernel("Output Select", false, false),
             Some(UNSAFE_OUTPUT_ROUTE_TRANSITION)
         );
         assert_eq!(
-            playback_control_block_reason_for_kernel("Surround Channel Config", false),
+            playback_control_block_reason_for_kernel("Surround Channel Config", false, false),
             Some(UNSAFE_OUTPUT_ROUTE_TRANSITION)
         );
         assert_eq!(
-            playback_control_block_reason_for_kernel("Output Select", true),
+            playback_control_block_reason_for_kernel("Output Select", true, false),
             None
         );
         assert_eq!(
-            playback_control_block_reason_for_kernel("Surround Channel Config", true),
+            playback_control_block_reason_for_kernel("Surround Channel Config", true, false),
             None
         );
         assert_eq!(
-            playback_control_block_reason_for_kernel("AE-5: Headphone Gain", false),
+            playback_control_block_reason_for_kernel("AE-5: Headphone Gain", false, false),
             None
+        );
+    }
+
+    #[test]
+    fn outfx_lab_requires_every_authorization_gate() {
+        assert!(outfx_lab_active_for(
+            Some(OUTFX_LAB_CONFIRMATION),
+            OUTFX_LAB_KERNEL_RELEASE,
+            "Y"
+        ));
+        assert!(!outfx_lab_active_for(None, OUTFX_LAB_KERNEL_RELEASE, "Y"));
+        assert!(!outfx_lab_active_for(
+            Some(OUTFX_LAB_CONFIRMATION),
+            QUALIFIED_STABLE_PLAYBACK_KERNEL,
+            "Y"
+        ));
+        assert!(!outfx_lab_active_for(
+            Some(OUTFX_LAB_CONFIRMATION),
+            OUTFX_LAB_KERNEL_RELEASE,
+            "N"
+        ));
+    }
+
+    #[test]
+    fn outfx_lab_unlocks_only_the_hardware_effect_chain() {
+        assert_eq!(
+            playback_control_block_reason_for_kernel(HARDWARE_OUTFX_CONTROL, false, true),
+            None
+        );
+        assert_eq!(
+            playback_control_block_reason_for_kernel("FX: Surround", false, true),
+            None
+        );
+        assert_eq!(
+            playback_control_block_reason_for_kernel(DIRECT_MODE_CONTROL, false, true),
+            Some(UNSAFE_DIRECT_MODE)
         );
     }
 

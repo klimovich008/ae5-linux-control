@@ -76,10 +76,14 @@ runtime_fake_bin=$test_root/runtime-fake-bin
 install -d -m0755 "$reload_home" "$runtime_fake_bin"
 printf '#!/usr/bin/env bash\nexit 1\n' > "$runtime_fake_bin/systemctl"
 chmod 0755 "$runtime_fake_bin/systemctl"
-HOME=$reload_home \
-AE5_SYSTEM_ACP_ROOT=$system_acp \
-AE5_TEST_REPO_ROOT=$repo_root \
-PATH="$runtime_fake_bin:$PATH" \
+env \
+	-u XDG_DATA_HOME \
+	-u XDG_CONFIG_HOME \
+	-u XDG_STATE_HOME \
+	HOME="$reload_home" \
+	AE5_SYSTEM_ACP_ROOT="$system_acp" \
+	AE5_TEST_REPO_ROOT="$repo_root" \
+	PATH="$runtime_fake_bin:$PATH" \
 	dbus-run-session -- bash -euo pipefail -c '
 		env -u XDG_DATA_HOME -u XDG_CONFIG_HOME -u XDG_STATE_HOME \
 			bash "$AE5_TEST_REPO_ROOT/scripts/install-user.sh" --from-build \

@@ -5,18 +5,18 @@ use ae5_control::{
     Ae5Device, Ae5Lighting, Ae5Mixer, BuiltinProfile, COMMAND_DEFAULT_PROFILE_COUNT, ControlError,
     ControlSnapshot, DIRECT_MODE_CONTROL, EqChainChange, EqChainConfig, HARDWARE_OUTFX_CONTROL,
     LINUX_DRIVER_DEFAULTS_PRESERVED, Level, NativeRatesConfig, ONBOARD_LED_COUNT, PipeWireNode,
-    PipeWireRouteState, Profile, ProfileControl, RgbColor, SbCommandImport, SbCommandTarget,
-    SoftwareEqOutput, ae5_input, ae5_output, ae5_route_state, apply_linux_driver_defaults,
-    apply_software_eq, builtin_profiles, capture_control_block_reason, direct_mode_block_reason,
-    disable_eq_chain, discover_sbcommand_installation, enable_eq_chain, eq_chain_config,
-    equalizer_band_block_reason, export_library_profile, front_vmaster_clamp_warning,
-    hardware_outfx_lab_active, headphone_playback_issue,
+    PipeWireRouteState, Profile, ProfileControl, RgbColor, RuntimeSampleRate, SbCommandImport,
+    SbCommandTarget, SoftwareEqOutput, ae5_input, ae5_output, ae5_route_state,
+    apply_linux_driver_defaults, apply_software_eq, builtin_profiles, capture_control_block_reason,
+    direct_mode_block_reason, disable_eq_chain, discover_sbcommand_installation, enable_eq_chain,
+    eq_chain_config, equalizer_band_block_reason, export_library_profile,
+    front_vmaster_clamp_warning, hardware_outfx_lab_active, headphone_playback_issue,
     import_discovered_sbcommand_profile_with_report, import_sbcommand_profile_with_report,
     library_profile, native_rates_config, playback_switch_block_reason, profile_library,
-    profile_library_directory, rename_library_profile, set_ae5_default_input,
-    set_ae5_default_output, set_native_rates_enabled, set_saved_led, set_saved_lighting,
-    smart_volume_level_block_reason, snapshot_controls, software_eq_output, unload_software_eq,
-    unsafe_playback_control_block_reason, validate_eq_chain_activation,
+    profile_library_directory, rename_library_profile, runtime_sample_rate, set_ae5_default_input,
+    set_ae5_default_output, set_ae5_runtime_sample_rate, set_native_rates_enabled, set_saved_led,
+    set_saved_lighting, smart_volume_level_block_reason, snapshot_controls, software_eq_output,
+    unload_software_eq, unsafe_playback_control_block_reason, validate_eq_chain_activation,
     validate_linux_driver_defaults,
 };
 use gtk::gio;
@@ -2397,6 +2397,11 @@ fn mixer_page(
         ae5_input(card_index),
         set_ae5_default_input,
     ));
+    page.append(&runtime_sample_rate_card(
+        card_index,
+        status,
+        runtime_sample_rate(),
+    ));
     page.append(&native_rates_card(status, native_rates_config()));
 
     gtk::ScrolledWindow::builder()
@@ -2598,6 +2603,162 @@ fn rgb_from_rgba(color: &gtk::gdk::RGBA) -> RgbColor {
     )
 }
 
+fn runtime_sample_rate_card(
+    card_index: i32,
+    status: &gtk::Label,
+    current: std::io::Result<RuntimeSampleRate>,
+) -> gtk::Box {
+    let actions = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    let state = gtk::Label::new(None);
+    state.set_xalign(0.0);
+    state.set_wrap(true);
+    state.set_hexpand(true);
+
+    let picker = gtk::DropDown::from_strings(&["Auto", "48 kHz", "96 kHz"]);
+    picker.update_property(&[gtk::accessible::Property::Label(
+        "Live PipeWire sample rate",
+    )]);
+    picker.set_tooltip_text(Some(
+        "Temporarily mute the AE-5 output, reopen it at the selected rate, verify S16LE, then restore the previous mute state.",
+    ));
+    let verified = Rc::new(Cell::new(0));
+    let updating = Rc::new(Cell::new(false));
+
+    match current {
+        Ok(rate) => {
+            let selected = runtime_sample_rate_index(rate);
+            verified.set(selected);
+            picker.set_selected(selected);
+            state.set_text(runtime_sample_rate_summary(rate));
+        }
+        Err(error) => {
+            state.set_text(&format!("Live rate unavailable: {error}"));
+            picker.set_sensitive(false);
+        }
+    }
+    actions.append(&state);
+    actions.append(&picker);
+
+    let status = status.clone();
+    let state_on_change = state.clone();
+    let verified_on_change = verified.clone();
+    let updating_on_change = updating.clone();
+    picker.connect_selected_notify(move |picker| {
+        if updating_on_change.get() || !picker.is_sensitive() {
+            return;
+        }
+        let selected = picker.selected();
+        if selected == verified_on_change.get() {
+            return;
+        }
+        let requested = runtime_sample_rate_from_index(selected);
+        picker.set_sensitive(false);
+        state_on_change.set_text("Applying safely…\nOutput is temporarily muted");
+        set_status(
+            &status,
+            true,
+            "Applying the live sample rate and verifying the AE-5 transport…",
+        );
+
+        let picker = picker.clone();
+        let state = state_on_change.clone();
+        let status = status.clone();
+        let verified = verified_on_change.clone();
+        let updating = updating_on_change.clone();
+        gtk::glib::spawn_future_local(async move {
+            match gio::spawn_blocking(move || set_ae5_runtime_sample_rate(card_index, requested))
+                .await
+            {
+                Ok(Ok(actual)) => {
+                    let actual_index = runtime_sample_rate_index(actual);
+                    verified.set(actual_index);
+                    revert_dropdown(&picker, &updating, actual_index);
+                    state.set_text(runtime_sample_rate_summary(actual));
+                    set_status(&status, true, runtime_sample_rate_applied_status(actual));
+                }
+                Ok(Err(error)) => {
+                    revert_dropdown(&picker, &updating, verified.get());
+                    state.set_text(runtime_sample_rate_summary(runtime_sample_rate_from_index(
+                        verified.get(),
+                    )));
+                    set_status(
+                        &status,
+                        false,
+                        &format!(
+                            "Sample-rate change failed; playback was left muted for safety: {error}"
+                        ),
+                    );
+                }
+                Err(_) => {
+                    revert_dropdown(&picker, &updating, verified.get());
+                    state.set_text(runtime_sample_rate_summary(runtime_sample_rate_from_index(
+                        verified.get(),
+                    )));
+                    set_status(
+                        &status,
+                        false,
+                        "Sample-rate worker stopped unexpectedly; check that playback is muted.",
+                    );
+                }
+            }
+            picker.set_sensitive(true);
+        });
+    });
+
+    ae5_control::gui::widgets::profile_card(
+        "03",
+        "Live sample rate",
+        "Choose the current PipeWire graph rate without restarting. This is a temporary global \
+         setting; AE5 Control accepts only the qualified S16 transport and restores the previous \
+         mute state after successful verification.",
+        &actions,
+    )
+}
+
+fn runtime_sample_rate_index(rate: RuntimeSampleRate) -> u32 {
+    match rate {
+        RuntimeSampleRate::Auto => 0,
+        RuntimeSampleRate::Hz48000 => 1,
+        RuntimeSampleRate::Hz96000 => 2,
+    }
+}
+
+fn runtime_sample_rate_from_index(index: u32) -> RuntimeSampleRate {
+    match index {
+        1 => RuntimeSampleRate::Hz48000,
+        2 => RuntimeSampleRate::Hz96000,
+        _ => RuntimeSampleRate::Auto,
+    }
+}
+
+fn runtime_sample_rate_summary(rate: RuntimeSampleRate) -> &'static str {
+    match rate {
+        RuntimeSampleRate::Auto => {
+            "Automatic for this session\nS16LE transport · follows PipeWire clock policy"
+        }
+        RuntimeSampleRate::Hz48000 => {
+            "48 kHz for this session\nS16LE transport · resets when PipeWire restarts"
+        }
+        RuntimeSampleRate::Hz96000 => {
+            "96 kHz for this session\nS16LE transport · resets when PipeWire restarts"
+        }
+    }
+}
+
+fn runtime_sample_rate_applied_status(rate: RuntimeSampleRate) -> &'static str {
+    match rate {
+        RuntimeSampleRate::Auto => {
+            "Applied and verified: S16LE with automatic PipeWire rate selection. Previous mute state restored."
+        }
+        RuntimeSampleRate::Hz48000 => {
+            "Applied and verified: S16LE at 48 kHz. Previous mute state restored."
+        }
+        RuntimeSampleRate::Hz96000 => {
+            "Applied and verified: S16LE at 96 kHz. Previous mute state restored."
+        }
+    }
+}
+
 fn native_rates_card(status: &gtk::Label, current: std::io::Result<NativeRatesConfig>) -> gtk::Box {
     let actions = gtk::Box::new(gtk::Orientation::Horizontal, 12);
     let state = gtk::Label::new(None);
@@ -2653,7 +2814,7 @@ fn native_rates_card(status: &gtk::Label, current: std::io::Result<NativeRatesCo
     });
 
     ae5_control::gui::widgets::profile_card(
-        "03",
+        "04",
         "Native sample rates",
         "Experimental: allow 44.1, 48, and 96 kHz streams to avoid unnecessary \
          resampling. This changes the global PipeWire graph and may affect other devices.",
@@ -4600,6 +4761,31 @@ mod tests {
             native_rates_summary(&config),
             "Enabled in PipeWire configuration\n44.1, 48, and 96 kHz"
         );
+    }
+
+    #[test]
+    fn maps_and_summarizes_runtime_sample_rates() {
+        for (rate, index, summary) in [
+            (
+                RuntimeSampleRate::Auto,
+                0,
+                "Automatic for this session\nS16LE transport · follows PipeWire clock policy",
+            ),
+            (
+                RuntimeSampleRate::Hz48000,
+                1,
+                "48 kHz for this session\nS16LE transport · resets when PipeWire restarts",
+            ),
+            (
+                RuntimeSampleRate::Hz96000,
+                2,
+                "96 kHz for this session\nS16LE transport · resets when PipeWire restarts",
+            ),
+        ] {
+            assert_eq!(runtime_sample_rate_index(rate), index);
+            assert_eq!(runtime_sample_rate_from_index(index), rate);
+            assert_eq!(runtime_sample_rate_summary(rate), summary);
+        }
     }
 
     #[test]

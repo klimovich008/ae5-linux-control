@@ -15,7 +15,8 @@ context.properties = {
 ";
 const AE5_PROFILE_SET: &str = "sound-blaster-ae5.conf";
 const SOFTWARE_EQ_SIGNATURE_PROPERTY: &str = "ae5.control.eq.signature";
-const SOFTWARE_EQ_METADATA_NAME: &str = "settings";
+const PIPEWIRE_SETTINGS_METADATA_NAME: &str = "settings";
+const PIPEWIRE_FORCE_RATE_PROPERTY: &str = "clock.force-rate";
 const DIRECT_FILTER_PARAMETER: &str = "audioconvert.filter-graph.0";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -179,6 +180,41 @@ pub struct NativeRatesConfig {
     pub enabled: bool,
 }
 
+/// Live PipeWire graph-rate override for the current desktop session.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RuntimeSampleRate {
+    /// Follow PipeWire's configured clock policy.
+    Auto,
+    /// Force the graph and AE-5 sink to 48 kHz.
+    Hz48000,
+    /// Force the graph and AE-5 sink to 96 kHz.
+    Hz96000,
+}
+
+impl RuntimeSampleRate {
+    fn metadata_value(self) -> &'static str {
+        match self {
+            Self::Auto => "0",
+            Self::Hz48000 => "48000",
+            Self::Hz96000 => "96000",
+        }
+    }
+
+    fn hertz(self) -> Option<u32> {
+        match self {
+            Self::Auto => None,
+            Self::Hz48000 => Some(48_000),
+            Self::Hz96000 => Some(96_000),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ActivePcmFormat {
+    sample_format: String,
+    sample_rate: u32,
+}
+
 pub fn ae5_output(card_index: i32) -> io::Result<Option<PipeWireNode>> {
     ae5_node(card_index, "sinks")
 }
@@ -222,6 +258,271 @@ pub fn set_ae5_software_volume(card_index: i32, percent: f64) -> io::Result<Soft
         node,
         applied_percent,
     })
+}
+
+/// Reads the live PipeWire graph-rate override.
+///
+/// # Errors
+///
+/// Returns an error when PipeWire metadata is unavailable or contains an
+/// unsupported forced rate.
+pub fn runtime_sample_rate() -> io::Result<RuntimeSampleRate> {
+    parse_runtime_sample_rate(&run_pw_metadata(&["-n", PIPEWIRE_SETTINGS_METADATA_NAME])?)
+}
+
+/// Safely applies a live graph-rate override while preserving AE-5 mute state.
+///
+/// The setting lasts until PipeWire restarts. The exact-card S16 transport is
+/// verified before an originally unmuted output is restored.
+///
+/// # Errors
+///
+/// Returns an error when the AE-5 PipeWire route is unavailable, the metadata
+/// write fails, or the sink does not negotiate the requested S16 rate.
+pub fn set_ae5_runtime_sample_rate(
+    card_index: i32,
+    requested: RuntimeSampleRate,
+) -> io::Result<RuntimeSampleRate> {
+    let node = ae5_output(card_index)?.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("PipeWire has no playback output for ALSA card {card_index}"),
+        )
+    })?;
+    require_ae5_profile(node.id)?;
+    let mut suspended_output = None;
+    set_runtime_sample_rate_with(
+        &node,
+        requested,
+        run_wpctl,
+        run_pw_metadata,
+        |suspended| {
+            if suspended {
+                if suspended_output.is_none() {
+                    suspended_output = Some(suspend_ae5_output(card_index)?);
+                }
+            } else if let Some(output) = suspended_output.take() {
+                output.resume()?;
+            }
+            Ok(())
+        },
+        |rate| verify_runtime_sample_rate(node.id, &node.node_name, rate),
+    )
+}
+
+fn set_runtime_sample_rate_with<W, M, S, V>(
+    node: &PipeWireNode,
+    requested: RuntimeSampleRate,
+    mut run_wpctl: W,
+    mut run_metadata: M,
+    mut set_suspended: S,
+    mut verify: V,
+) -> io::Result<RuntimeSampleRate>
+where
+    W: FnMut(&[&str]) -> io::Result<String>,
+    M: FnMut(&[&str]) -> io::Result<String>,
+    S: FnMut(bool) -> io::Result<()>,
+    V: FnMut(RuntimeSampleRate) -> io::Result<()>,
+{
+    let before =
+        parse_runtime_sample_rate(&run_metadata(&["-n", PIPEWIRE_SETTINGS_METADATA_NAME])?)?;
+    if before == requested {
+        verify(requested)?;
+        return Ok(requested);
+    }
+    let muted = node.muted.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "the AE-5 output mute state is unavailable; refusing a sample-rate change",
+        )
+    })?;
+    let node_id = node.id.to_string();
+    run_wpctl(&["set-mute", &node_id, "1"])?;
+
+    let transition: io::Result<RuntimeSampleRate> = (|| {
+        set_suspended(true)?;
+        let update = (|| {
+            run_metadata(&[
+                "-n",
+                PIPEWIRE_SETTINGS_METADATA_NAME,
+                "0",
+                PIPEWIRE_FORCE_RATE_PROPERTY,
+                requested.metadata_value(),
+            ])?;
+            let actual = parse_runtime_sample_rate(&run_metadata(&[
+                "-n",
+                PIPEWIRE_SETTINGS_METADATA_NAME,
+            ])?)?;
+            if actual != requested {
+                return Err(io::Error::other(format!(
+                    "PipeWire retained {actual:?} after requesting {requested:?}"
+                )));
+            }
+            Ok(())
+        })();
+        let resumed = set_suspended(false);
+        update?;
+        resumed?;
+        verify(requested)?;
+        run_wpctl(&["set-mute", &node_id, if muted { "1" } else { "0" }])?;
+        Ok(requested)
+    })();
+    if let Err(error) = transition {
+        let rollback: io::Result<()> = (|| {
+            set_suspended(true)?;
+            let update = (|| {
+                run_metadata(&[
+                    "-n",
+                    PIPEWIRE_SETTINGS_METADATA_NAME,
+                    "0",
+                    PIPEWIRE_FORCE_RATE_PROPERTY,
+                    before.metadata_value(),
+                ])?;
+                let actual = parse_runtime_sample_rate(&run_metadata(&[
+                    "-n",
+                    PIPEWIRE_SETTINGS_METADATA_NAME,
+                ])?)?;
+                if actual != before {
+                    return Err(io::Error::other(format!(
+                        "PipeWire retained {actual:?} while restoring {before:?}"
+                    )));
+                }
+                Ok(())
+            })();
+            let resumed = set_suspended(false);
+            update?;
+            resumed?;
+            verify(before)
+        })();
+        let safe_mute = run_wpctl(&["set-mute", &node_id, "1"]);
+        return Err(io::Error::new(
+            error.kind(),
+            format!(
+                "{error}; rate rollback {}; output mute {}",
+                if rollback.is_ok() {
+                    "verified"
+                } else {
+                    "failed"
+                },
+                if safe_mute.is_ok() {
+                    "confirmed"
+                } else {
+                    "failed"
+                }
+            ),
+        ));
+    }
+    transition
+}
+
+fn verify_runtime_sample_rate(
+    node_id: u32,
+    node_name: &str,
+    requested: RuntimeSampleRate,
+) -> io::Result<()> {
+    verify_runtime_sample_rate_with(
+        requested,
+        || active_pcm_format(node_id),
+        |rate| prime_ae5_output(node_name, rate),
+    )
+}
+
+fn verify_runtime_sample_rate_with<Q, P>(
+    requested: RuntimeSampleRate,
+    mut query: Q,
+    mut prime: P,
+) -> io::Result<()>
+where
+    Q: FnMut() -> io::Result<ActivePcmFormat>,
+    P: FnMut(u32) -> io::Result<()>,
+{
+    let mut last = None;
+    let mut primed = false;
+    for _ in 0..120 {
+        match query() {
+            Ok(format) if format.sample_format != "S16LE" => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!(
+                        "AE-5 negotiated {}, expected the qualified S16LE transport",
+                        format.sample_format
+                    ),
+                ));
+            }
+            Ok(format)
+                if requested
+                    .hertz()
+                    .is_none_or(|expected| format.sample_rate == expected) =>
+            {
+                return Ok(());
+            }
+            Ok(format) => last = Some(format!("{} Hz", format.sample_rate)),
+            Err(error) if !primed => {
+                let rate = requested.hertz().unwrap_or(48_000);
+                prime(rate)?;
+                primed = true;
+                last = Some(error.to_string());
+                continue;
+            }
+            Err(error) => last = Some(error.to_string()),
+        }
+        thread::sleep(Duration::from_millis(25));
+    }
+    Err(io::Error::new(
+        io::ErrorKind::TimedOut,
+        format!(
+            "AE-5 did not negotiate {}; last state: {}",
+            requested
+                .hertz()
+                .map_or_else(|| "automatic rate".to_owned(), |rate| format!("{rate} Hz")),
+            last.unwrap_or_else(|| "unavailable".to_owned())
+        ),
+    ))
+}
+
+fn prime_ae5_output(node_name: &str, sample_rate: u32) -> io::Result<()> {
+    let sample_count = (sample_rate / 10).to_string();
+    let sample_rate = sample_rate.to_string();
+    let arguments = [
+        "--raw",
+        "--target",
+        node_name,
+        "--rate",
+        &sample_rate,
+        "--channels",
+        "2",
+        "--format",
+        "s16",
+        "--volume",
+        "0",
+        "--sample-count",
+        &sample_count,
+        "/dev/zero",
+    ];
+    let _status = Command::new("pw-play")
+        .args(arguments)
+        .status()
+        .map_err(|error| {
+            if error.kind() == io::ErrorKind::NotFound {
+                io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "pw-play is unavailable; install PipeWire utilities",
+                )
+            } else {
+                error
+            }
+        })?;
+    // pw-play can return 1 after its bounded stream has successfully activated
+    // the sink. The following ALSA format query is the authoritative result.
+    Ok(())
+}
+
+fn active_pcm_format(node_id: u32) -> io::Result<ActivePcmFormat> {
+    parse_active_pcm_format(&run_pw_cli(&[
+        "enum-params",
+        &node_id.to_string(),
+        "Format",
+    ])?)
 }
 
 pub fn software_eq_output(card_index: i32) -> io::Result<Option<SoftwareEqOutput>> {
@@ -1080,7 +1381,7 @@ fn escape_spa_string(value: &str) -> io::Result<String> {
 
 fn set_software_eq_signature(node_id: u32, signature: Option<&str>) -> io::Result<()> {
     let id = node_id.to_string();
-    let mut arguments = vec!["-n", SOFTWARE_EQ_METADATA_NAME];
+    let mut arguments = vec!["-n", PIPEWIRE_SETTINGS_METADATA_NAME];
     if signature.is_none() {
         arguments.push("-d");
     }
@@ -1105,10 +1406,58 @@ fn require_software_eq_signature(node_id: u32, expected: Option<&str>) -> io::Re
 
 fn software_eq_signature(node_id: u32) -> io::Result<Option<String>> {
     parse_metadata_value(
-        &run_pw_metadata(&["-n", SOFTWARE_EQ_METADATA_NAME])?,
+        &run_pw_metadata(&["-n", PIPEWIRE_SETTINGS_METADATA_NAME])?,
         node_id,
         SOFTWARE_EQ_SIGNATURE_PROPERTY,
     )
+}
+
+fn parse_runtime_sample_rate(output: &str) -> io::Result<RuntimeSampleRate> {
+    match parse_metadata_value(output, 0, PIPEWIRE_FORCE_RATE_PROPERTY)?.as_deref() {
+        None | Some("0") => Ok(RuntimeSampleRate::Auto),
+        Some("48000") => Ok(RuntimeSampleRate::Hz48000),
+        Some("96000") => Ok(RuntimeSampleRate::Hz96000),
+        Some(rate) => Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("PipeWire uses unsupported forced sample rate '{rate}'"),
+        )),
+    }
+}
+
+fn parse_active_pcm_format(output: &str) -> io::Result<ActivePcmFormat> {
+    let mut sample_format = None;
+    let mut sample_rate = None;
+    let mut lines = output.lines();
+    while let Some(line) = lines.next() {
+        if line.contains("Format:Audio:format") {
+            sample_format = lines.next().and_then(|value| {
+                value
+                    .trim()
+                    .split_once("(Spa:Enum:AudioFormat:")
+                    .and_then(|(_, value)| value.strip_suffix(')'))
+                    .map(str::to_owned)
+            });
+        } else if line.contains("Format:Audio:rate") {
+            sample_rate = lines
+                .next()
+                .and_then(|value| value.split_ascii_whitespace().nth(1))
+                .and_then(|value| value.parse().ok());
+        }
+    }
+    Ok(ActivePcmFormat {
+        sample_format: sample_format.ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "PipeWire did not report the AE-5 PCM format",
+            )
+        })?,
+        sample_rate: sample_rate.ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "PipeWire did not report the AE-5 sample rate",
+            )
+        })?,
+    })
 }
 
 fn parse_metadata_value(output: &str, id: u32, key: &str) -> io::Result<Option<String>> {
@@ -2172,5 +2521,212 @@ update: id:52 key:'ae5.control.eq.signature' value:'other' type:'Spa:String'
         );
 
         fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn parses_the_runtime_sample_rate_from_pipewire_metadata() {
+        let metadata = "\
+Found \"settings\" metadata 32
+update: id:0 key:'clock.rate' value:'48000' type:''
+update: id:0 key:'clock.force-rate' value:'96000' type:''
+";
+
+        assert_eq!(
+            parse_runtime_sample_rate(metadata).unwrap(),
+            RuntimeSampleRate::Hz96000
+        );
+    }
+
+    #[test]
+    fn parses_the_active_s16_pipewire_format() {
+        let format = "\
+    Prop: key Spa:Pod:Object:Param:Format:Audio:format (65537), flags 00000000
+      Id 259      (Spa:Enum:AudioFormat:S16LE)
+    Prop: key Spa:Pod:Object:Param:Format:Audio:rate (65539), flags 00000000
+      Int 96000
+";
+
+        assert_eq!(
+            parse_active_pcm_format(format).unwrap(),
+            ActivePcmFormat {
+                sample_format: "S16LE".to_owned(),
+                sample_rate: 96_000,
+            }
+        );
+    }
+
+    #[test]
+    fn runtime_rate_transition_mutes_before_the_change_and_restores_mute_state() {
+        let node = PipeWireNode {
+            id: 62,
+            node_name: "alsa_output.pci-ae5.analog-stereo".to_owned(),
+            description: "AE-5".to_owned(),
+            is_default: true,
+            volume_percent: Some(20),
+            muted: Some(false),
+        };
+        let mut wpctl_commands = Vec::new();
+        let mut metadata_commands = Vec::new();
+        let mut metadata_reads = 0;
+        let mut suspension_changes = Vec::new();
+        let mut verified = None;
+
+        let applied = set_runtime_sample_rate_with(
+            &node,
+            RuntimeSampleRate::Hz96000,
+            |arguments| {
+                wpctl_commands.push(arguments.join(" "));
+                Ok(String::new())
+            },
+            |arguments| {
+                metadata_commands.push(arguments.join(" "));
+                if arguments.len() == 2 {
+                    metadata_reads += 1;
+                    Ok(format!(
+                        "update: id:0 key:'clock.force-rate' value:'{}' type:''\n",
+                        if metadata_reads == 1 { "0" } else { "96000" }
+                    ))
+                } else {
+                    Ok(String::new())
+                }
+            },
+            |suspended| {
+                suspension_changes.push(suspended);
+                Ok(())
+            },
+            |rate| {
+                verified = Some(rate);
+                Ok(())
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            (
+                applied,
+                wpctl_commands,
+                metadata_commands,
+                suspension_changes,
+                verified,
+            ),
+            (
+                RuntimeSampleRate::Hz96000,
+                vec!["set-mute 62 1".to_owned(), "set-mute 62 0".to_owned()],
+                vec![
+                    "-n settings".to_owned(),
+                    "-n settings 0 clock.force-rate 96000".to_owned(),
+                    "-n settings".to_owned(),
+                ],
+                vec![true, false],
+                Some(RuntimeSampleRate::Hz96000),
+            )
+        );
+    }
+
+    #[test]
+    fn runtime_rate_failure_reopens_at_the_previous_rate_and_stays_muted() {
+        let node = PipeWireNode {
+            id: 62,
+            node_name: "alsa_output.pci-ae5.analog-stereo".to_owned(),
+            description: "AE-5".to_owned(),
+            is_default: true,
+            volume_percent: Some(20),
+            muted: Some(false),
+        };
+        let mut wpctl_commands = Vec::new();
+        let mut metadata_commands = Vec::new();
+        let mut metadata_reads = 0;
+        let mut suspension_changes = Vec::new();
+        let mut verified = Vec::new();
+
+        let error = set_runtime_sample_rate_with(
+            &node,
+            RuntimeSampleRate::Hz48000,
+            |arguments| {
+                wpctl_commands.push(arguments.join(" "));
+                Ok(String::new())
+            },
+            |arguments| {
+                metadata_commands.push(arguments.join(" "));
+                if arguments.len() == 2 {
+                    metadata_reads += 1;
+                    Ok(format!(
+                        "update: id:0 key:'clock.force-rate' value:'{}' type:''\n",
+                        match metadata_reads {
+                            1 | 3 => "96000",
+                            _ => "48000",
+                        }
+                    ))
+                } else {
+                    Ok(String::new())
+                }
+            },
+            |suspended| {
+                suspension_changes.push(suspended);
+                Ok(())
+            },
+            |rate| {
+                verified.push(rate);
+                if rate == RuntimeSampleRate::Hz48000 {
+                    Err(io::Error::other("AE-5 stayed at 96000 Hz"))
+                } else {
+                    Ok(())
+                }
+            },
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("AE-5 stayed at 96000 Hz"));
+        assert!(error.to_string().contains("rate rollback verified"));
+        assert_eq!(
+            wpctl_commands,
+            vec!["set-mute 62 1".to_owned(), "set-mute 62 1".to_owned()]
+        );
+        assert_eq!(
+            metadata_commands,
+            vec![
+                "-n settings".to_owned(),
+                "-n settings 0 clock.force-rate 48000".to_owned(),
+                "-n settings".to_owned(),
+                "-n settings 0 clock.force-rate 96000".to_owned(),
+                "-n settings".to_owned(),
+            ]
+        );
+        assert_eq!(suspension_changes, vec![true, false, true, false]);
+        assert_eq!(
+            verified,
+            vec![RuntimeSampleRate::Hz48000, RuntimeSampleRate::Hz96000]
+        );
+    }
+
+    #[test]
+    fn runtime_rate_verification_primes_a_closed_sink_with_silent_s16() {
+        let mut attempts = 0;
+        let mut primed_at = None;
+
+        verify_runtime_sample_rate_with(
+            RuntimeSampleRate::Hz48000,
+            || {
+                attempts += 1;
+                if attempts == 1 {
+                    Err(io::Error::new(
+                        io::ErrorKind::NotFound,
+                        "the sink is closed",
+                    ))
+                } else {
+                    Ok(ActivePcmFormat {
+                        sample_format: "S16LE".to_owned(),
+                        sample_rate: 48_000,
+                    })
+                }
+            },
+            |rate| {
+                primed_at = Some(rate);
+                Ok(())
+            },
+        )
+        .unwrap();
+
+        assert_eq!((attempts, primed_at), (2, Some(48_000)));
     }
 }

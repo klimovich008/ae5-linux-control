@@ -29,9 +29,10 @@ pub use lighting::{
     restore_saved_lighting, saved_lighting, set_saved_led, set_saved_lighting,
 };
 pub use pipewire::{
-    NativeRatesConfig, PipeWireNode, PipeWireRouteState, SoftwareEqOutput, SoftwareVolumeOutput,
-    ae5_input, ae5_output, ae5_route_state, ae5_windows_volume_curve_active, apply_software_eq,
-    native_rates_config, set_ae5_default_input, set_ae5_default_output, set_ae5_software_volume,
+    NativeRatesConfig, PipeWireNode, PipeWireRouteState, RuntimeSampleRate, SoftwareEqOutput,
+    SoftwareVolumeOutput, ae5_input, ae5_output, ae5_route_state, ae5_windows_volume_curve_active,
+    apply_software_eq, native_rates_config, runtime_sample_rate, set_ae5_default_input,
+    set_ae5_default_output, set_ae5_runtime_sample_rate, set_ae5_software_volume,
     set_native_rates_enabled, software_eq_output, unload_software_eq,
 };
 pub use profile::{

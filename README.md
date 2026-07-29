@@ -181,8 +181,15 @@ evidence, verification, rebuild procedure, and rollback are in
 [docs/WINDOWS_VOLUME_CURVE.md](docs/WINDOWS_VOLUME_CURVE.md). A guarded
 physical Windows/Linux loudness comparison remains pending.
 
-The optional native-rate configuration lets PipeWire switch the global graph
-between 44.1, 48, and 96 kHz after its next restart:
+The GTK **Mixer** page has a **Live sample rate** selector for automatic,
+48 kHz, or 96 kHz operation in the current PipeWire session. A change mutes
+the exact AE-5 sink, closes and reopens its PCM, uses a zero-volume S16 probe
+when the sink is idle, verifies the negotiated ALSA format and rate, and only
+then restores the previous mute state. A failed transition is rolled back and
+left muted.
+
+The separate optional native-rate configuration lets PipeWire switch the
+global graph between 44.1, 48, and 96 kHz after its next restart:
 
 ```sh
 cargo run -- native-rates-status

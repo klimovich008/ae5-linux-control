@@ -27,6 +27,7 @@ static START: OnceLock<Instant> = OnceLock::new();
 static ENABLED: OnceLock<bool> = OnceLock::new();
 /// Milliseconds since [`START`] of the most recent write this process made.
 static LAST_SELF_WRITE_MS: AtomicU64 = AtomicU64::new(u64::MAX);
+static SELF_WRITE_GENERATION: AtomicU64 = AtomicU64::new(0);
 
 /// How long after our own mixer write an ALSA event is still assumed to be the
 /// echo of that write. Scale drags emit bursts well inside this window; a
@@ -66,7 +67,13 @@ pub fn trace(area: &str, message: &str) {
 /// The watch thread uses this to tell an echo of our own write apart from a
 /// genuinely external change, instead of rebuilding the window for both.
 pub fn note_self_write() {
+    SELF_WRITE_GENERATION.fetch_add(1, Ordering::AcqRel);
     LAST_SELF_WRITE_MS.store(elapsed_ms(), Ordering::Release);
+}
+
+/// Number of mixer or runtime-state writes made by this process.
+pub fn self_write_generation() -> u64 {
+    SELF_WRITE_GENERATION.load(Ordering::Acquire)
 }
 
 /// If the event now being handled is within the self-event window, return how

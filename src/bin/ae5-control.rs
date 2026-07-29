@@ -3,7 +3,7 @@ use ae5_control::gui::editors::*;
 use ae5_control::linux_driver_defaults_for;
 use ae5_control::{
     Ae5Device, Ae5Lighting, Ae5Mixer, BuiltinProfile, COMMAND_DEFAULT_PROFILE_COUNT, ControlError,
-    ControlSnapshot, DIRECT_MODE_CONTROL, EqChainChange, EqChainConfig,
+    ControlSnapshot, DIRECT_MODE_CONTROL, EqChainChange, EqChainConfig, HARDWARE_OUTFX_CONTROL,
     LINUX_DRIVER_DEFAULTS_PRESERVED, Level, NativeRatesConfig, ONBOARD_LED_COUNT, PipeWireNode,
     PipeWireRouteState, Profile, ProfileControl, RgbColor, SbCommandImport, SbCommandTarget,
     SoftwareEqOutput, ae5_input, ae5_output, ae5_route_state, apply_linux_driver_defaults,
@@ -52,6 +52,13 @@ enum KernelReadiness {
 struct OperationStatus {
     success: bool,
     message: String,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+struct UnsignalledUiState {
+    outfx_enabled: Result<Option<bool>, String>,
+    saved_eq_signature: Result<Option<String>, String>,
+    runtime_eq_signature: Result<Option<String>, String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -2120,6 +2127,7 @@ async fn install_software_eq_profile(
         .map_err(|error| error.to_string())?
         .ok_or_else(|| "PipeWire has no physical AE-5 output".to_owned())?;
     enable_eq_chain(&profile, &controls, &output.node_name)
+        .inspect(|_| ae5_control::gui::tracelog::note_self_write())
         .map(Some)
         .map_err(|error| error.to_string())
 }
@@ -2144,10 +2152,13 @@ fn activate_software_eq(card_index: i32) -> Result<SoftwareEqOutput, String> {
         apply_software_eq(card_index, &graph, &signature).map_err(|error| error.to_string())
     })();
     match &result {
-        Ok(output) => ae5_control::gui::tracelog::trace(
-            "eq",
-            &format!("activation verified: target={}", output.node.description),
-        ),
+        Ok(output) => {
+            ae5_control::gui::tracelog::note_self_write();
+            ae5_control::gui::tracelog::trace(
+                "eq",
+                &format!("activation verified: target={}", output.node.description),
+            );
+        }
         Err(error) => {
             ae5_control::gui::tracelog::trace("eq", &format!("activation FAILED: {error}"))
         }
@@ -2161,10 +2172,13 @@ fn disable_software_eq_safely(card_index: i32) -> Result<EqChainChange, String> 
         .map_err(|error| error.to_string())
         .and_then(|_| disable_eq_chain().map_err(|error| error.to_string()));
     match &result {
-        Ok(change) => ae5_control::gui::tracelog::trace(
-            "eq",
-            &format!("disable verified: saved_state_changed={}", change.changed),
-        ),
+        Ok(change) => {
+            ae5_control::gui::tracelog::note_self_write();
+            ae5_control::gui::tracelog::trace(
+                "eq",
+                &format!("disable verified: saved_state_changed={}", change.changed),
+            );
+        }
         Err(error) => ae5_control::gui::tracelog::trace("eq", &format!("disable FAILED: {error}")),
     }
     result
@@ -3949,6 +3963,32 @@ const REFRESH_SETTLE_TICK: Duration = Duration::from_millis(120);
 /// How many consecutive quiet ticks count as settled. 120 ms x 3 keeps the
 /// window responsive while absorbing the burst a route change produces.
 const REFRESH_SETTLE_TICKS: u32 = 3;
+const UNSIGNALLED_STATE_POLL_INTERVAL: Duration = Duration::from_secs(1);
+const EXTERNAL_SYNC_MESSAGE: &str = "Audio state changed outside AE-5 Control; synchronized.";
+
+fn unsignalled_ui_state(mixer: &Ae5Mixer, card_index: i32) -> UnsignalledUiState {
+    UnsignalledUiState {
+        outfx_enabled: mixer
+            .snapshot(HARDWARE_OUTFX_CONTROL)
+            .map(|control| control.playback_switch)
+            .map_err(|error| error.to_string()),
+        saved_eq_signature: eq_chain_config()
+            .map(|config| config.signature())
+            .map_err(|error| error.to_string()),
+        runtime_eq_signature: software_eq_output(card_index)
+            .map(|output| output.and_then(|output| output.signature))
+            .map_err(|error| error.to_string()),
+    }
+}
+
+fn unsignalled_change_is_external(
+    before: &UnsignalledUiState,
+    after: &UnsignalledUiState,
+    self_write_before: u64,
+    self_write_after: u64,
+) -> bool {
+    before != after && self_write_before == self_write_after
+}
 
 fn start_mixer_watch(window: &gtk::ApplicationWindow, card_index: i32) -> Result<(), String> {
     let mixer = Ae5Mixer::open(card_index).map_err(|error| error.to_string())?;
@@ -3964,6 +4004,9 @@ fn start_mixer_watch(window: &gtk::ApplicationWindow, card_index: i32) -> Result
     thread::Builder::new()
         .name("ae5-mixer-events".to_owned())
         .spawn(move || {
+            let mut unsignalled_state = unsignalled_ui_state(&mixer, card_index);
+            let mut self_write_generation = ae5_control::gui::tracelog::self_write_generation();
+            let mut next_unsignalled_poll = Instant::now() + UNSIGNALLED_STATE_POLL_INTERVAL;
             while running.load(Ordering::Acquire) {
                 match mixer.wait_for_event(Duration::from_millis(500)) {
                     Ok(false) => {}
@@ -4009,7 +4052,7 @@ fn start_mixer_watch(window: &gtk::ApplicationWindow, card_index: i32) -> Result
                                 "burst settled -> rebuilding window once",
                             );
                             if let Some(window) = active_main_window() {
-                                let _ = refresh_window(&window, None);
+                                let _ = refresh_window(&window, Some(EXTERNAL_SYNC_MESSAGE));
                             }
                         });
                     }
@@ -4024,6 +4067,44 @@ fn start_mixer_watch(window: &gtk::ApplicationWindow, card_index: i32) -> Result
                         break;
                     }
                 }
+
+                if Instant::now() < next_unsignalled_poll {
+                    continue;
+                }
+                next_unsignalled_poll = Instant::now() + UNSIGNALLED_STATE_POLL_INTERVAL;
+                let current_state = unsignalled_ui_state(&mixer, card_index);
+                let current_self_write_generation =
+                    ae5_control::gui::tracelog::self_write_generation();
+                if current_state != unsignalled_state {
+                    let external = unsignalled_change_is_external(
+                        &unsignalled_state,
+                        &current_state,
+                        self_write_generation,
+                        current_self_write_generation,
+                    );
+                    if external {
+                        if !refresh_queued.swap(true, Ordering::AcqRel) {
+                            ae5_control::gui::tracelog::trace(
+                                "watch",
+                                "external non-notifying state change -> rebuilding window",
+                            );
+                            let refresh_queued = refresh_queued.clone();
+                            gtk::glib::MainContext::default().invoke(move || {
+                                refresh_queued.store(false, Ordering::Release);
+                                if let Some(window) = active_main_window() {
+                                    let _ = refresh_window(&window, Some(EXTERNAL_SYNC_MESSAGE));
+                                }
+                            });
+                        }
+                    } else {
+                        ae5_control::gui::tracelog::trace(
+                            "watch",
+                            "self-originated non-notifying state synchronized",
+                        );
+                    }
+                    unsignalled_state = current_state;
+                }
+                self_write_generation = current_self_write_generation;
             }
         })
         .map(|_| ())
@@ -5005,5 +5086,37 @@ mod tests {
                 message: "Applied “My profile · Headphones”; 21 controls were verified.".to_owned(),
             })
         );
+    }
+
+    #[test]
+    fn unsignalled_state_change_is_external_without_a_self_write() {
+        let before = UnsignalledUiState {
+            outfx_enabled: Ok(Some(true)),
+            saved_eq_signature: Ok(None),
+            runtime_eq_signature: Ok(None),
+        };
+        let after = UnsignalledUiState {
+            outfx_enabled: Ok(Some(false)),
+            saved_eq_signature: Ok(Some("saved".to_owned())),
+            runtime_eq_signature: Ok(Some("saved".to_owned())),
+        };
+
+        assert!(unsignalled_change_is_external(&before, &after, 7, 7));
+    }
+
+    #[test]
+    fn unsignalled_state_change_is_not_external_after_a_self_write() {
+        let before = UnsignalledUiState {
+            outfx_enabled: Ok(Some(true)),
+            saved_eq_signature: Ok(None),
+            runtime_eq_signature: Ok(None),
+        };
+        let after = UnsignalledUiState {
+            outfx_enabled: Ok(Some(false)),
+            saved_eq_signature: Ok(None),
+            runtime_eq_signature: Ok(None),
+        };
+
+        assert!(!unsignalled_change_is_external(&before, &after, 7, 8));
     }
 }

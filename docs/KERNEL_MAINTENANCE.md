@@ -1,9 +1,10 @@
 # Maintainable AE-5 kernel workflow
 
-> **Current queue (2026-07-28):** the authoritative `kernel/series` excludes
+> **Current queue (2026-07-29):** the authoritative `kernel/series` excludes
 > Direct Mode and includes both the fail-closed AE-5 OutFX guard and the
 > qualified stable-playback fix. It now also contains a source-, object-, and
-> package-validated, not-yet-installed warm-shutdown DSP-reset candidate. The
+> package-validated warm-shutdown DSP-reset candidate whose bare-metal Linux
+> handoff gate passed. The Windows handoff remains pending. The
 > verified `7.1.4-ae5-stable` RPM contains the preceding accepted eight-patch
 > queue and is installed side by side and running for the accepted one-shot
 > physical boot. The installed
@@ -119,8 +120,8 @@ The candidate has a separate, non-installing-verified
 `776c00b7ce97d13fcf9751fa3c205ff2d799e4b5e106fe1b145c01219f0cc57a`.
 Its verifier accepted 6,469 signed modules, exact
 `7.1.4-ae5-shutdown` CA0132 vermagic, and the shutdown diagnostic marker. It is
-installed side by side and scheduled for one guarded boot, but it is not
-booted or physically accepted and is not the stable package described below.
+installed side by side and passed its exact bare-metal candidate-to-stable
+warm-reboot reset gate, but it is not yet the stable package described below.
 The stock Nobara kernel remains the saved/default entry. See
 [`WARM_REBOOT_DSP_RESET.md`](WARM_REBOOT_DSP_RESET.md) for its evidence and
 remaining gate.

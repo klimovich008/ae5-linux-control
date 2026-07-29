@@ -5,7 +5,7 @@ supersedes older current-state claims elsewhere as of the snapshot date. The
 main README contains useful cumulative evidence, but some passages describe
 earlier milestones rather than the current development host.
 
-Snapshot date: **2026-07-28**
+Snapshot date: **2026-07-29**
 
 ## Start from the correct revision
 
@@ -70,9 +70,12 @@ cleared it only by removing motherboard power. Source tracing found that
 CA0132 driver removal resets the DSP while the generic HDA shutdown path leaves
 it running. The current nine-patch source queue now ends with an AE-5-only
 shutdown reset candidate, but the installed `7.1.4-ae5-stable` kernel still
-contains the previously accepted eight-patch queue. Do not describe the
-warm-handoff issue as fixed until the gates in
-[`docs/WARM_REBOOT_DSP_RESET.md`](docs/WARM_REBOOT_DSP_RESET.md) pass.
+contains the previously accepted eight-patch queue. The exact candidate has
+now passed a bare-metal candidate-to-stable warm reboot with one successful
+EFI-pstore-recorded DSP reset, no failure, and one fresh DSP download. Do not
+describe the cross-operating-system warm-handoff issue as fixed until the
+Windows gate in
+[`docs/WARM_REBOOT_DSP_RESET.md`](docs/WARM_REBOOT_DSP_RESET.md) passes.
 
 The source ledger currently tracks 54 Command features:
 
@@ -122,8 +125,8 @@ Important incomplete areas:
 - the ninth warm-shutdown DSP-reset patch is source-compatible, its exact
   affected objects pass the warnings-as-errors build, and its separate
   `7.1.4-ae5-shutdown` RPM passes non-installing verification and is installed
-  side by side for the next boot only, but it is not booted or bare-metal
-  accepted yet; stock remains the saved/default kernel;
+  side by side; its bare-metal Linux warm-handoff reset gate passed, while the
+  Windows handoff remains pending; stock remains the saved/default kernel;
 - the installed `7.1.4-ae5-guarded` host kernel predates the final fix and must
   not be selected;
 - the complete exact-target S32 transition and HDA-position campaign remains

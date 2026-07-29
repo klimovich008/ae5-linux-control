@@ -48,10 +48,11 @@ Windows; only complete power removal cleared it. This is user-reported rather
 than instrumented evidence, but it places that incident below a
 Linux/PipeWire-only boundary and is consistent with persistent AE-5 DSP or PCI
 power state. Source tracing then found that driver removal resets the CA0132
-DSP but the generic HDA warm-shutdown path does not. A ninth, not-yet-installed
-queue candidate adds an AE-5-only codec shutdown reset so Linux does not hand
-the next operating system a running DSP. Its evidence and remaining
-warm-handoff gate are in
+DSP but the generic HDA warm-shutdown path does not. The installed ninth-patch
+candidate adds an AE-5-only codec shutdown reset so Linux does not hand the
+next operating system a running DSP. Its bare-metal Linux warm-handoff gate
+proved exactly one successful reset and no failure; the Windows handoff
+remains open. The evidence and remaining gate are in
 [docs/WARM_REBOOT_DSP_RESET.md](docs/WARM_REBOOT_DSP_RESET.md).
 
 This is an internally captured digital result. The AE-5 analog outputs were
@@ -70,11 +71,11 @@ The current nine-patch queue applies cleanly to ALSA `for-next`, excludes
 Direct Mode, and includes the OutFX guard, stable-playback fix, and the
 source-, object-, and package-validated warm-shutdown reset candidate. Its
 separate `7.1.4-ae5-shutdown` RPM passed non-installing package verification
-and is installed side by side for a guarded one-shot boot, but has not been
-booted or physically accepted. The verified `7.1.4-ae5-stable` RPM contains
-the first eight patches and remains the running kernel; the stock Nobara
-kernel remains the saved default. Use the ninth-patch package only for its
-documented guarded runtime gate.
+and the exact bare-metal Linux shutdown-reset gate. The verified
+`7.1.4-ae5-stable` RPM contains the first eight patches and is again the
+running kernel; the stock Nobara kernel remains the saved default. Keep the
+ninth-patch package as a candidate until its documented Windows handoff gate
+passes.
 The previously installed `7.1.4-ae5-guarded` artifact predates the
 stable-playback patch and is historical. Reproducible hashes, validation
 evidence, and the physical acceptance sequence are in

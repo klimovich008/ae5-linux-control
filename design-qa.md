@@ -131,8 +131,41 @@ support a safe write.
 - no audio output, gain, mute, volume, EQ, OutFX, or Direct Mode write was
   issued during this QA pass
 
-The remaining release work is hardware acceptance, remaining pages, and
-package refresh. Those items do not block the Sound-screen visual/state QA but
-still block the project-wide definition of done.
+## Installed-host acceptance
+
+Commit `b068ff9` was rebuilt and upgraded through the transactional rootless
+installer on the physical Fedora/KDE Wayland host. The installed
+`ae5-control-qml` and `ae5d` executables byte-match that release build. The
+desktop entry and systemd user unit validate, and all seven existing
+configuration/profile files retained the same aggregate digest across the
+upgrade.
+
+The installed executable then passed:
+
+- all ten deterministic states under native Wayland and X11/XWayland;
+- the healthy focus audit at 1024×680, 1280×800, and 1600×1000;
+- the independently modified focus audit at the minimum X11/XWayland size;
+- a 200% Wayland scaling focus audit;
+- a live, read-only Wayland launch against the physical AE-5 and `ae5d`;
+- AT-SPI inspection of the page, graph, output, gain, mute, volume, profile,
+  enhancement, and status semantics.
+
+The live screen reported Headphones, Medium gain, S16LE/96 kHz, 20% master
+volume, 35 Effects profiles, and 37 EQ presets. `ae5d` logged no write event.
+The PipeWire volume and all profile files were unchanged. The only full ALSA
+snapshot delta was the read-only volatile `Capture Channel Map` reporting
+`FL,FR` instead of unassigned values; no writable mixer control changed.
+
+The exact Fedora 44 RPM is
+`dist/qt-qml-b068ff9/ae5-control-0.1.0-1.fc44.x86_64.rpm` with SHA-256
+`2e4c768ffe51b5a0a09e70c4a29e9cdc0c8da00fcb78b71dfdd4687f9b597b8d`.
+Its clean install/remove and runtime checks passed in CI. The host system-RPM
+transaction remains an authenticated packaging gate because the current
+session has neither passwordless sudo nor noninteractive polkit; the rootless
+package is the installed testable delivery.
+
+The remaining project-wide work is physical hardware acceptance, remaining
+pages, and the authenticated host system-RPM lifecycle. Those items do not
+block the Sound-screen visual/state goal.
 
 final result: passed

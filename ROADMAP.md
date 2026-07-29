@@ -238,6 +238,16 @@ Status: **in progress — packaged Qt runtime slice complete**
   Fedora 44 RPM install/remove transaction, native Wayland and X11 startup,
   and a live daemon stop/reactivation cycle passed without an audio write;
   the physical sink remained at 20%.
+- Completed the selected Sound-screen installed-host acceptance at commit
+  `b068ff9`: the transactional user install upgraded without changing any of
+  the seven existing configuration/profile files; installed binaries matched
+  the rebuilt release; all ten deterministic states passed under native
+  Wayland and X11/XWayland; focus audits passed at 1024×680, 1280×800,
+  1600×1000, and 200% scaling; and the live physical-card Wayland screen
+  exposed the expected AT-SPI semantics. The sink remained at 20%, `ae5d`
+  logged no write, and no writable ALSA control changed. The exact green RPM
+  is retained under `dist/qt-qml-b068ff9/`; authenticated host system-RPM
+  installation remains a distinct M5 gate.
 - Active next step: with the user present and OutFX deliberately off, run one
   guarded apply/change/disable/restart cycle at no more than 20% and record
   cross-rate response and persistence evidence. Effects, OutFX, output, gain,

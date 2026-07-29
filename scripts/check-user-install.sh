@@ -72,21 +72,22 @@ grep -Fq 'org.freedesktop.DBus ReloadConfig' \
 	"$repo_root/scripts/install-user.sh"
 
 reload_home=$test_root/reload-home
+reload_data=$reload_home/.local/share
+reload_config=$reload_home/.config
+reload_state=$reload_home/.local/state
 runtime_fake_bin=$test_root/runtime-fake-bin
 install -d -m0755 "$reload_home" "$runtime_fake_bin"
 printf '#!/usr/bin/env bash\nexit 1\n' > "$runtime_fake_bin/systemctl"
 chmod 0755 "$runtime_fake_bin/systemctl"
-env \
-	-u XDG_DATA_HOME \
-	-u XDG_CONFIG_HOME \
-	-u XDG_STATE_HOME \
-	HOME="$reload_home" \
+HOME="$reload_home" \
+XDG_DATA_HOME="$reload_data" \
+XDG_CONFIG_HOME="$reload_config" \
+XDG_STATE_HOME="$reload_state" \
 	AE5_SYSTEM_ACP_ROOT="$system_acp" \
 	AE5_TEST_REPO_ROOT="$repo_root" \
 	PATH="$runtime_fake_bin:$PATH" \
 	dbus-run-session -- bash -euo pipefail -c '
-		env -u XDG_DATA_HOME -u XDG_CONFIG_HOME -u XDG_STATE_HOME \
-			bash "$AE5_TEST_REPO_ROOT/scripts/install-user.sh" --from-build \
+		bash "$AE5_TEST_REPO_ROOT/scripts/install-user.sh" --from-build \
 			>/dev/null
 		service=io.github.klimovich008.Ae5Control
 		object=/io/github/klimovich008/Ae5Control
@@ -101,8 +102,7 @@ env \
 		)
 		[[ $response_type == uint32 && $daemon_pid =~ ^[0-9]+$ ]]
 		kill "$daemon_pid"
-		env -u XDG_DATA_HOME -u XDG_CONFIG_HOME -u XDG_STATE_HOME \
-			bash "$AE5_TEST_REPO_ROOT/scripts/install-user.sh" --uninstall \
+		bash "$AE5_TEST_REPO_ROOT/scripts/install-user.sh" --uninstall \
 			>/dev/null
 	'
 

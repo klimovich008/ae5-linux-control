@@ -75,7 +75,9 @@ external dependency.
 
 ## Ordered milestones
 
-Only the first unfinished milestone is active.
+The user selected volume/loudness parity as the active prerequisite before
+software OutFX. M2's accepted shutdown-reset work moves to normal release
+packaging; M3 is active.
 
 ### M0 — Consolidate repository and evidence
 
@@ -125,7 +127,7 @@ the matched route, 5% muted sink, OutFX-off state, and closed playback PCMs.
 
 ### M2 — Warm-handoff kernel acceptance
 
-Status: **in progress**
+Status: **complete; stable-package promotion moved to M5**
 
 - Completed: install the package-verified `7.1.4-ae5-shutdown` kernel side by
   side for one boot while retaining the stock saved/default entry.
@@ -138,22 +140,22 @@ Status: **in progress**
   user confirmed normal Windows playback, then the acknowledged Linux return
   gate proved one successful candidate shutdown reset, no failure, one DSP
   initialization after return, and zero kernel taint.
-- Promote the accepted ninth patch into the daily stable package without the
-  candidate-only EFI-pstore arguments.
 - Keep stock and `7.1.4-ae5-stable` as recoverable boot choices until accepted.
 
-Exit: the ninth patch either passes and replaces the eight-patch build, or is
+Exit: the ninth patch passes the Linux and Windows warm-handoff gates or is
 rejected with captured evidence and a narrower follow-up task.
 
 ### M3 — Representative cross-rate EQ acceptance
 
-Status: **pending**
+Status: **in progress**
 
-- Record the live Windows AE-5 endpoint volume range, hardware-support flags,
-  and scalar-to-decibel points while muted. Binary analysis proves that
-  Command forwards its displayed percentage as a Windows endpoint scalar, so
-  parity must match measured attenuation rather than equal-looking
-  percentages.
+- In progress: the silent Windows collector, capture validator, dB
+  interpolator, one-stage Linux guard, transactional PipeWire setter, and CLI
+  preview/apply commands are implemented. Record the live Windows AE-5
+  endpoint volume range, hardware-support flags, and 101 scalar-to-decibel
+  points while muted. Binary analysis proves that Command forwards its
+  displayed percentage as a Windows endpoint scalar, so parity must match
+  measured attenuation rather than equal-looking percentages.
 - Prove the active PipeWire graph and ALSA PCM rates at 44.1, 48, and 96 kHz.
 - Measure neutral repeatability and three curves: the personal headphone
   profile plus two materially different factory profiles.
@@ -192,6 +194,8 @@ apply leaves the prior state intact.
 Status: **pending**
 
 - Build and install the current RPM on the host.
+- Promote the accepted ninth shutdown-reset patch into the daily stable
+  package without the candidate-only EFI-pstore arguments.
 - Verify upgrade, desktop launch, exact device detection, profile persistence,
   diagnostics, and removal/rollback behavior.
 - Refresh README, handover, screenshots, known limitations, and recovery

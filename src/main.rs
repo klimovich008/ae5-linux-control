@@ -1,14 +1,14 @@
 use ae5_control::{
     Ae5Device, Ae5Lighting, Ae5Mixer, DIRECT_MODE_CONTROL, EqBand, FeatureSupport,
     LINUX_DRIVER_DEFAULTS_PRESERVED, ONBOARD_LED_COUNT, PipeWireNode, PipeWireRouteState, Profile,
-    RgbColor, SbCommandImportReport, SbCommandTarget, ae5_input, ae5_output, ae5_route_state,
-    apply_linux_driver_defaults, apply_software_eq, disable_eq_chain,
+    RgbColor, SbCommandImportReport, SbCommandTarget, WindowsVolumeCurve, ae5_input, ae5_output,
+    ae5_route_state, apply_linux_driver_defaults, apply_software_eq, disable_eq_chain,
     discover_sbcommand_installation, enable_eq_chain, eq_chain_config, export_library_profile,
     feature_parity, front_vmaster_clamp_warning, headphone_playback_issue,
     import_active_sbcommand_profile_with_report, import_discovered_sbcommand_profile_with_report,
     import_sbcommand_profile_with_report, lighting_config_path, linux_driver_defaults,
     native_rates_config, profile_library, profile_library_directory, rename_library_profile,
-    restore_saved_lighting, set_ae5_default_input, set_ae5_default_output,
+    restore_saved_lighting, set_ae5_default_input, set_ae5_default_output, set_ae5_software_volume,
     set_native_rates_enabled, set_saved_led, set_saved_lighting, snapshot_controls,
     software_eq_output, unload_software_eq, validate_eq_chain_activation,
     validate_linux_driver_defaults,
@@ -56,6 +56,13 @@ fn run() -> Result<(), Box<dyn Error>> {
         [command] if command == "native-rates-status" => print_native_rates_status(),
         [command] if command == "native-rates-enable" => set_native_rates(true),
         [command] if command == "native-rates-disable" => set_native_rates(false),
+        [command, path] if command == "volume-curve-check" => check_volume_curve(path),
+        [command, path, percent] if command == "volume-curve-map" => {
+            map_volume_curve(path, percent)
+        }
+        [command, path, percent] if command == "volume-curve-apply" => {
+            apply_volume_curve(path, percent)
+        }
         [command] if command == "eq-chain-status" => print_eq_chain_status(),
         [command, sample_rate] if command == "eq-chain-response" => {
             print_eq_chain_response(sample_rate)
@@ -380,6 +387,79 @@ fn set_native_rates(enabled: bool) -> Result<(), Box<dyn Error>> {
         config.path.display()
     );
     Ok(())
+}
+
+fn check_volume_curve(path: &str) -> Result<(), Box<dyn Error>> {
+    let curve = WindowsVolumeCurve::load(Path::new(path))?;
+    println!(
+        "Windows AE-5 volume curve: valid\n  Endpoint: {}\n  Output: {}\n  Range: {:+.2}..{:+.2} dB ({:.3} dB step)\n  Endpoint volume path: {} (hardware mask 0x{:X})\n  Points: {}\n  Windows state restored: yes",
+        curve.endpoint_name,
+        curve.output,
+        curve.range_min_db,
+        curve.range_max_db,
+        curve.range_increment_db,
+        if curve.hardware_support_mask & 1 == 0 {
+            "Windows software"
+        } else {
+            "Windows hardware-backed; analog noise parity still requires measurement"
+        },
+        curve.hardware_support_mask,
+        curve.points.len(),
+    );
+    for percent in [5.0, 20.0, 30.0, 100.0] {
+        println!(
+            "  Windows {percent:>5.1}% -> PipeWire {:>6.2}%",
+            curve.pipewire_percent(percent)?
+        );
+    }
+    Ok(())
+}
+
+fn map_volume_curve(path: &str, percent: &str) -> Result<(), Box<dyn Error>> {
+    let percent = parse_volume_percent(percent)?;
+    let curve = WindowsVolumeCurve::load(Path::new(path))?;
+    println!(
+        "Windows {:.2}% -> PipeWire {:.3}% (same measured endpoint attenuation)",
+        percent,
+        curve.pipewire_percent(percent)?
+    );
+    Ok(())
+}
+
+fn apply_volume_curve(path: &str, percent: &str) -> Result<(), Box<dyn Error>> {
+    let percent = parse_volume_percent(percent)?;
+    let curve = WindowsVolumeCurve::load(Path::new(path))?;
+    let device = require_device()?;
+    curve.validate_linux_path(&snapshot_controls(device.card_index)?)?;
+    let pipewire_percent = curve.pipewire_percent(percent)?;
+    let output = set_ae5_software_volume(device.card_index, pipewire_percent)?;
+    println!(
+        "AE-5 volume applied on the existing PipeWire sink.\n  Windows scale: {percent:.2}%\n  PipeWire control: {:.3}%\n  PipeWire readback: {:.3}%\n  Mute state: {}",
+        pipewire_percent,
+        output.applied_percent,
+        if output.node.muted == Some(true) {
+            "muted (preserved)"
+        } else {
+            "unmuted (preserved)"
+        }
+    );
+    Ok(())
+}
+
+fn parse_volume_percent(percent: &str) -> Result<f64, io::Error> {
+    let percent = percent.parse::<f64>().map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "volume must be a number between 0 and 100 percent",
+        )
+    })?;
+    if !percent.is_finite() || !(0.0..=100.0).contains(&percent) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "volume must be between 0 and 100 percent",
+        ));
+    }
+    Ok(percent)
 }
 
 fn print_eq_chain_status() -> Result<(), Box<dyn Error>> {
@@ -1036,6 +1116,12 @@ fn print_help() {
          \x20 native-rates-status   Show the per-user PipeWire rate configuration\n\
          \x20 native-rates-enable   Allow native 44.1, 48, and 96 kHz after restart\n\
          \x20 native-rates-disable  Remove the managed native-rate configuration\n\
+         \x20 volume-curve-check FILE\n\
+         \x20                       Validate a restored Windows AE-5 curve capture\n\
+         \x20 volume-curve-map FILE WINDOWS_PERCENT\n\
+         \x20                       Preview the equivalent PipeWire software volume\n\
+         \x20 volume-curve-apply FILE WINDOWS_PERCENT\n\
+         \x20                       Apply it to the existing AE-5 sink without unmuting\n\
          \x20 eq-chain-status       Show the managed software equalizer and its bands\n\
          \x20 eq-chain-response RATE\n\
          \x20                       Print the exact expected 44.1/48/96 kHz EQ response\n\
@@ -1075,6 +1161,16 @@ fn print_help() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_only_bounded_volume_percentages() {
+        assert_eq!(parse_volume_percent("0").unwrap(), 0.0);
+        assert_eq!(parse_volume_percent("20.5").unwrap(), 20.5);
+        assert_eq!(parse_volume_percent("100").unwrap(), 100.0);
+        for invalid in ["-0.1", "100.1", "NaN", "inf", "loud"] {
+            assert!(parse_volume_percent(invalid).is_err());
+        }
+    }
 
     #[test]
     fn feature_report_filters_details_but_keeps_summary_counts() {

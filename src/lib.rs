@@ -8,6 +8,7 @@ pub mod pipewire;
 pub mod profile;
 pub mod profile_library;
 pub mod sbcommand;
+pub mod volume_curve;
 
 pub use builtin_profiles::{BuiltinProfile, COMMAND_DEFAULT_PROFILE_COUNT, builtin_profiles};
 pub use controls::{
@@ -27,9 +28,10 @@ pub use lighting::{
     restore_saved_lighting, saved_lighting, set_saved_led, set_saved_lighting,
 };
 pub use pipewire::{
-    NativeRatesConfig, PipeWireNode, PipeWireRouteState, SoftwareEqOutput, ae5_input, ae5_output,
-    ae5_route_state, apply_software_eq, native_rates_config, set_ae5_default_input,
-    set_ae5_default_output, set_native_rates_enabled, software_eq_output, unload_software_eq,
+    NativeRatesConfig, PipeWireNode, PipeWireRouteState, SoftwareEqOutput, SoftwareVolumeOutput,
+    ae5_input, ae5_output, ae5_route_state, apply_software_eq, native_rates_config,
+    set_ae5_default_input, set_ae5_default_output, set_ae5_software_volume,
+    set_native_rates_enabled, software_eq_output, unload_software_eq,
 };
 pub use profile::{
     ApplyReport, LINUX_DRIVER_DEFAULTS_PRESERVED, Profile, ProfileControl, ProfileError,
@@ -48,6 +50,7 @@ pub use sbcommand::{
     import_profile as import_sbcommand_profile,
     import_profile_with_report as import_sbcommand_profile_with_report,
 };
+pub use volume_curve::{VolumeCurveError, WindowsVolumeCurve, WindowsVolumePoint};
 
 #[cfg(feature = "gui")]
 pub mod gui;

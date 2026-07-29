@@ -154,6 +154,26 @@ volume. The card-specific Headphone path pins Master, Front, and PCM to their
 0 dB values so their attenuation cannot stack underneath PipeWire. The GUI
 labels that fixed Master stage as `0 dB`, not `100%`.
 
+Windows-equivalent user-volume mapping is now implemented behind an exact
+capture requirement:
+
+```sh
+ae5ctl volume-curve-check /path/to/windows-ae5-curve.json
+ae5ctl volume-curve-map /path/to/windows-ae5-curve.json 20
+ae5ctl volume-curve-apply /path/to/windows-ae5-curve.json 20
+```
+
+The Windows collector records the physical AE-5 endpoint's 101 integer
+scalar-to-decibel points while muted, then restores and verifies the original
+state. Linux converts the measured attenuation to PipeWire's cubic control
+and changes only the existing sink. Apply fails closed if the output differs,
+hardware OutFX is on, the internal Master/Front/PCM stages are not fixed at
+0 dB, or the exact software-mixer policy is absent. The collector and guarded
+procedure are in
+[docs/WINDOWS_VOLUME_CURVE.md](docs/WINDOWS_VOLUME_CURVE.md). The physical
+Windows capture and matched-volume acceptance test remain pending; no guessed
+curve is shipped.
+
 The optional native-rate configuration lets PipeWire switch the global graph
 between 44.1, 48, and 96 kHz after its next restart:
 

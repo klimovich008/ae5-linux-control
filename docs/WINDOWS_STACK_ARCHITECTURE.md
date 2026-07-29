@@ -171,8 +171,11 @@ silent Windows runtime query must record:
 - `GetMasterVolumeLevel` after setting known scalar values while muted.
 
 The query must preserve and restore the original endpoint scalar and mute
-state. It requires no audio playback. Those measured scalar-to-decibel points,
-not equal-looking percentages, are the appropriate reference for Linux volume
+state. It requires no audio playback. The guarded collector and the Linux
+one-stage mapping are now implemented in
+[`WINDOWS_VOLUME_CURVE.md`](WINDOWS_VOLUME_CURVE.md). The exact physical
+Windows capture remains pending. Those measured scalar-to-decibel points, not
+equal-looking percentages, are the appropriate reference for Linux volume
 parity.
 
 ## Exact headphone load/gain and destination trace

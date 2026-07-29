@@ -1,8 +1,8 @@
 # AE-5 warm-reboot DSP reset
 
-Status on 2026-07-29: **source-, object-, and RPM-package accepted; installed
-side by side; and bare-metal Linux shutdown-reset accepted. The
-Linux-to-Windows handoff remains pending**.
+Status on 2026-07-29: **source-, object-, RPM-package, bare-metal Linux, and
+Linux-to-Windows warm-handoff accepted. Promotion into the daily stable
+package remains pending**.
 
 ## Observed boundary
 
@@ -168,11 +168,43 @@ machine-readable result remain in the private local evidence directory. The
 collector archives efivarfs records with a sequential stream copy because
 these kernel-backed files reject the seek attempted by GNU `cp`.
 
-## Remaining acceptance
+## Bare-metal Windows handoff result
 
-Do not call the cross-operating-system warm-state issue fixed from the Linux
-handoff alone. The candidate still needs a Linux-to-Windows warm handoff with
-matched settings and comparison against a full power-removal baseline.
+The exact candidate then booted a second time and passed the same pstore
+preparation gate. Without removing motherboard power, firmware `BootNext`
+started the user's normal bare-metal Windows installation. The user confirmed
+that playback behaved as expected with the same connected AE-5 headphone
+output.
+
+Windows then warm-rebooted into `7.1.4-ae5-stable`. Before any sound-module
+reload, the acknowledged checker decoded 17 EFI-pstore parts and returned:
+
+```text
+operator_warm_handoff_confirmed=yes
+pstore_record_parts=17
+previous_kernel=7.1.4-ae5-shutdown
+previous_dsp_downloads=1
+shutdown_evidence=efi-pstore
+previous_shutdown_resets=1
+previous_shutdown_failures=0
+current_kernel=7.1.4-ae5-stable
+current_dsp_downloads=1
+current_kernel_taint=0
+linux_handoff_evidence=pass
+warm_handoff_result=pass
+```
+
+The user's Windows listening result establishes the behavioral handoff result;
+it is not an electrical response or loudness-parity measurement. The Linux
+shutdown and return evidence is instrumented. The raw records matched the
+private archive byte for byte before only those captured pstore variables
+were removed.
+
+The pstore decoder groups multipart records by the kernel dump count. It does
+not require every part to carry the same timestamp because efivarfs filenames
+can cross a one-second boundary while the kernel writes a single dump.
+
+## Remaining packaging work
 
 The ninth patch changes only the device-shutdown path. The accepted
 stable-playback first-open, warm, idle, rate, channel, and rejected-OutFX
@@ -181,8 +213,10 @@ During the candidate boot, the managed persistent playback path had already
 opened the PCM; closing it solely to manufacture another first-open test would
 not exercise the changed shutdown path and would add avoidable audio risk.
 
-The installed `7.1.4-ae5-stable` kernel does not contain this candidate.
-Continue using it until the candidate passes the Windows handoff gate.
+The installed `7.1.4-ae5-stable` kernel does not contain the now-accepted
+ninth patch. Continue using it until a replacement daily package is built and
+verified without the candidate-only pstore arguments. Keep the stock kernel
+as a recoverable boot choice.
 
 The guarded installer adds
 `efi_pstore.pstore_disable=0 printk.always_kmsg_dump=Y` to the candidate BLS

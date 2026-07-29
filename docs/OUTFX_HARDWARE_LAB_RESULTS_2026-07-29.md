@@ -2,13 +2,18 @@
 
 ## Outcome
 
-The first cold-boot, internal-capture-only OutFX matrix did **not** reproduce
-the persistent AE-5 DSP corruption. Every tested write and playback lifecycle
-returned to bit-exact digital silence. The GUI verified every requested mixer
-value. Apart from the lab kernel's expected one-time
+The cold-boot internal-capture matrix and the later user-present audible sweep
+did **not** reproduce the persistent AE-5 DSP corruption. Every tested write
+and playback lifecycle returned to bit-exact digital silence. The GUI verified
+every requested mixer value. Apart from the lab kernel's expected
 `AE-5 unsafe hardware OutFX lab enable accepted` warning, no new CA0132, HDA,
 DSP, timeout, warning, or error message appeared at a post-transition
 checkpoint.
+
+The audible sweep covered each OutFX child alone, all children together,
+global bypass and restore, the in-place PipeWire equalizer, safe headphone-gain
+changes, and all three sound-filter choices. The user asked to interrupt the
+sweep if corruption occurred; no interruption or fault report occurred.
 
 This is a bounded stability result, not approval to enable hardware OutFX in
 the production kernel or application. Sound Blaster Command's Windows OutFX
@@ -22,12 +27,18 @@ nor analog-output safety.
   `1102:0051`
 - Cold-boot ID: `78082050-1d9d-4668-b61b-5cd34fc4ee8d`
 - Kernel: `7.1.4-ae5-outfx-lab`, taint `0`
-- Source commit: `0926b6051cff13bc0954d559bce203721047351f`
+- Source commit at the audible follow-up:
+  `69c0786dc3d161d5f1a4ddf36a804edaa59e8684`
 - Lab kernel gate: `ae5_unsafe_outfx_lab=Y`
 - GUI: release `outfx-lab` build, native Wayland, structured tracing enabled
-- PipeWire AE-5 sink: capped at `5%`, never above the project's `20%` ceiling
-- AE-5 headphone and analog line-out jacks: physically disconnected
+- PipeWire AE-5 sink: `5%` for the internal matrix and exactly `20%` for the
+  user-present sweep, never above the project's `20%` ceiling
+- Internal matrix: AE-5 headphone and analog line-out jacks disconnected
+- Audible follow-up: 32-ohm Philips SHP9500 on the AE-5 headphone output;
+  analog line-out remained disconnected
 - Direct Mode and output-route writes: blocked
+- High headphone gain was excluded because it is not safe for the connected
+  32-ohm headphones
 - Detection: one-second CA0132 `What U Hear` samples at roughly three-second
   intervals, with hardware Master on so the internal tap remained observable
 - Recovery: scoped PCI rebind helper ready; no recovery action was needed
@@ -93,6 +104,53 @@ track-switch failure. The lab kernel includes the AE-5-only converter and
 runtime-PM lifetime fix, so this pass supports that fix; it does not prove an
 unpatched kernel safe.
 
+## User-present audible follow-up
+
+The familiar source was `Best of s0cliché 🔥` by CHAMPLOO, played from YouTube
+in Brave. The physical PipeWire sink remained the default sink, at exactly
+`20%`. Every hardware or graph transition was made while muted. Each audible
+phase had a bounded playback window followed by mute, pause, ALSA readback,
+fresh idle-monitor samples, kernel-log inspection, and a taint check.
+
+### OutFX sequence
+
+The short comparison sequence was:
+
+1. neutral reference;
+2. Surround `80`;
+3. Crystalizer `30`;
+4. X-Bass `15`;
+5. Smart Volume `40`;
+6. Dialog Plus `10`;
+7. all five children enabled together;
+8. global OutFX bypass with the five child switches still selected;
+9. global OutFX restored with all five children;
+10. every child disabled and global OutFX left enabled.
+
+Every phase returned to exact `-inf dBFS` after mute. No recovery action was
+needed. The final ALSA readback showed global OutFX on and all five child
+switches off.
+
+### Software EQ, gain, and filter sequence
+
+- The saved ten-band PipeWire EQ was activated in place with its calculated
+  `-10.80 dB` preamp. The existing AE-5 node retained the same default-sink
+  identity, `20%` volume, and mute state. Playback stopped cleanly.
+- The EQ was disabled through the GUI, then the exact original managed state
+  was restored. Its SHA-256 is
+  `2dbfa6b3b18118a2ee82b7deb7af9dad48f69b32e867f853ccbc83ab248c7549`;
+  it is saved but not applied.
+- Headphone gain was compared as Medium → Low → Medium. Low and Medium used
+  the exact same source position (`02:00`) and bounded playback duration. High
+  was deliberately not selected.
+- Sound Filter was compared as Slow Roll Off → Minimum Phase → Fast Roll Off
+  → Slow Roll Off. The exact `02:00` source position was reused.
+- Hardware Equalizer remained off and Flat because it shares the unsafe raw
+  OutFX path. Direct Mode remained unavailable. No output-route change was
+  made.
+
+All post-mute checks returned to exact silence. Kernel taint remained `0`.
+
 ## Monitor evidence
 
 Machine-local evidence is intentionally not committed:
@@ -106,29 +164,42 @@ Machine-local evidence is intentionally not committed:
     transition-fixtures/
 ```
 
-At the recorded handoff, `monitor.csv` contained 1,180 samples from
-`08:24:05` through `09:23:56` local time:
+At the audible-follow-up checkpoint, `monitor.csv` contained 2,559 samples
+from `08:24:05` through `10:33:42` local time:
 
-- 1,133 samples labeled `clean`
-- 47 threshold alarms
-- 124 finite-RMS samples in total
-- 10 samples while the playback PCM was deliberately closed
+- 2,508 samples labeled `clean`
+- 51 threshold alarms
+- 199 finite-RMS samples in total
+- 68 samples while the playback PCM was deliberately closed
 
-All 47 alarms coincided with intentional fixture playback. The monitor is an
-idle-oscillation detector, not a music classifier, so ordinary test audio can
-cross its threshold. The two automatically captured incident directories,
-`20260729-085759` and `20260729-085930`, are retained as false-positive
-examples: signal was active at their timestamps and later samples returned to
-exact silence without a recovery action.
+All 51 alarms coincided with intentional fixture or music playback. The
+monitor is an idle-oscillation detector, not a music classifier, so ordinary
+test audio can cross its threshold. Smart Volume at `40` produced one such
+music false-positive during the audible sweep. Immediate mute returned the tap
+to exact silence for consecutive samples, with no kernel fault or recovery
+action.
 
 Some full-effect Smart Volume and format combinations reached substantially
 higher internal levels than the source-only expectation. They always stopped
 cleanly, but their gain behavior needs a separate measurement before claiming
 level parity.
 
+## Observed application and harness issues
+
+- After the GUI wrote global OutFX off, controls on the Equalizer page retained
+  the old cross-page sensitivity state. A later external mixer event rebuilt
+  the page and enabled the valid software-EQ action. ALSA state was correct
+  throughout. This is a GUI refresh defect, not DSP corruption.
+- One AT-SPI node became invalid while the GUI rebuilt after a grouped effect
+  change. The automation retried only after confirming the sink was muted; no
+  hardware state or audio fault resulted.
+- MPRIS absolute seek was ignored by Brave. The gain and filter comparisons
+  therefore used a scoped virtual keyboard and verified an exact
+  `120000000 µs` position before each phase.
+
 ## Verified handoff state
 
-The live lab was left ready for a deliberate follow-up:
+The live lab was left in this verified state:
 
 - GUI open on Wayland
 - monitor running
@@ -136,27 +207,29 @@ The live lab was left ready for a deliberate follow-up:
 - global OutFX on
 - Surround, Crystalizer, X-Bass, Smart Volume, and Dialog Plus off
 - hardware Equalizer off with preset Flat
-- AE-5 sink at `5%` and muted
+- saved PipeWire software EQ present but not applied
+- headphone gain Medium (`32–149 ohms`)
+- sound filter Slow Roll Off
+- AE-5 sink at exactly `20%` and muted
+- YouTube source paused
 - idle monitor samples at exact `-inf dBFS`
-- analog outputs still physically disconnected
+- SHP9500 still connected to the AE-5 headphone output; analog line-out
+  disconnected
 
 Do not treat this transient state as a persistent configuration. Before
 leaving the lab kernel, follow the shutdown procedure in
 [`OUTFX_HARDWARE_LAB.md`](OUTFX_HARDWARE_LAB.md): turn OutFX off, return the
 gate to `N`, preserve the logs, and boot the qualified stable kernel.
 
-## Remaining acceptance step
+## Remaining qualification
 
-The next step is one low-volume audible A/B with the user present:
-
-1. keep every child effect and Equalizer off;
-2. connect one output only, with headphones off the user's head;
-3. verify `5%` and muted again after the physical connection;
-4. start a familiar, bounded source and unmute;
-5. enable one child effect, make one small change, then disable it;
-6. stop playback and wait for a fresh silent monitor sample;
-7. stop immediately on buzz, distortion, failed write, or a non-silent idle
-   sample.
-
-An audible pass can assess analog behavior and subjective effect changes. It
-still cannot make Linux hardware OutFX equivalent to the Windows APO.
+- Record the user's subjective assessment of which individual effects and
+  filter changes were clearly audible; silence during the sweep confirms only
+  that no fault was reported.
+- Fix the stale cross-page GUI capability refresh before presenting software
+  EQ activation as reliable.
+- Measure Windows and Linux output level and frequency response with a
+  controlled capture path. The completed sweep establishes transition
+  stability, not Windows APO equivalence or loudness parity.
+- Keep raw hardware OutFX behind the lab-only kernel gate until its gain
+  behavior and a repeat cold-start cycle have been reviewed.

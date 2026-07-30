@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=AE5 Control
+Comment=Keep Creative Sound BlasterX AE-5 controls available in the system tray
+Exec=ae5-control-qml --start-hidden
+TryExec=ae5-control-qml
+Icon=io.github.klimovich008.ae5control
+Terminal=false
+NoDisplay=true
+StartupNotify=false
+X-GNOME-Autostart-enabled=true

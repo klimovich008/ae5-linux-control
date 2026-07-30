@@ -11,7 +11,7 @@ Run the read-only release-build measurement on a graphical Linux session with
 the AE-5 connected:
 
 ```sh
-cargo build --locked --release --all-features
+bash scripts/build-release-binaries.sh --locked
 bash scripts/measure-gui-performance.sh
 ```
 

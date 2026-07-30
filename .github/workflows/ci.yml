@@ -23,7 +23,30 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Install native headers
-        run: sudo apt-get update && sudo apt-get install --yes appstream desktop-file-utils jq libasound2-dev libgtk-4-dev libpipewire-0.3-dev shellcheck sox udev
+        run: >-
+          sudo apt-get update &&
+          sudo apt-get install --yes
+          appstream
+          desktop-file-utils
+          jq
+          libasound2-dev
+          libgtk-4-dev
+          libpipewire-0.3-dev
+          qt6-base-dev
+          qt6-declarative-dev
+          qml6-module-qt-labs-platform
+          qml6-module-qtqml
+          qml6-module-qtqml-models
+          qml6-module-qtqml-workerscript
+          qml6-module-qtquick
+          qml6-module-qtquick-controls
+          qml6-module-qtquick-layouts
+          qml6-module-qtquick-shapes
+          qml6-module-qtquick-templates
+          qml6-module-qtquick-window
+          shellcheck
+          sox
+          udev
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
@@ -37,7 +60,7 @@ jobs:
       - run: bash scripts/check-software-eq-response.sh --self-test
       - run: bash scripts/build-transition-helper.sh
       - run: target/diagnostics/ae5-pw-renegotiate --help
-      - run: shellcheck scripts/audio-parity.sh scripts/build-transition-helper.sh scripts/check-ae5-warm-handoff.sh scripts/check-software-eq-performance.sh scripts/check-software-eq-response.sh scripts/hda-position-trace.sh scripts/install-ae5-kernel-test.sh scripts/track-transition-stress.sh
+      - run: shellcheck scripts/audio-parity.sh scripts/build-transition-helper.sh scripts/check-ae5-warm-handoff.sh scripts/check-qml-accessibility.sh scripts/check-software-eq-performance.sh scripts/check-software-eq-response.sh scripts/hda-position-trace.sh scripts/install-ae5-kernel-test.sh scripts/track-transition-stress.sh
       - run: python3 .claude/hooks/volume-guard.py --self-test
       - run: bash scripts/collect-linux-report.sh --self-test
       - run: bash scripts/collect-routing-state.sh --self-test
@@ -49,10 +72,29 @@ jobs:
       - run: udevadm verify --resolve-names=never packaging/udev/*.rules
       - run: appstreamcli validate --no-net --strict packaging/io.github.klimovich008.ae5control.metainfo.xml
       - run: systemd-analyze --user verify systemd/user/*
-      - run: cargo build --locked --release --all-features && bash scripts/check-user-install.sh
+      - run: bash scripts/build-release-binaries.sh --locked
+      - run: bash scripts/check-qml-accessibility.sh target/release/ae5-control-qml
+      - run: bash scripts/check-user-install.sh
       - run: cargo fmt --check
-      - run: cargo clippy --all-targets --all-features -- -D warnings
-      - run: cargo test --all-features
+      - name: Clippy (core, GTK, daemon, and CLI)
+        run: >-
+          cargo clippy
+          --all-targets
+          --no-default-features
+          --features gui,daemon,outfx-lab
+          -- -D warnings
+      - name: Clippy (Qt/QML frontend)
+        run: >-
+          cargo clippy
+          --no-default-features
+          --features qml-gui,outfx-lab
+          --bin ae5-control-qml
+          -- -D warnings
+      - name: Test shared backend and non-QML targets
+        run: >-
+          cargo test
+          --no-default-features
+          --features gui,daemon,outfx-lab
 
   rpm:
     if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
@@ -61,7 +103,20 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Install build dependencies
-        run: dnf install --assumeyes appstream alsa-lib-devel cargo desktop-file-utils git gtk4-devel rpm-build rust systemd-udev
+        run: >-
+          dnf install --assumeyes
+          appstream
+          alsa-lib-devel
+          cargo
+          desktop-file-utils
+          gcc-c++
+          git
+          gtk4-devel
+          qt6-qtbase-devel
+          qt6-qtdeclarative-devel
+          rpm-build
+          rust
+          systemd-udev
       - uses: actions/checkout@v6
       - name: Trust checked-out worktree
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"

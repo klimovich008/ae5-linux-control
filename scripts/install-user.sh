@@ -34,6 +34,8 @@ payload_root=$payload_parent/user-install
 marker=$payload_root/.ae5-control-user-install
 manifest=$state_root/ae5-control/user-install-links.v1
 marker_value=ae5-control-user-install-v1
+daemon_unit_template=$project_root/packaging/systemd/user/ae5d-user.service.in
+daemon_dbus_template=$project_root/packaging/dbus-1/services/io.github.klimovich008.Ae5Control-user.service.in
 
 for root in \
 	"$data_root" "$config_root" "$state_root" "$bin_root" \
@@ -47,12 +49,15 @@ done
 
 payload_sources=(
 	"$project_root/target/release/ae5-control"
+	"$project_root/target/release/ae5-control-qml"
 	"$project_root/target/release/ae5ctl"
+	"$project_root/target/release/ae5d"
 	"$project_root/scripts/collect-linux-report.sh"
 	"$project_root/scripts/install-user.sh"
 	"$project_root/packaging/io.github.klimovich008.ae5control.desktop"
 	"$project_root/packaging/io.github.klimovich008.ae5control.svg"
 	"$project_root/packaging/io.github.klimovich008.ae5control.metainfo.xml"
+	"$project_root/packaging/io.github.klimovich008.ae5control-autostart.desktop"
 	"$project_root/packaging/io.github.klimovich008.ae5control-lighting.desktop"
 	"$project_root/packaging/wireplumber/90-ae5-control.conf"
 	"$project_root/packaging/alsa-card-profile/mixer/profile-sets/sound-blaster-ae5.conf"
@@ -65,12 +70,15 @@ payload_sources=(
 )
 payload_paths=(
 	bin/ae5-control
+	bin/ae5-control-qml
 	bin/ae5ctl
+	bin/ae5d
 	bin/ae5-collect-report
 	bin/ae5-control-user-install
 	share/applications/io.github.klimovich008.ae5control.desktop
 	share/icons/hicolor/scalable/apps/io.github.klimovich008.ae5control.svg
 	share/metainfo/io.github.klimovich008.ae5control.metainfo.xml
+	share/autostart/io.github.klimovich008.ae5control-autostart.desktop
 	share/autostart/io.github.klimovich008.ae5control-lighting.desktop
 	share/wireplumber/90-ae5-control.conf
 	share/alsa-card-profile/mixer/profile-sets/sound-blaster-ae5.conf
@@ -82,9 +90,9 @@ payload_paths=(
 	share/licenses/LICENSE-MIT
 )
 payload_modes=(
-	0755 0755 0755 0755
+	0755 0755 0755 0755 0755 0755
 	0644 0644 0644 0644 0644 0644 0644 0644 0644 0644
-	0644 0644
+	0644 0644 0644
 )
 [[ ${#payload_sources[@]} -eq ${#payload_paths[@]} &&
 	${#payload_sources[@]} -eq ${#payload_modes[@]} ]] || {
@@ -108,8 +116,12 @@ add_link() {
 
 add_link gui "$bin_root/ae5-control" \
 	"$payload_root/bin/ae5-control" "$project_root/target/release/ae5-control" bundle
+add_link qml-gui "$bin_root/ae5-control-qml" \
+	"$payload_root/bin/ae5-control-qml" "$project_root/target/release/ae5-control-qml" bundle
 add_link cli "$bin_root/ae5ctl" \
 	"$payload_root/bin/ae5ctl" "$project_root/target/release/ae5ctl" bundle
+add_link daemon "$bin_root/ae5d" \
+	"$payload_root/bin/ae5d" "$project_root/target/release/ae5d" bundle
 add_link report "$bin_root/ae5-collect-report" \
 	"$payload_root/bin/ae5-collect-report" "$project_root/scripts/collect-linux-report.sh" bundle
 add_link user-installer "$bin_root/ae5-control-user-install" \
@@ -126,7 +138,19 @@ add_link metainfo \
 	"$data_root/metainfo/io.github.klimovich008.ae5control.metainfo.xml" \
 	"$payload_root/share/metainfo/io.github.klimovich008.ae5control.metainfo.xml" \
 	"$project_root/packaging/io.github.klimovich008.ae5control.metainfo.xml" bundle
-add_link autostart \
+add_link daemon-dbus \
+	"$data_root/dbus-1/services/io.github.klimovich008.Ae5Control.service" \
+	"$payload_root/share/dbus-1/services/io.github.klimovich008.Ae5Control.service" \
+	"$daemon_dbus_template" bundle
+add_link daemon-unit \
+	"$config_root/systemd/user/ae5d.service" \
+	"$payload_root/share/systemd/user/ae5d.service" \
+	"$daemon_unit_template" bundle
+add_link app-autostart \
+	"$config_root/autostart/io.github.klimovich008.ae5control-autostart.desktop" \
+	"$payload_root/share/autostart/io.github.klimovich008.ae5control-autostart.desktop" \
+	"$project_root/packaging/io.github.klimovich008.ae5control-autostart.desktop" bundle
+add_link lighting-autostart \
 	"$config_root/autostart/io.github.klimovich008.ae5control-lighting.desktop" \
 	"$payload_root/share/autostart/io.github.klimovich008.ae5control-lighting.desktop" \
 	"$project_root/packaging/io.github.klimovich008.ae5control-lighting.desktop" bundle
@@ -166,6 +190,33 @@ refresh_desktop_database() {
 	fi
 }
 
+standard_user_integration() {
+	[[ $data_root == "$HOME/.local/share" &&
+		$config_root == "$HOME/.config" ]]
+}
+
+reload_user_runtime() {
+	standard_user_integration || return 0
+	if command -v systemctl >/dev/null 2>&1 &&
+		! systemctl --user daemon-reload >/dev/null 2>&1; then
+		printf 'warning: the user service manager is unavailable; ae5d activation will be ready after the next login\n' >&2
+	elif command -v systemctl >/dev/null 2>&1; then
+		systemctl --user try-restart ae5d.service >/dev/null 2>&1 || true
+	fi
+	if command -v busctl >/dev/null 2>&1 &&
+		! busctl --user call \
+			org.freedesktop.DBus /org/freedesktop/DBus \
+			org.freedesktop.DBus ReloadConfig >/dev/null 2>&1; then
+		printf 'warning: the session bus did not reload ae5d activation metadata; activation will be ready after the next login\n' >&2
+	fi
+}
+
+stop_user_daemon() {
+	standard_user_integration || return 0
+	command -v systemctl >/dev/null 2>&1 || return 0
+	systemctl --user stop ae5d.service >/dev/null 2>&1 || true
+}
+
 uninstall() {
 	local index destination target kind key owned
 
@@ -190,6 +241,7 @@ uninstall() {
 		}
 	fi
 
+	stop_user_daemon
 	for index in "${!link_keys[@]}"; do
 		key=${link_keys[$index]}
 		destination=${link_destinations[$index]}
@@ -211,6 +263,7 @@ uninstall() {
 	fi
 	rm -f -- "$manifest"
 	refresh_desktop_database
+	reload_user_runtime
 	printf 'AE-5 Control user installation removed; profiles and settings were preserved\n'
 	printf 'restart WirePlumber when no audio stream is active, or log out and back in\n'
 }
@@ -227,11 +280,12 @@ if [[ $mode == install ]]; then
 	}
 	(
 		cd -- "$project_root"
-		cargo build --locked --release --all-features
+		bash scripts/build-release-binaries.sh --locked
 	)
 fi
 
-for source in "${payload_sources[@]}"; do
+for source in "${payload_sources[@]}" \
+	"$daemon_unit_template" "$daemon_dbus_template"; do
 	[[ -f $source ]] || {
 		printf 'error: required installation source is missing: %s\n' "$source" >&2
 		exit 1
@@ -327,6 +381,35 @@ for index in "${!payload_sources[@]}"; do
 		exit 1
 	}
 done
+
+render_daemon_metadata() {
+	local source=$1
+	local destination=$2
+	local daemon_path=$payload_root/bin/ae5d
+	local escaped_path line
+
+	[[ $daemon_path != *$'\n'* && $daemon_path != *$'\r'* ]] || {
+		printf 'error: daemon path contains a line break: %s\n' "$daemon_path" >&2
+		exit 1
+	}
+	escaped_path=${daemon_path//\\/\\\\}
+	escaped_path=${escaped_path//\"/\\\"}
+	install -d -m0755 "$(dirname -- "$destination")"
+	: > "$destination"
+	while IFS= read -r line || [[ -n $line ]]; do
+		printf '%s\n' "${line//@AE5D_EXEC@/$escaped_path}" >> "$destination"
+	done < "$source"
+	chmod 0644 "$destination"
+}
+
+render_daemon_metadata "$daemon_unit_template" \
+	"$staging_root/share/systemd/user/ae5d.service"
+render_daemon_metadata "$daemon_dbus_template" \
+	"$staging_root/share/dbus-1/services/io.github.klimovich008.Ae5Control.service"
+grep -Fxq "ExecStart=\"$payload_root/bin/ae5d\"" \
+	"$staging_root/share/systemd/user/ae5d.service"
+grep -Fxq "Exec=\"$payload_root/bin/ae5d\"" \
+	"$staging_root/share/dbus-1/services/io.github.klimovich008.Ae5Control.service"
 printf '%s\n' "$marker_value" > \
 	"$staging_root/.ae5-control-user-install"
 chmod 0644 "$staging_root/.ae5-control-user-install"
@@ -371,6 +454,7 @@ for index in "${!link_keys[@]}"; do
 done
 
 refresh_desktop_database
+reload_user_runtime
 if [[ $had_payload == yes ]]; then
 	printf 'AE-5 Control upgraded for %s without root\n' \
 		"${USER:-the current user}"
@@ -378,7 +462,7 @@ else
 	printf 'AE-5 Control installed for %s without root\n' \
 		"${USER:-the current user}"
 fi
-printf 'launch it from the application menu or run %s/ae5-control\n' "$bin_root"
+printf 'launch it from the application menu or run %s/ae5-control-qml\n' "$bin_root"
 printf 'restart WirePlumber when no audio stream is active, or log out and back in\n'
 printf 'onboard lighting still requires the project kernel patch and system udev rule\n'
 case :$PATH: in

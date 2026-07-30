@@ -1,0 +1,4 @@
+[D-BUS Service]
+Name=io.github.klimovich008.Ae5Control
+Exec=/usr/bin/ae5d
+SystemdService=ae5d.service

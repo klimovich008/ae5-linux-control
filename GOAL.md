@@ -21,9 +21,9 @@ maintainer can pick it up from the repository alone.
 
 ## Invariants (never traded away for progress)
 
-1. Every project-controlled playback test stays at or below 20%. Start at 5%,
-   use Low headphone gain for acoustic tests, and keep the output physically
-   away from the user's ears for the first playback after a transition.
+1. Normal application volume spans 0–100%. Silent hardware tests preserve the
+   user's volume/mute state and hard-mute Master and Front; audible tests use a
+   listening level chosen by the user and avoid High headphone gain.
 2. Evidence before recovery. A reproducible fault is worth more than a
    fast fix — see `/incident-evidence`.
 3. No fake controls. If a feature has no safe Linux mechanism, the UI says

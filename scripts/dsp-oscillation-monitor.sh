@@ -19,8 +19,24 @@ SAMPLE_SECONDS="${AE5_MONITOR_SAMPLE:-1}"
 # floor measured with OutFX off is about -38 dB; the fault sits near -6 dB.
 THRESHOLD="${AE5_MONITOR_THRESHOLD:--25}"
 LOG="${AE5_MONITOR_LOG:-$HOME/.local/state/ae5-dsp-monitor.csv}"
+CARD_INDEX=""
 
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
+
+find_card() {
+    local card path
+    for path in /sys/class/sound/card[0-9]*; do
+        [ -r "$path/device/vendor" ] || continue
+        [ "$(cat "$path/device/vendor")" = "0x1102" ] || continue
+        [ "$(cat "$path/device/device")" = "0x0012" ] || continue
+        [ "$(cat "$path/device/subsystem_vendor")" = "0x1102" ] || continue
+        [ "$(cat "$path/device/subsystem_device")" = "0x0051" ] || continue
+        card="${path##*/card}"
+        printf '%s\n' "$card"
+        return 0
+    done
+    return 1
+}
 
 wuh_device() {
     arecord -l 2>/dev/null | awk '
@@ -44,14 +60,17 @@ sample_rms() {
 
 card_state() {
     local outfx pcm master
-    outfx="$(amixer -c 0 sget 'Enable OutFX' 2>/dev/null \
+    outfx="$(amixer -c "$CARD_INDEX" sget 'Enable OutFX' 2>/dev/null \
         | grep -oE '\[(on|off)\]' | head -1 | tr -d '[]')"
-    master="$(amixer -c 0 sget Master 2>/dev/null \
+    master="$(amixer -c "$CARD_INDEX" sget Master 2>/dev/null \
         | grep -oE '\[(on|off)\]' | head -1 | tr -d '[]')"
     pcm="closed"
-    for s in /proc/asound/card0/pcm*p/sub*/status; do
+    for s in /proc/asound/card"$CARD_INDEX"/pcm*p/sub*/status; do
         [ -f "$s" ] || continue
-        if [ "$(sed -n '1p' "$s")" != "closed" ]; then pcm="running"; break; fi
+        if ! grep -Eq '^(closed|state: CLOSED)$' "$s"; then
+            pcm="running"
+            break
+        fi
     done
     printf '%s,%s,%s' "${outfx:-?}" "${master:-?}" "$pcm"
 }
@@ -60,8 +79,11 @@ main() {
     command -v arecord >/dev/null 2>&1 || die "arecord is required"
     command -v sox >/dev/null 2>&1 || die "sox is required"
     local dev
+    CARD_INDEX="$(find_card)" || die "exact AE-5 1102:0012/1102:0051 not found"
     dev="$(wuh_device)" || true
     [ -n "${dev:-}" ] || die "What U Hear capture device not found"
+    [ "${dev%%,*}" = "$CARD_INDEX" ] ||
+        die "What U Hear belongs to card ${dev%%,*}, expected $CARD_INDEX"
 
     mkdir -p "$(dirname "$LOG")"
     [ -s "$LOG" ] || echo "timestamp,uptime_s,rms_dbfs,outfx,master,pcm,verdict" >> "$LOG"
@@ -120,6 +142,7 @@ EOF
     --self-test)
         command -v arecord >/dev/null 2>&1 || die "arecord is required"
         command -v sox >/dev/null 2>&1 || die "sox is required"
+        CARD_INDEX="$(find_card)" || die "exact AE-5 1102:0012/1102:0051 not found"
         card_state >/dev/null
         awk -v r=-6 -v t=-25 'BEGIN{exit !(r>t)}' || die "threshold logic broken"
         awk -v r=-38 -v t=-25 'BEGIN{exit (r>t)}' || die "threshold logic broken"

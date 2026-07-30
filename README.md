@@ -4,21 +4,60 @@ Linux control software and upstream driver fixes for the Creative Sound
 BlasterX AE-5, developed from public source and reproducible hardware evidence.
 
 **New maintainer or reviewer:** start with
-[`HANDOVER.md`](HANDOVER.md). It identifies the authoritative development
+[`AGENTS.md`](AGENTS.md) for current operating rules, then
+[`HANDOVER.md`](HANDOVER.md) for the accumulated machine and investigation
+context. The handover identifies the authoritative development
 branch, current host state, non-negotiable audio-safety rules, known blockers,
 and the shortest validation path. Then use [`ROADMAP.md`](ROADMAP.md) for the
 single active milestone, completion criteria, and bounded test-rerun policy.
 This README retains cumulative milestone history and should not be read as a
 single current-state report.
 
-## Current sound-safety status
+## Current audio and Effects status
 
-The usable Linux path now fails closed around the confirmed corruption
-triggers. Hardware OutFX, its child output effects, hardware EQ, and Direct
-Mode are blocked before an ALSA write. The production kernel queue also
-initializes OutFX off and rejects an enable request with `-EOPNOTSUPP`.
-Windows Command's OutFX is a software APO master switch; it is not equivalent
-to Linux's unsafe CA0132 hardware control.
+The desktop volume control covers the normal 0–100% range. AE-5 Control does
+not impose an arbitrary product volume cap. Silent hardware transactions
+preserve the user's current PipeWire volume and mute state; audible acceptance
+tests leave the listening level under the user's control.
+
+Hardware OutFX is now the primary Effects backend on the exact
+`7.1.4-ae5-outfx-lab` kernel. It remains opt-in and fail-closed behind four
+independent conditions: an `outfx-lab` application build, the exact kernel
+release, its boot-scoped module parameter, and explicit daemon-process
+confirmation. Ordinary kernels and unconfirmed daemon sessions still reject
+the write.
+
+Confirm the lab backend for the current desktop session, then restart the
+daemon:
+
+```sh
+systemctl --user set-environment \
+  AE5_OUTFX_LAB=I_ACCEPT_AE5_DSP_CORRUPTION
+systemctl --user restart ae5d.service
+```
+
+The confirmation is intentionally session-scoped. Remove it and restart the
+daemon to return to fail-closed behavior:
+
+```sh
+systemctl --user unset-environment AE5_OUTFX_LAB
+systemctl --user restart ae5d.service
+```
+
+The daemon applies an Effects profile as one checked transaction. It parks
+active PipeWire streams, suspends the AE-5 output, disables the global and
+child switches, writes modes and levels, restores child switches, enables
+OutFX last, verifies every ALSA value, and rolls back before resuming on any
+failure. The QML UI reports the confirmed hardware state. A PipeWire software
+substitute remains available as a fallback, but the daemon never permits it to
+stack with hardware OutFX. See
+[docs/OUTFX_HARDWARE_LAB.md](docs/OUTFX_HARDWARE_LAB.md) for the exact gate
+and [docs/OUTFX_HARDWARE_LAB_RESULTS_2026-07-29.md](docs/OUTFX_HARDWARE_LAB_RESULTS_2026-07-29.md)
+for the bounded qualification evidence.
+
+The following sections retain older investigation measurements as historical
+evidence. Their recorded mixer percentages are not current application
+limits.
 
 Waveform-qualified tests found a second trigger: clearing and later
 reassigning the AE-5 HDA playback converter could change a clean stream into
@@ -154,8 +193,37 @@ volume. The card-specific Headphone path pins Master, Front, and PCM to their
 0 dB values so their attenuation cannot stack underneath PipeWire. The GUI
 labels that fixed Master stage as `0 dB`, not `100%`.
 
-The optional native-rate configuration lets PipeWire switch the global graph
-between 44.1, 48, and 96 kHz after its next restart:
+Windows-equivalent user volume is implemented as an AE-5-only PipeWire
+processing option. Static analysis of the exact installed `audiosrv.dll` and
+matching symbols recovered Windows Audio's `-96..0 dB`, exponent-`1.75`
+taper; Creative's installed INF independently matches its 20% and 50%
+reference values. The desktop slider remains unchanged, but the exact
+original AE-5 analog node applies the Windows taper immediately before
+channel mixing.
+
+```sh
+scripts/build-pipewire-volume-plugin.sh
+scripts/install-pipewire-volume-plugin.sh \
+  dist/pipewire-1.6.8-ae5/libspa-audioconvert.so
+```
+
+The patched plugin remains cubic unless a node explicitly opts in.
+WirePlumber adds that property only to the analog output whose codec identity
+contains the exact AE-5 subsystem `11020051`; motherboard, USB, HDMI, input,
+and other audio nodes remain on stock PipeWire behavior. The implementation,
+evidence, verification, rebuild procedure, and rollback are in
+[docs/WINDOWS_VOLUME_CURVE.md](docs/WINDOWS_VOLUME_CURVE.md). A guarded
+physical Windows/Linux loudness comparison remains pending.
+
+The GTK **Mixer** page and Qt/QML **Playback** page have a live sample-rate
+policy selector for Automatic, 48 kHz, or 96 kHz operation in the current
+PipeWire session. Both use the same Rust path: a change mutes the exact AE-5
+sink, closes and reopens its PCM, uses a zero-volume S16 probe when the sink is
+idle, verifies the negotiated ALSA format and rate, and only then restores the
+previous mute state. A failed transition is rolled back and left muted.
+
+The separate optional native-rate configuration lets PipeWire switch the
+global graph between 44.1, 48, and 96 kHz after its next restart:
 
 ```sh
 cargo run -- native-rates-status
@@ -187,25 +255,27 @@ exact current AE-5 sink, hot-loads the graph into that sink's PipeWire
 `audioconvert` stage, verifies a runtime signature marker, and resumes it. It
 does not create a virtual sink, change the desktop default, stack a second
 cubic volume control, or require a PipeWire restart. Activation requires
-OutFX to remain readable and off and the physical target to remain current.
+the physical target to remain current. Software EQ and hardware OutFX are
+independent processing groups and may be active together.
 
-The ten imported bands receive a deterministic automatic preamp calculated
-from the combined response at 44.1, 48, and 96 kHz plus 0.25 dB margin. The
-GTK Equalizer page applies a chosen profile in one action and exposes the
-saved/runtime state and preamp. The real muted and unplugged AE-5 accepted the
-full imported headphone graph at −10.80 dB preamp while both playback PCMs
-remained closed; unload restored the prior PipeWire device/routing and ALSA
-state. On the true power-removal stable-kernel boot, two neutral and two
-equalized 48 kHz What U Hear captures repeated within 0.00 dB at every band.
-The measured equalized-minus-neutral response matched the requested graph
-within 0.34 dB, including automatic preamp, across 31 Hz–16 kHz. A guarded
-physical-card benchmark kept the same sink and 2048-frame quantum, adding no
-PipeWire buffer and 0.3990 percentage points of process CPU; filter work added
-178.564 µs, or 0.4185% of each 42.7 ms quantum. The 7200-second nonzero
-qualification recorded 7197 zero-error samples, 200.430 µs mean and 267.900 µs
-maximum sink work, and exact state recovery. Broader-rate/preset coverage and
-a verified post-EQ Windows measurement remain pending. Windows `What U Hear`
-was proven post-Acoustic-Engine but did not contain Command's displayed
+The current direct-filter-v2 graph contains only the ten peaking filters per
+channel. It does not insert a preamp or other fixed attenuation stage. This
+restores the 10.8 dB that the earlier imported headphone graph removed.
+Boosted curves can therefore clip near full scale; lower the source or master
+level when necessary. Managed direct-filter-v1 files remain readable only so
+applying the same preset can migrate them safely to v2.
+
+The retired v1 graph was physically validated before its attenuation was
+removed: two neutral and two equalized 48 kHz What U Hear captures repeated
+within 0.00 dB at every band, and its biquad response matched the requested
+curve within 0.34 dB across 31 Hz–16 kHz. A guarded physical-card benchmark
+kept the same sink and 2048-frame quantum, adding no PipeWire buffer and
+0.3990 percentage points of process CPU; filter work added 178.564 µs, or
+0.4185% of each 42.7 ms quantum. The 7200-second nonzero qualification
+recorded 7197 zero-error samples, 200.430 µs mean and 267.900 µs maximum sink
+work, and exact state recovery. A fresh no-preamp physical response capture
+and a verified post-EQ Windows measurement remain pending. Windows `What U
+Hear` was proven post-Acoustic-Engine but did not contain Command's displayed
 graphic-EQ curve; see
 [docs/SOFTWARE_EFFECTS_PLAN.md](docs/SOFTWARE_EFFECTS_PLAN.md) and the
 [Windows result](docs/windows-capture/VM-OUTFX-RESULTS.md).
@@ -240,14 +310,14 @@ Config` selects the exact stereo, 2.1, 4.0, 4.1, or 5.1 PipeWire profile.
 The shared transaction verifies both layers and rolls back on failure. The
 packaged card rule also enables PipeWire software volume and persistent
 playback for this exact AE-5 so desktop clients cannot reload unsafe hardware
-gains or close and reopen the codec stream. Safe controls write directly
-through ALSA; unsafe hardware output-processing controls are retained only as
-profile metadata and rejected:
+gains or close and reopen the codec stream. Generic CLI mixer writes remain
+fail-closed for sensitive output-processing controls; the QML application uses
+the separate whole-profile hardware Effects transaction:
 
 ```sh
 cargo run -- get "Output Select"
 cargo run -- set-choice "Output Select" Headphone
-cargo run -- set-playback-switch "FX: Surround" off # rejected: software path only
+cargo run -- set-playback-switch "FX: Surround" off # rejected outside the guarded transaction
 cargo run -- set-playback-channel-level Front "Front Right" 82
 ```
 
@@ -423,6 +493,97 @@ documented in [`kernel/README.md`](kernel/README.md).
 
 ## Native desktop application
 
+The selected Qt 6/QML redesign is being built incrementally beside the release
+GTK application. Its current `ae5-control-qml` binary reads authoritative
+device state from the separate Rust `ae5d` user service over a typed session
+D-Bus contract. The native CXX-Qt bridge now displays the detected device,
+active format, output, headphone gain, PipeWire volume/mute state, capability
+limits, and precise daemon or write-block errors. EQ presets and Effects
+profiles now come from the real independent catalog: all 33 embedded Command
+defaults and route-compatible personal imports are split into section-owned
+objects. When available, the UI initially selects `My profile` for Effects and
+`SHP Last` for EQ, then shows the imported enhancement values and ten-band
+curve. Each section now owns a Rust draft with independent Modified, Revert,
+Save, and Save as behavior. Persistence uses typed `ae5d` D-Bus methods and
+atomic JSON writes; combined imports and factory objects are saved as new
+section-only files, while unrepresented section controls such as X-Bass
+crossover are retained. Restart discovery and isolated-library writes are
+verified. Editing and saving do not implicitly apply audio. The EQ section has
+separate **Apply EQ** and **Disable EQ** actions backed by a checked `ae5d`
+transaction: it validates the ten-band draft, targets the exact physical AE-5
+output, blocks Direct Mode conflicts before writing, verifies the
+PipeWire graph marker, and restores the prior managed config and runtime graph
+if a write or readback fails. OutFX and the software EQ are independent
+processing groups, matching the recovered Windows architecture, so both may
+remain active together. The UI distinguishes preset Saved/Modified state from
+live EQ Inactive/Saved only/Active/Error state.
+
+Master volume and mute use the same narrow typed D-Bus pattern with exact AE-5
+PipeWire targeting, checked readback, rollback on mismatch, and structured
+`ae5d` journal events. Headphone gain uses a separate checked transaction that
+requires matching ALSA and PipeWire headphone routes, pauses the exact output,
+verifies enum readback, and rolls back before resuming on failure. High gain
+requires an explicit confirmation in the UI. Effects are live through the
+guarded hardware transaction described above, while software EQ remains a
+separate PipeWire group and may be active at the same time. Output switching
+and Direct Mode remain unavailable in the QML write surface until their own
+checked transactions are connected.
+
+On Fedora/Nobara, install the Qt development packages. Until the user-service
+files are included in the RPM, launch `ae5d` in one terminal:
+
+```sh
+sudo dnf install qt6-qtbase-devel qt6-qtdeclarative-devel
+cargo run --features daemon --bin ae5d
+```
+
+Then launch the Wayland UI in another terminal:
+
+```sh
+QT_QPA_PLATFORM=wayland cargo run --features qml-gui --bin ae5-control-qml
+```
+
+The QML application uses Qt Quick Controls Basic so its semantic component
+theme is consistent on GNOME, KDE, and other desktops. It starts in the dark
+theme; pass `--light` after Cargo's argument separator to exercise the matching
+light tokens:
+
+```sh
+QT_QPA_PLATFORM=wayland cargo run --features qml-gui --bin ae5-control-qml -- --light
+```
+
+Installed builds start automatically after desktop login with the main window
+hidden. Closing the window also hides it without stopping `ae5d` or changing
+audio; use the AE5 Control tray icon to reopen it or choose **Quit** to end the
+UI process. If the desktop has no system-tray implementation, a hidden launch
+falls back to showing the window so the application cannot become
+inaccessible. Modified EQ or Effects drafts still receive an object-scoped
+prompt: hiding can retain unsaved drafts in the running process, while Quit
+offers save or discard.
+
+The selected Sound screen has been checked at 1024 × 680, 1280 × 800, and
+1600 × 1000. At the minimum size the sidebar collapses to a labelled icon rail
+and the workspace scrolls vertically without horizontal overflow. `Ctrl+S`
+saves the modified object that owns focus; `Ctrl+Shift+S` opens its Save as
+flow. If both section-owned objects need attention, the hardware faceplate's
+Review action returns focus to the relevant object rather than performing a
+combined save. Status notices, the live-EQ state, object headers, the
+equalizer graph and bands, enhancement controls, and hardware faceplate expose
+typed accessibility names and descriptions. Close-with-unsaved handling and
+the start-hidden/tray lifecycle have automated QML smoke coverage. Fractional
+display-scale acceptance and the remaining failure-state tests are still
+Phase 7 work.
+
+Stopping `ae5d` deliberately puts the UI into its daemon-unavailable state.
+Starting it again restores the live faceplate on the next five-second refresh;
+the GUI does not need to restart.
+
+The selected reference, state model, component map, responsive rules, and
+ordered implementation/verification plan are in
+[docs/QT_QML_SELECTED_DESIGN_SPEC.md](docs/QT_QML_SELECTED_DESIGN_SPEC.md).
+The GTK application remains the functional fallback until the roadmap's
+backend-parity and hardware-acceptance gates pass.
+
 The GTK 4 application groups device diagnostics, Command compatibility, system
 audio, onboard lighting, profiles, playback, effects, equalizer, and recording
 into dedicated pages. The **Compatibility** page summarizes verified,
@@ -441,8 +602,8 @@ trace lines. The **System audio** page can make the AE-5 the default
 PipeWire playback or recording device and opt into native-rate switching
 without changing its ALSA mixer controls.
 The **Equalizer** page separates the saved CA0132 hardware EQ state from the
-PipeWire software path. It labels a hardware EQ child setting as `ARMED` when
-OutFX is off instead of claiming that it is processing audio.
+checked PipeWire software path. The Qt Sound page independently reports
+whether hardware OutFX and software EQ are active.
 
 The **Lighting** page uses native GTK color dialogs for a unified color or five
 individual LED colors. It shares the CLI's verified, transactional backend and
@@ -485,7 +646,7 @@ The release GUI has reproducible startup, hardware-refresh, idle CPU, and
 resident-memory budgets. Run the read-only measurement with:
 
 ```sh
-cargo build --locked --release --all-features
+bash scripts/build-release-binaries.sh --locked
 bash scripts/measure-gui-performance.sh
 ```
 
@@ -495,9 +656,12 @@ evidence, and results are recorded in
 [docs/GUI_PERFORMANCE.md](docs/GUI_PERFORMANCE.md).
 
 Nobara/Fedora RPM build and install instructions are in
-[packaging/README.md](packaging/README.md). The package installs the GTK app,
-CLI, desktop entry, AppStream metadata, icon, scoped onboard-LED device rule,
-and login-time color restore without a privileged helper.
+[packaging/README.md](packaging/README.md). The package installs the Qt 6/QML
+app, unprivileged Rust `ae5d` user service, temporary GTK fallback, CLI,
+desktop entry, AppStream metadata, icon, scoped onboard-LED device rule, and
+login-time color restore without a privileged helper. A separate login entry
+starts Qt hidden in the system tray; the normal desktop entry opens the window
+and activates `ae5d` over the session D-Bus.
 A clean Fedora 44 build/install/verify/remove transaction is now enforced in
 pull-request CI, and a read-only run of an exact RPM payload on the physical
 AE-5 passed.
@@ -511,17 +675,20 @@ bash scripts/install-user.sh
 ae5-control-user-install --uninstall
 ```
 
-This rootless path installs the binaries, application-menu metadata,
-login-time lighting restore, and card-scoped WirePlumber/ACP configuration
-under the normal XDG user directories. It refuses conflicting files and stages
-a complete verified payload before replacing an earlier user installation.
-Rerun the same command to upgrade; profiles and lighting settings are
-preserved by upgrades and removal. It cannot install a kernel patch or udev
-permissions, so onboard-lighting writes still require the system package's
-exact rule. The isolated lifecycle check runs in CI, and the reference host has
-launched the installed application from its desktop entry with an unchanged
-mixer and route state. Full evidence and the remaining authenticated-RPM gate
-are in
+This rootless path installs the Qt and GTK binaries, `ae5d`, per-user D-Bus
+and systemd activation metadata, application-menu metadata, login-time
+application and lighting startup, and card-scoped WirePlumber/ACP
+configuration under the normal XDG user directories. It refuses conflicting
+files and stages a
+complete verified payload before replacing an earlier user installation. An
+already-running session bus is reloaded so the first Qt launch can activate
+`ae5d` without logging out. Rerun the same command to upgrade; profiles and
+lighting settings are preserved by upgrades and removal. It cannot install a
+kernel patch or udev permissions, so onboard-lighting writes still require the
+system package's exact rule. The isolated lifecycle check runs in CI, and the
+reference host has launched the installed Qt application under Wayland and
+X11, including daemon restart recovery, without changing the existing mixer
+or route state. Full evidence and the remaining authenticated-RPM gate are in
 [docs/PACKAGING_VALIDATION.md](docs/PACKAGING_VALIDATION.md).
 
 The **Profiles** page can:
@@ -594,9 +761,9 @@ Speakers→Headphone cycle 10.88 dB above both its quiet and muted controls.
 Both restored the exact persistent mixer, route, and volume state. Repeated
 connected-headphone cold-boot and suspend/resume acceptance remains. A silent,
 user-driven suspend probe now
-rejects any playback stage above 20%, non-Low headphone gain, open PCM, wrong
-route, unreadable evidence, changed mixer state, changed boot/kernel, or new
-audio warning; it never suspends or plays audio itself. Run its paired
+requires the campaign's bounded playback state, non-High headphone gain,
+closed PCM, the expected route, readable evidence, an unchanged boot/kernel,
+and no new audio warning; it never suspends or plays audio itself. Run its paired
 `--before-suspend campaign-01` and `--after-resume campaign-01` captures, then
 check progress with `--suspend-summary 20`. A standalone read-only snapshot is
 available through `--preflight ID`; it validates the same safety conditions
@@ -616,8 +783,8 @@ be reported as healthy merely because the route names agree. Reapplying the
 already-selected Headphone value deliberately preserves a muted Front switch,
 so the CLI `route-repair` command and the conditional GTK action provide the
 separate, explicit recovery path. Both repaired a guarded real-card negative
-test, returned the raw mixer to its exact starting hash, kept PipeWire at the
-20% ceiling, and opened no PCM. Route writes still require the analog PCM to
+test, returned the raw mixer to its exact starting hash, preserved PipeWire
+volume, and opened no PCM. Route writes still require the analog PCM to
 close first; the bounded wait allows five seconds for WirePlumber startup to
 settle and otherwise fails without touching the mixer. Historical boot records
 that predate Front collection are reported as unavailable instead of being
@@ -630,8 +797,9 @@ and fixed two unsafe ACP interactions: hardware volume ownership reloaded
 saved route gains, and the old headphone path interpreted `volume=zero` as
 0 dB. The package now requires `api.alsa.soft-mixer=true` and uses
 `volume=ignore`; the backend refuses managed routing until that policy is
-active. Every matrix stage kept PipeWire at 0%, ALSA at or below 20%, Low
-gain, and all PCM devices closed; no sound was played. Evidence and transition
+active. Every matrix stage kept PipeWire muted, preserved the bounded ALSA
+state, used Low gain, and left all PCM devices closed; no sound was played.
+Evidence and transition
 matrices are documented in
 [docs/DRIVER_ROUTING_INVESTIGATION.md](docs/DRIVER_ROUTING_INVESTIGATION.md).
 The ineffective AE-5 What U Hear volume/mute controls, guarded measurements,
@@ -675,7 +843,7 @@ update `user.config`.
 All physical outputs stayed unplugged and no audio was played during that
 validation. A Speakers-to-Headphones transition caused Command to unmute the
 Windows render endpoint, despite its prior muted state. The Windows capture
-procedure therefore reapplies and independently verifies the 20% cap and mute
+procedure therefore reapplies and independently verifies its requested level and mute
 after every output, profile, format, or device transition. A guarded 997 Hz
 Windows/Linux screen subsequently exposed and fixed the silent normal
 PipeWire transport: the AE-5 requires raw read/write playback, its working

@@ -1,35 +1,64 @@
 pub mod builtin_profiles;
 pub mod controls;
 pub mod device;
+#[cfg(feature = "daemon")]
+pub mod device_service;
+pub mod device_state;
+pub mod effects_chain;
 pub mod eq_chain;
 pub mod feature_parity;
+pub mod hardware_effects;
 pub mod lighting;
 pub mod pipewire;
 pub mod profile;
 pub mod profile_library;
+#[cfg(feature = "qml-gui")]
+pub mod qapplication;
+#[cfg(feature = "qml-gui")]
+pub mod qml_app_state;
 pub mod sbcommand;
+pub mod sound_objects;
+pub mod volume_curve;
 
 pub use builtin_profiles::{BuiltinProfile, COMMAND_DEFAULT_PROFILE_COUNT, builtin_profiles};
 pub use controls::{
     Ae5Mixer, ChannelLevel, ControlError, ControlSnapshot, DIRECT_MODE_CONTROL, DecibelRange,
-    Level, capture_control_block_reason, direct_mode_block_reason, equalizer_band_block_reason,
-    front_vmaster_clamp_warning, headphone_playback_issue, playback_switch_block_reason,
+    HARDWARE_OUTFX_CONTROL, HEADPHONE_GAIN_CONTROL, Level, capture_control_block_reason,
+    direct_mode_block_reason, equalizer_band_block_reason, front_vmaster_clamp_warning,
+    hardware_outfx_lab_active, headphone_playback_issue, playback_switch_block_reason,
     smart_volume_level_block_reason, snapshot_controls, unsafe_playback_control_block_reason,
 };
 pub use device::Ae5Device;
+pub use device_state::{DeviceOutputState, DeviceStatusCode};
+pub use effects_chain::{
+    EffectsChainChange, EffectsChainConfig, EffectsChainError, disable_effects_chain,
+    effects_chain_config, effects_filter_slot, enable_effects_chain, render_effects_filter_graph,
+    restore_effects_chain_config, validate_effects_chain_activation,
+    validate_effects_runtime_support,
+};
 pub use eq_chain::{
-    EQ_FREQUENCIES, EqBand, EqChainChange, EqChainConfig, EqChainError, bands_from_profile,
-    disable_eq_chain, enable_eq_chain, eq_chain_config, validate_eq_chain_activation,
+    EQ_FREQUENCIES, EqBand, EqChainChange, EqChainConfig, EqChainError, bands_from_gains_tenths_db,
+    bands_from_profile, disable_eq_chain, enable_eq_chain, enable_eq_chain_bands, eq_chain_config,
+    restore_eq_chain_config, validate_eq_chain_activation,
 };
 pub use feature_parity::{FeatureParity, FeatureSupport, feature_parity};
+pub use hardware_effects::{
+    HardwareEffectsChange, HardwareEffectsConfig, HardwareEffectsError, apply_hardware_effects,
+    disable_hardware_effects, hardware_effects_config, hardware_effects_profile_matches,
+    require_hardware_effects_gate,
+};
 pub use lighting::{
     Ae5Lighting, LightingConfig, ONBOARD_LED_COUNT, RgbColor, lighting_config_path,
     restore_saved_lighting, saved_lighting, set_saved_led, set_saved_lighting,
 };
 pub use pipewire::{
-    NativeRatesConfig, PipeWireNode, PipeWireRouteState, SoftwareEqOutput, ae5_input, ae5_output,
-    ae5_route_state, apply_software_eq, native_rates_config, set_ae5_default_input,
-    set_ae5_default_output, set_native_rates_enabled, software_eq_output, unload_software_eq,
+    AudioFormat, NativeRatesConfig, PipeWireNode, PipeWireRouteState, RuntimeSampleRate,
+    SoftwareEffectsOutput, SoftwareEqOutput, SoftwareVolumeOutput, ae5_audio_format, ae5_input,
+    ae5_output, ae5_route_state, ae5_windows_volume_curve_active, apply_software_eq,
+    native_rates_config, remove_software_effects, remove_software_eq, replace_software_effects,
+    replace_software_eq, runtime_sample_rate, set_ae5_default_input, set_ae5_default_output,
+    set_ae5_runtime_sample_rate, set_ae5_software_mute, set_ae5_software_volume,
+    set_native_rates_enabled, software_effects_output, software_eq_output, unload_software_eq,
 };
 pub use profile::{
     ApplyReport, LINUX_DRIVER_DEFAULTS_PRESERVED, Profile, ProfileControl, ProfileError,
@@ -47,6 +76,14 @@ pub use sbcommand::{
     import_installation_profile_with_report as import_discovered_sbcommand_profile_with_report,
     import_profile as import_sbcommand_profile,
     import_profile_with_report as import_sbcommand_profile_with_report,
+};
+pub use sound_objects::{
+    EffectsProfileEntry, EqPresetEntry, SoundObjectCatalog, save_effects_profile,
+    save_effects_profile_as, save_eq_preset, save_eq_preset_as, sound_object_catalog,
+};
+pub use volume_curve::{
+    VolumeCurveError, WindowsVolumeCurve, WindowsVolumePoint, windows_ae5_decibels,
+    windows_ae5_pipewire_percent,
 };
 
 #[cfg(feature = "gui")]

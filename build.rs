@@ -1,0 +1,74 @@
+#[cfg(feature = "qml-gui")]
+use cxx_qt_build::{CxxQtBuilder, QmlFile, QmlModule};
+
+fn main() {
+    #[cfg(feature = "qml-gui")]
+    CxxQtBuilder::new_qml_module(
+        QmlModule::new("io.github.klimovich008.ae5control")
+            .qml_files([
+                "qml/Main.qml",
+                "qml/components/NavigationSidebar.qml",
+                "qml/components/AppButton.qml",
+                "qml/components/AppComboBox.qml",
+                "qml/components/AppSlider.qml",
+                "qml/components/AppSwitch.qml",
+                "qml/components/IconButton.qml",
+                "qml/components/StateBadge.qml",
+                "qml/components/ObjectHeader.qml",
+                "qml/components/CapabilityNotice.qml",
+                "qml/components/EqualizerGraph.qml",
+                "qml/components/EqualizerBandRow.qml",
+                "qml/components/EnhancementRow.qml",
+                "qml/components/HardwareFaceplate.qml",
+                "qml/components/MetricCard.qml",
+                "qml/components/PageScaffold.qml",
+                "qml/components/SectionPanel.qml",
+                "qml/components/StatusRow.qml",
+                "qml/pages/DevicePage.qml",
+                "qml/pages/EqualizerPage.qml",
+                "qml/pages/LightingPage.qml",
+                "qml/pages/MixerPage.qml",
+                "qml/pages/OverviewPage.qml",
+                "qml/pages/PlaybackPage.qml",
+                "qml/pages/RecordingPage.qml",
+                "qml/pages/SettingsPage.qml",
+                "qml/pages/SoundPage.qml",
+            ])
+            .qml_file(QmlFile::from("qml/Theme.qml").singleton(true))
+            .depend("QtQuick")
+            .depend("QtQuick.Controls")
+            .depend("QtQuick.Layouts")
+            .depend("QtQuick.Shapes")
+            .depend("Qt.labs.platform"),
+    )
+    .qrc_resources([
+        "assets/icons/phosphor/arrow-counter-clockwise.svg",
+        "assets/icons/phosphor/caret-down.svg",
+        "assets/icons/phosphor/check-circle.svg",
+        "assets/icons/phosphor/circuitry.svg",
+        "assets/icons/phosphor/dots-three-vertical.svg",
+        "assets/icons/phosphor/faders-horizontal.svg",
+        "assets/icons/phosphor/floppy-disk.svg",
+        "assets/icons/phosphor/gear.svg",
+        "assets/icons/phosphor/info.svg",
+        "assets/icons/phosphor/lightbulb.svg",
+        "assets/icons/phosphor/lightning-slash.svg",
+        "assets/icons/phosphor/microphone.svg",
+        "assets/icons/phosphor/play-circle.svg",
+        "assets/icons/phosphor/sliders.svg",
+        "assets/icons/phosphor/speaker-high.svg",
+        "assets/icons/phosphor/speaker-simple-high.svg",
+        "assets/icons/phosphor/speaker-simple-low.svg",
+        "assets/icons/phosphor/speaker-simple-none.svg",
+        "assets/icons/phosphor/speaker-simple-x.svg",
+        "assets/icons/phosphor/spinner-gap.svg",
+        "assets/icons/phosphor/squares-four.svg",
+        "assets/icons/phosphor/warning-circle.svg",
+    ])
+    .qt_module("Network")
+    .qt_module("Quick")
+    .qt_module("Widgets")
+    .crate_include_root(Some("include".into()))
+    .files(["src/qml_app_state.rs", "src/qapplication.rs"])
+    .build();
+}

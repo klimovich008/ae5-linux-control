@@ -4,6 +4,7 @@ use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::Duration;
 
@@ -15,8 +16,18 @@ context.properties = {
 ";
 const AE5_PROFILE_SET: &str = "sound-blaster-ae5.conf";
 const SOFTWARE_EQ_SIGNATURE_PROPERTY: &str = "ae5.control.eq.signature";
-const SOFTWARE_EQ_METADATA_NAME: &str = "settings";
+const SOFTWARE_EFFECTS_SIGNATURE_PROPERTY: &str = "ae5.control.effects.signature";
+const PIPEWIRE_SETTINGS_METADATA_NAME: &str = "settings";
+const PIPEWIRE_FORCE_RATE_PROPERTY: &str = "clock.force-rate";
 const DIRECT_FILTER_PARAMETER: &str = "audioconvert.filter-graph.0";
+const EFFECTS_FILTER_PARAMETER: &str = "audioconvert.filter-graph.1";
+static NEXT_TRANSITION_SINK: AtomicU64 = AtomicU64::new(0);
+
+#[derive(Clone, Copy)]
+struct PreviousFilterState<'a> {
+    graph: Option<&'a str>,
+    signature: Option<&'a str>,
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PipeWireNode {
@@ -35,6 +46,18 @@ pub struct SoftwareEqOutput {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SoftwareEffectsOutput {
+    pub node: PipeWireNode,
+    pub signature: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SoftwareVolumeOutput {
+    pub node: PipeWireNode,
+    pub applied_percent: f64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PipeWireRouteState {
     pub profile_set: Option<String>,
     pub soft_mixer: Option<bool>,
@@ -48,6 +71,14 @@ pub struct PipeWireRouteState {
 pub(crate) struct SuspendedAe5Output {
     card_index: i32,
     resume_on_drop: bool,
+    parked_inputs: Option<ParkedSinkInputs>,
+}
+
+struct ParkedSinkInputs {
+    module_id: u32,
+    sink_name: String,
+    original_sink_name: String,
+    input_ids: Vec<u32>,
 }
 
 impl SuspendedAe5Output {
@@ -55,32 +86,90 @@ impl SuspendedAe5Output {
         let Some(node) = ae5_output(self.card_index)? else {
             return Ok(());
         };
+        if self.parked_inputs.is_none() {
+            self.parked_inputs = park_sink_inputs(&node.node_name)?;
+        }
         if !pactl_sink_is_suspended(&node.node_name)? {
             run_pactl(&["suspend-sink", &node.node_name, "1"])?;
             self.resume_on_drop = true;
+        }
+        if let Some(parked) = self.parked_inputs.as_mut() {
+            parked.park_additional_inputs()?;
         }
         wait_for_alsa_playback_closed(self.card_index)
     }
 
     pub(crate) fn resume(mut self) -> io::Result<()> {
-        if !self.resume_on_drop {
-            return Ok(());
+        self.restore()
+    }
+
+    fn restore(&mut self) -> io::Result<()> {
+        let resume = if self.resume_on_drop {
+            match ae5_output(self.card_index)? {
+                Some(node) => run_pactl(&["suspend-sink", &node.node_name, "0"]).map(|_| ()),
+                None => Ok(()),
+            }
+        } else {
+            Ok(())
+        };
+        if resume.is_ok() {
+            self.resume_on_drop = false;
         }
-        if let Some(node) = ae5_output(self.card_index)? {
-            run_pactl(&["suspend-sink", &node.node_name, "0"])?;
+        let streams = self
+            .parked_inputs
+            .as_mut()
+            .map(ParkedSinkInputs::restore)
+            .unwrap_or(Ok(()));
+        if streams.is_ok() {
+            self.parked_inputs = None;
         }
-        self.resume_on_drop = false;
-        Ok(())
+        combine_transition_results(resume, streams)
     }
 }
 
 impl Drop for SuspendedAe5Output {
     fn drop(&mut self) {
-        if self.resume_on_drop {
-            if let Ok(Some(node)) = ae5_output(self.card_index) {
-                let _ = run_pactl(&["suspend-sink", &node.node_name, "0"]);
+        let _ = self.restore();
+    }
+}
+
+impl ParkedSinkInputs {
+    fn park_additional_inputs(&mut self) -> io::Result<()> {
+        let sink_index = pactl_sink_index(&self.original_sink_name)?;
+        for input_id in pactl_sink_inputs(sink_index)? {
+            if self.input_ids.contains(&input_id) {
+                continue;
             }
-            self.resume_on_drop = false;
+            move_sink_input(input_id, &self.sink_name)?;
+            self.input_ids.push(input_id);
+        }
+        Ok(())
+    }
+
+    fn restore(&mut self) -> io::Result<()> {
+        let mut errors = Vec::new();
+        match pactl_sink_input_ids() {
+            Ok(existing) => {
+                for input_id in &self.input_ids {
+                    if existing.contains(input_id)
+                        && let Err(error) = move_sink_input(*input_id, &self.original_sink_name)
+                    {
+                        errors.push(format!("stream {input_id}: {error}"));
+                    }
+                }
+            }
+            Err(error) => errors.push(format!("enumerating parked streams: {error}")),
+        }
+        if let Err(error) = run_pactl(&["unload-module", &self.module_id.to_string()]) {
+            errors.push(format!("silent transition sink: {error}"));
+        }
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(io::Error::other(format!(
+                "restoring parked audio streams failed ({})",
+                errors.join("; ")
+            )))
         }
     }
 }
@@ -173,12 +262,99 @@ pub struct NativeRatesConfig {
     pub enabled: bool,
 }
 
+/// Live PipeWire graph-rate override for the current desktop session.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RuntimeSampleRate {
+    /// Follow PipeWire's configured clock policy.
+    Auto,
+    /// Force the graph and AE-5 sink to 48 kHz.
+    Hz48000,
+    /// Force the graph and AE-5 sink to 96 kHz.
+    Hz96000,
+}
+
+impl RuntimeSampleRate {
+    pub const fn policy_name(self) -> &'static str {
+        match self {
+            Self::Auto => "Automatic",
+            Self::Hz48000 => "48 kHz",
+            Self::Hz96000 => "96 kHz",
+        }
+    }
+
+    pub fn from_policy_name(value: &str) -> Option<Self> {
+        match value {
+            "Automatic" => Some(Self::Auto),
+            "48 kHz" => Some(Self::Hz48000),
+            "96 kHz" => Some(Self::Hz96000),
+            _ => None,
+        }
+    }
+
+    fn metadata_value(self) -> &'static str {
+        match self {
+            Self::Auto => "0",
+            Self::Hz48000 => "48000",
+            Self::Hz96000 => "96000",
+        }
+    }
+
+    fn hertz(self) -> Option<u32> {
+        match self {
+            Self::Auto => None,
+            Self::Hz48000 => Some(48_000),
+            Self::Hz96000 => Some(96_000),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AudioFormat {
+    pub sample_format: String,
+    pub sample_rate: u32,
+}
+
 pub fn ae5_output(card_index: i32) -> io::Result<Option<PipeWireNode>> {
     ae5_node(card_index, "sinks")
 }
 
+/// Reads the active PipeWire transport format without opening or changing the
+/// AE-5 playback device.
+pub fn ae5_audio_format(card_index: i32) -> io::Result<Option<AudioFormat>> {
+    let Some(node) = ae5_output(card_index)? else {
+        return Ok(None);
+    };
+    optional_active_pcm_format(active_pcm_format(node.id))
+}
+
+fn optional_active_pcm_format(result: io::Result<AudioFormat>) -> io::Result<Option<AudioFormat>> {
+    match result {
+        Ok(format) => Ok(Some(format)),
+        Err(error)
+            if error.kind() == io::ErrorKind::InvalidData
+                && error
+                    .to_string()
+                    .starts_with("PipeWire did not report the AE-5") =>
+        {
+            Ok(None)
+        }
+        Err(error) => Err(error),
+    }
+}
+
 pub fn ae5_input(card_index: i32) -> io::Result<Option<PipeWireNode>> {
     ae5_node(card_index, "sources")
+}
+
+pub fn ae5_windows_volume_curve_active(card_index: i32) -> io::Result<bool> {
+    let node = ae5_output(card_index)?.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("PipeWire has no playback output for ALSA card {card_index}"),
+        )
+    })?;
+    let details = run_wpctl(&["inspect", &node.id.to_string()])?;
+    Ok(has_windows_audio_taper(&details))
 }
 
 pub fn set_ae5_default_output(card_index: i32) -> io::Result<PipeWireNode> {
@@ -189,12 +365,321 @@ pub fn set_ae5_default_input(card_index: i32) -> io::Result<PipeWireNode> {
     set_ae5_default_node(card_index, "sources", "recording input")
 }
 
+pub fn set_ae5_software_volume(card_index: i32, percent: f64) -> io::Result<SoftwareVolumeOutput> {
+    validate_software_volume(percent)?;
+    let mut node = ae5_output(card_index)?.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("PipeWire has no playback output for ALSA card {card_index}"),
+        )
+    })?;
+    require_ae5_profile(node.id)?;
+    let (applied_percent, muted) = set_software_volume_with(&node, percent, run_wpctl)?;
+    node.volume_percent = Some(applied_percent.round() as u16);
+    node.muted = Some(muted);
+    Ok(SoftwareVolumeOutput {
+        node,
+        applied_percent,
+    })
+}
+
+pub fn set_ae5_software_mute(card_index: i32, muted: bool) -> io::Result<PipeWireNode> {
+    let mut node = ae5_output(card_index)?.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("PipeWire has no playback output for ALSA card {card_index}"),
+        )
+    })?;
+    require_ae5_profile(node.id)?;
+    let (applied_percent, applied_mute) = set_software_mute_with(&node, muted, run_wpctl)?;
+    node.volume_percent = Some(applied_percent.round() as u16);
+    node.muted = Some(applied_mute);
+    Ok(node)
+}
+
+/// Reads the live PipeWire graph-rate override.
+///
+/// # Errors
+///
+/// Returns an error when PipeWire metadata is unavailable or contains an
+/// unsupported forced rate.
+pub fn runtime_sample_rate() -> io::Result<RuntimeSampleRate> {
+    parse_runtime_sample_rate(&run_pw_metadata(&["-n", PIPEWIRE_SETTINGS_METADATA_NAME])?)
+}
+
+/// Safely applies a live graph-rate override while preserving AE-5 mute state.
+///
+/// The setting lasts until PipeWire restarts. The exact-card S16 transport is
+/// verified before an originally unmuted output is restored.
+///
+/// # Errors
+///
+/// Returns an error when the AE-5 PipeWire route is unavailable, the metadata
+/// write fails, or the sink does not negotiate the requested S16 rate.
+pub fn set_ae5_runtime_sample_rate(
+    card_index: i32,
+    requested: RuntimeSampleRate,
+) -> io::Result<RuntimeSampleRate> {
+    let node = ae5_output(card_index)?.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("PipeWire has no playback output for ALSA card {card_index}"),
+        )
+    })?;
+    require_ae5_profile(node.id)?;
+    let mut suspended_output = None;
+    set_runtime_sample_rate_with(
+        &node,
+        requested,
+        run_wpctl,
+        run_pw_metadata,
+        |suspended| {
+            if suspended {
+                if suspended_output.is_none() {
+                    suspended_output = Some(suspend_ae5_output(card_index)?);
+                }
+            } else if let Some(output) = suspended_output.take() {
+                output.resume()?;
+            }
+            Ok(())
+        },
+        |rate| verify_runtime_sample_rate(node.id, &node.node_name, rate),
+    )
+}
+
+fn set_runtime_sample_rate_with<W, M, S, V>(
+    node: &PipeWireNode,
+    requested: RuntimeSampleRate,
+    mut run_wpctl: W,
+    mut run_metadata: M,
+    mut set_suspended: S,
+    mut verify: V,
+) -> io::Result<RuntimeSampleRate>
+where
+    W: FnMut(&[&str]) -> io::Result<String>,
+    M: FnMut(&[&str]) -> io::Result<String>,
+    S: FnMut(bool) -> io::Result<()>,
+    V: FnMut(RuntimeSampleRate) -> io::Result<()>,
+{
+    let before =
+        parse_runtime_sample_rate(&run_metadata(&["-n", PIPEWIRE_SETTINGS_METADATA_NAME])?)?;
+    if before == requested {
+        verify(requested)?;
+        return Ok(requested);
+    }
+    let muted = node.muted.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "the AE-5 output mute state is unavailable; refusing a sample-rate change",
+        )
+    })?;
+    let node_id = node.id.to_string();
+    run_wpctl(&["set-mute", &node_id, "1"])?;
+
+    let transition: io::Result<RuntimeSampleRate> = (|| {
+        set_suspended(true)?;
+        let update = (|| {
+            run_metadata(&[
+                "-n",
+                PIPEWIRE_SETTINGS_METADATA_NAME,
+                "0",
+                PIPEWIRE_FORCE_RATE_PROPERTY,
+                requested.metadata_value(),
+            ])?;
+            let actual = parse_runtime_sample_rate(&run_metadata(&[
+                "-n",
+                PIPEWIRE_SETTINGS_METADATA_NAME,
+            ])?)?;
+            if actual != requested {
+                return Err(io::Error::other(format!(
+                    "PipeWire retained {actual:?} after requesting {requested:?}"
+                )));
+            }
+            Ok(())
+        })();
+        let resumed = set_suspended(false);
+        update?;
+        resumed?;
+        verify(requested)?;
+        run_wpctl(&["set-mute", &node_id, if muted { "1" } else { "0" }])?;
+        Ok(requested)
+    })();
+    if let Err(error) = transition {
+        let rollback: io::Result<()> = (|| {
+            set_suspended(true)?;
+            let update = (|| {
+                run_metadata(&[
+                    "-n",
+                    PIPEWIRE_SETTINGS_METADATA_NAME,
+                    "0",
+                    PIPEWIRE_FORCE_RATE_PROPERTY,
+                    before.metadata_value(),
+                ])?;
+                let actual = parse_runtime_sample_rate(&run_metadata(&[
+                    "-n",
+                    PIPEWIRE_SETTINGS_METADATA_NAME,
+                ])?)?;
+                if actual != before {
+                    return Err(io::Error::other(format!(
+                        "PipeWire retained {actual:?} while restoring {before:?}"
+                    )));
+                }
+                Ok(())
+            })();
+            let resumed = set_suspended(false);
+            update?;
+            resumed?;
+            verify(before)
+        })();
+        let safe_mute = run_wpctl(&["set-mute", &node_id, "1"]);
+        return Err(io::Error::new(
+            error.kind(),
+            format!(
+                "{error}; rate rollback {}; output mute {}",
+                if rollback.is_ok() {
+                    "verified"
+                } else {
+                    "failed"
+                },
+                if safe_mute.is_ok() {
+                    "confirmed"
+                } else {
+                    "failed"
+                }
+            ),
+        ));
+    }
+    transition
+}
+
+fn verify_runtime_sample_rate(
+    node_id: u32,
+    node_name: &str,
+    requested: RuntimeSampleRate,
+) -> io::Result<()> {
+    verify_runtime_sample_rate_with(
+        requested,
+        || active_pcm_format(node_id),
+        |rate| prime_ae5_output(node_name, rate),
+    )
+}
+
+fn verify_runtime_sample_rate_with<Q, P>(
+    requested: RuntimeSampleRate,
+    mut query: Q,
+    mut prime: P,
+) -> io::Result<()>
+where
+    Q: FnMut() -> io::Result<AudioFormat>,
+    P: FnMut(u32) -> io::Result<()>,
+{
+    let mut last = None;
+    let mut primed = false;
+    for _ in 0..120 {
+        match query() {
+            Ok(format) if format.sample_format != "S16LE" => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!(
+                        "AE-5 negotiated {}, expected the qualified S16LE transport",
+                        format.sample_format
+                    ),
+                ));
+            }
+            Ok(format)
+                if requested
+                    .hertz()
+                    .is_none_or(|expected| format.sample_rate == expected) =>
+            {
+                return Ok(());
+            }
+            Ok(format) => last = Some(format!("{} Hz", format.sample_rate)),
+            Err(error) if !primed => {
+                let rate = requested.hertz().unwrap_or(48_000);
+                prime(rate)?;
+                primed = true;
+                last = Some(error.to_string());
+                continue;
+            }
+            Err(error) => last = Some(error.to_string()),
+        }
+        thread::sleep(Duration::from_millis(25));
+    }
+    Err(io::Error::new(
+        io::ErrorKind::TimedOut,
+        format!(
+            "AE-5 did not negotiate {}; last state: {}",
+            requested
+                .hertz()
+                .map_or_else(|| "automatic rate".to_owned(), |rate| format!("{rate} Hz")),
+            last.unwrap_or_else(|| "unavailable".to_owned())
+        ),
+    ))
+}
+
+fn prime_ae5_output(node_name: &str, sample_rate: u32) -> io::Result<()> {
+    let sample_count = (sample_rate / 10).to_string();
+    let sample_rate = sample_rate.to_string();
+    let arguments = [
+        "--raw",
+        "--target",
+        node_name,
+        "--rate",
+        &sample_rate,
+        "--channels",
+        "2",
+        "--format",
+        "s16",
+        "--volume",
+        "0",
+        "--sample-count",
+        &sample_count,
+        "/dev/zero",
+    ];
+    let _status = Command::new("pw-play")
+        .args(arguments)
+        .status()
+        .map_err(|error| {
+            if error.kind() == io::ErrorKind::NotFound {
+                io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "pw-play is unavailable; install PipeWire utilities",
+                )
+            } else {
+                error
+            }
+        })?;
+    // pw-play can return 1 after its bounded stream has successfully activated
+    // the sink. The following ALSA format query is the authoritative result.
+    Ok(())
+}
+
+fn active_pcm_format(node_id: u32) -> io::Result<AudioFormat> {
+    parse_active_pcm_format(&run_pw_cli(&[
+        "enum-params",
+        &node_id.to_string(),
+        "Format",
+    ])?)
+}
+
 pub fn software_eq_output(card_index: i32) -> io::Result<Option<SoftwareEqOutput>> {
     let Some(node) = ae5_output(card_index)? else {
         return Ok(None);
     };
     Ok(
         software_eq_signature(node.id)?.map(|signature| SoftwareEqOutput {
+            node,
+            signature: Some(signature),
+        }),
+    )
+}
+
+pub fn software_effects_output(card_index: i32) -> io::Result<Option<SoftwareEffectsOutput>> {
+    let Some(node) = ae5_output(card_index)? else {
+        return Ok(None);
+    };
+    Ok(
+        software_effects_signature(node.id)?.map(|signature| SoftwareEffectsOutput {
             node,
             signature: Some(signature),
         }),
@@ -241,6 +726,539 @@ pub fn apply_software_eq(
     })
 }
 
+pub fn replace_software_eq(
+    card_index: i32,
+    graph: &str,
+    signature: &str,
+    previous_graph: Option<&str>,
+    previous_signature: Option<&str>,
+) -> io::Result<SoftwareEqOutput> {
+    let output = ae5_output(card_index)?.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("PipeWire has no playback output for ALSA card {card_index}"),
+        )
+    })?;
+    require_direct_filter_support(output.id)?;
+    let suspended = suspend_ae5_output(card_index)?;
+    replace_software_filter_state_with(
+        "software EQ",
+        graph,
+        signature,
+        PreviousFilterState {
+            graph: previous_graph,
+            signature: previous_signature,
+        },
+        |graph| set_direct_filter(output.id, graph),
+        |signature| set_software_eq_signature(output.id, signature),
+        || software_eq_signature(output.id),
+    )?;
+    if let Err(error) = suspended.resume() {
+        return rollback_replaced_software_eq(
+            card_index,
+            signature,
+            previous_graph,
+            previous_signature,
+            error,
+        );
+    }
+    let current = match software_eq_output(card_index) {
+        Ok(Some(current)) => current,
+        Ok(None) => {
+            return rollback_replaced_software_eq(
+                card_index,
+                signature,
+                previous_graph,
+                previous_signature,
+                io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "PipeWire lost the AE-5 software equalizer after applying it",
+                ),
+            );
+        }
+        Err(error) => {
+            return rollback_replaced_software_eq(
+                card_index,
+                signature,
+                previous_graph,
+                previous_signature,
+                error,
+            );
+        }
+    };
+    if current.node.id != output.id || current.signature.as_deref() != Some(signature) {
+        return rollback_replaced_software_eq(
+            card_index,
+            signature,
+            previous_graph,
+            previous_signature,
+            io::Error::other(
+                "PipeWire changed the AE-5 output identity or EQ marker after applying the graph",
+            ),
+        );
+    }
+    Ok(current)
+}
+
+fn rollback_replaced_software_eq(
+    card_index: i32,
+    applied_signature: &str,
+    previous_graph: Option<&str>,
+    previous_signature: Option<&str>,
+    apply_error: io::Error,
+) -> io::Result<SoftwareEqOutput> {
+    match restore_software_eq_runtime(
+        card_index,
+        Some(applied_signature),
+        previous_graph,
+        previous_signature,
+    ) {
+        Ok(()) => Err(apply_error),
+        Err(rollback_error) => Err(io::Error::other(format!(
+            "{apply_error}; software EQ rollback also failed: {rollback_error}"
+        ))),
+    }
+}
+
+fn restore_software_eq_runtime(
+    card_index: i32,
+    expected_signature: Option<&str>,
+    graph: Option<&str>,
+    signature: Option<&str>,
+) -> io::Result<()> {
+    if graph.is_some() != signature.is_some() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "restored software equalizer graph and signature must be provided together",
+        ));
+    }
+    let output = ae5_output(card_index)?.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            "PipeWire lost the AE-5 output before software EQ rollback",
+        )
+    })?;
+    require_direct_filter_support(output.id)?;
+    let actual = software_eq_signature(output.id)?;
+    if actual.as_deref() != expected_signature {
+        return Err(io::Error::other(format!(
+            "refusing software EQ rollback because the active marker changed (expected {}, found {})",
+            expected_signature.unwrap_or("none"),
+            actual.as_deref().unwrap_or("none")
+        )));
+    }
+
+    let suspended = suspend_ae5_output(card_index)?;
+    let rollback = set_direct_filter(output.id, graph.unwrap_or(""))
+        .and_then(|_| set_software_eq_signature(output.id, signature))
+        .and_then(|_| require_software_eq_signature(output.id, signature));
+    let resume = suspended.resume();
+    match (rollback, resume) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
+        (Err(error), Err(resume_error)) => Err(io::Error::other(format!(
+            "{error}; resuming the AE-5 output also failed: {resume_error}"
+        ))),
+    }
+}
+
+pub fn remove_software_eq(
+    card_index: i32,
+    previous_graph: &str,
+    previous_signature: &str,
+) -> io::Result<PipeWireNode> {
+    if previous_graph.is_empty() || previous_signature.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "previous software equalizer graph and signature must not be empty",
+        ));
+    }
+    let output = ae5_output(card_index)?.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("PipeWire has no playback output for ALSA card {card_index}"),
+        )
+    })?;
+    require_direct_filter_support(output.id)?;
+    if software_eq_signature(output.id)?.as_deref() != Some(previous_signature) {
+        return Err(io::Error::other(
+            "the active software EQ marker changed outside AE-5 Control",
+        ));
+    }
+
+    let suspended = suspend_ae5_output(card_index)?;
+    let removed = set_direct_filter(output.id, "")
+        .and_then(|_| set_software_eq_signature(output.id, None))
+        .and_then(|_| require_software_eq_signature(output.id, None));
+    if let Err(remove_error) = removed {
+        let rollback = set_direct_filter(output.id, previous_graph)
+            .and_then(|_| set_software_eq_signature(output.id, Some(previous_signature)))
+            .and_then(|_| require_software_eq_signature(output.id, Some(previous_signature)));
+        return match rollback {
+            Ok(()) => Err(remove_error),
+            Err(rollback_error) => Err(io::Error::other(format!(
+                "{remove_error}; software EQ rollback also failed: {rollback_error}"
+            ))),
+        };
+    }
+    if let Err(error) = suspended.resume() {
+        restore_software_eq_runtime(
+            card_index,
+            None,
+            Some(previous_graph),
+            Some(previous_signature),
+        )
+        .map_err(|rollback_error| {
+            io::Error::other(format!(
+                "{error}; software EQ rollback also failed: {rollback_error}"
+            ))
+        })?;
+        return Err(error);
+    }
+    match software_eq_output(card_index) {
+        Ok(None) => ae5_output(card_index)?.ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                "PipeWire lost the AE-5 output after disabling software EQ",
+            )
+        }),
+        Ok(Some(_)) => {
+            let error = io::Error::other(
+                "PipeWire still reports an active AE-5 software EQ after disabling it",
+            );
+            restore_software_eq_runtime(
+                card_index,
+                None,
+                Some(previous_graph),
+                Some(previous_signature),
+            )
+            .map_err(|rollback_error| {
+                io::Error::other(format!(
+                    "{error}; software EQ rollback also failed: {rollback_error}"
+                ))
+            })?;
+            Err(error)
+        }
+        Err(error) => {
+            restore_software_eq_runtime(
+                card_index,
+                None,
+                Some(previous_graph),
+                Some(previous_signature),
+            )
+            .map_err(|rollback_error| {
+                io::Error::other(format!(
+                    "{error}; software EQ rollback also failed: {rollback_error}"
+                ))
+            })?;
+            Err(error)
+        }
+    }
+}
+
+pub fn replace_software_effects(
+    card_index: i32,
+    graph: &str,
+    signature: &str,
+    previous_graph: Option<&str>,
+    previous_signature: Option<&str>,
+) -> io::Result<SoftwareEffectsOutput> {
+    let output = ae5_output(card_index)?.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("PipeWire has no playback output for ALSA card {card_index}"),
+        )
+    })?;
+    require_direct_filter_support(output.id)?;
+    let suspended = suspend_ae5_output(card_index)?;
+    replace_software_filter_state_with(
+        "software Effects",
+        graph,
+        signature,
+        PreviousFilterState {
+            graph: previous_graph,
+            signature: previous_signature,
+        },
+        |graph| set_effects_filter(output.id, graph),
+        |signature| set_software_effects_signature(output.id, signature),
+        || software_effects_signature(output.id),
+    )?;
+    if let Err(error) = suspended.resume() {
+        return rollback_replaced_software_effects(
+            card_index,
+            signature,
+            previous_graph,
+            previous_signature,
+            error,
+        );
+    }
+    let current = match software_effects_output(card_index) {
+        Ok(Some(current)) => current,
+        Ok(None) => {
+            return rollback_replaced_software_effects(
+                card_index,
+                signature,
+                previous_graph,
+                previous_signature,
+                io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "PipeWire lost the AE-5 software Effects graph after applying it",
+                ),
+            );
+        }
+        Err(error) => {
+            return rollback_replaced_software_effects(
+                card_index,
+                signature,
+                previous_graph,
+                previous_signature,
+                error,
+            );
+        }
+    };
+    if current.node.id != output.id || current.signature.as_deref() != Some(signature) {
+        return rollback_replaced_software_effects(
+            card_index,
+            signature,
+            previous_graph,
+            previous_signature,
+            io::Error::other(
+                "PipeWire changed the AE-5 output identity or Effects marker after applying the graph",
+            ),
+        );
+    }
+    Ok(current)
+}
+
+fn rollback_replaced_software_effects(
+    card_index: i32,
+    applied_signature: &str,
+    previous_graph: Option<&str>,
+    previous_signature: Option<&str>,
+    apply_error: io::Error,
+) -> io::Result<SoftwareEffectsOutput> {
+    match restore_software_effects_runtime(
+        card_index,
+        Some(applied_signature),
+        previous_graph,
+        previous_signature,
+    ) {
+        Ok(()) => Err(apply_error),
+        Err(rollback_error) => Err(io::Error::other(format!(
+            "{apply_error}; software Effects rollback also failed: {rollback_error}"
+        ))),
+    }
+}
+
+fn restore_software_effects_runtime(
+    card_index: i32,
+    expected_signature: Option<&str>,
+    graph: Option<&str>,
+    signature: Option<&str>,
+) -> io::Result<()> {
+    if graph.is_some() != signature.is_some() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "restored software Effects graph and signature must be provided together",
+        ));
+    }
+    let output = ae5_output(card_index)?.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            "PipeWire lost the AE-5 output before software Effects rollback",
+        )
+    })?;
+    require_direct_filter_support(output.id)?;
+    let actual = software_effects_signature(output.id)?;
+    if actual.as_deref() != expected_signature {
+        return Err(io::Error::other(format!(
+            "refusing software Effects rollback because the active marker changed (expected {}, found {})",
+            expected_signature.unwrap_or("none"),
+            actual.as_deref().unwrap_or("none")
+        )));
+    }
+
+    let suspended = suspend_ae5_output(card_index)?;
+    let rollback = set_effects_filter(output.id, graph.unwrap_or(""))
+        .and_then(|_| set_software_effects_signature(output.id, signature))
+        .and_then(|_| require_software_effects_signature(output.id, signature));
+    let resume = suspended.resume();
+    match (rollback, resume) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
+        (Err(error), Err(resume_error)) => Err(io::Error::other(format!(
+            "{error}; resuming the AE-5 output also failed: {resume_error}"
+        ))),
+    }
+}
+
+pub fn remove_software_effects(
+    card_index: i32,
+    previous_graph: &str,
+    previous_signature: &str,
+) -> io::Result<PipeWireNode> {
+    if previous_graph.is_empty() || previous_signature.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "previous software Effects graph and signature must not be empty",
+        ));
+    }
+    let output = ae5_output(card_index)?.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("PipeWire has no playback output for ALSA card {card_index}"),
+        )
+    })?;
+    require_direct_filter_support(output.id)?;
+    if software_effects_signature(output.id)?.as_deref() != Some(previous_signature) {
+        return Err(io::Error::other(
+            "the active software Effects marker changed outside AE-5 Control",
+        ));
+    }
+
+    let suspended = suspend_ae5_output(card_index)?;
+    let removed = set_effects_filter(output.id, "")
+        .and_then(|_| set_software_effects_signature(output.id, None))
+        .and_then(|_| require_software_effects_signature(output.id, None));
+    if let Err(remove_error) = removed {
+        let rollback = set_effects_filter(output.id, previous_graph)
+            .and_then(|_| set_software_effects_signature(output.id, Some(previous_signature)))
+            .and_then(|_| require_software_effects_signature(output.id, Some(previous_signature)));
+        return match rollback {
+            Ok(()) => Err(remove_error),
+            Err(rollback_error) => Err(io::Error::other(format!(
+                "{remove_error}; software Effects rollback also failed: {rollback_error}"
+            ))),
+        };
+    }
+    if let Err(error) = suspended.resume() {
+        restore_software_effects_runtime(
+            card_index,
+            None,
+            Some(previous_graph),
+            Some(previous_signature),
+        )
+        .map_err(|rollback_error| {
+            io::Error::other(format!(
+                "{error}; software Effects rollback also failed: {rollback_error}"
+            ))
+        })?;
+        return Err(error);
+    }
+    match software_effects_output(card_index) {
+        Ok(None) => ae5_output(card_index)?.ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                "PipeWire lost the AE-5 output after disabling software Effects",
+            )
+        }),
+        Ok(Some(_)) => {
+            let error = io::Error::other(
+                "PipeWire still reports active AE-5 software Effects after disabling them",
+            );
+            restore_software_effects_runtime(
+                card_index,
+                None,
+                Some(previous_graph),
+                Some(previous_signature),
+            )
+            .map_err(|rollback_error| {
+                io::Error::other(format!(
+                    "{error}; software Effects rollback also failed: {rollback_error}"
+                ))
+            })?;
+            Err(error)
+        }
+        Err(error) => {
+            restore_software_effects_runtime(
+                card_index,
+                None,
+                Some(previous_graph),
+                Some(previous_signature),
+            )
+            .map_err(|rollback_error| {
+                io::Error::other(format!(
+                    "{error}; software Effects rollback also failed: {rollback_error}"
+                ))
+            })?;
+            Err(error)
+        }
+    }
+}
+
+fn replace_software_filter_state_with<SetFilter, SetSignature, ReadSignature>(
+    filter_name: &str,
+    graph: &str,
+    signature: &str,
+    previous: PreviousFilterState<'_>,
+    mut set_filter: SetFilter,
+    mut set_signature: SetSignature,
+    mut read_signature: ReadSignature,
+) -> io::Result<()>
+where
+    SetFilter: FnMut(&str) -> io::Result<()>,
+    SetSignature: FnMut(Option<&str>) -> io::Result<()>,
+    ReadSignature: FnMut() -> io::Result<Option<String>>,
+{
+    if graph.is_empty() || signature.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("{filter_name} graph and signature must not be empty"),
+        ));
+    }
+    if previous.graph.is_some() != previous.signature.is_some() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("previous {filter_name} graph and signature must be provided together"),
+        ));
+    }
+    let current = read_signature()?;
+    if current.as_deref() != previous.signature {
+        return Err(io::Error::other(format!(
+            "the active {filter_name} marker changed outside AE-5 Control (expected {}, found {})",
+            previous.signature.unwrap_or("none"),
+            current.as_deref().unwrap_or("none")
+        )));
+    }
+
+    let applied = set_filter(graph)
+        .and_then(|_| set_signature(Some(signature)))
+        .and_then(|_| {
+            let actual = read_signature()?;
+            if actual.as_deref() == Some(signature) {
+                Ok(())
+            } else {
+                Err(io::Error::other(format!(
+                    "PipeWire did not retain the {filter_name} marker (expected {signature}, found {})",
+                    actual.as_deref().unwrap_or("none")
+                )))
+            }
+        });
+    if let Err(apply_error) = applied {
+        let rollback = set_filter(previous.graph.unwrap_or(""))
+            .and_then(|_| set_signature(previous.signature))
+            .and_then(|_| {
+                let actual = read_signature()?;
+                if actual.as_deref() == previous.signature {
+                    Ok(())
+                } else {
+                    Err(io::Error::other(format!(
+                        "rollback marker read back as {}, expected {}",
+                        actual.as_deref().unwrap_or("none"),
+                        previous.signature.unwrap_or("none")
+                    )))
+                }
+            });
+        return match rollback {
+            Ok(()) => Err(apply_error),
+            Err(rollback_error) => Err(io::Error::other(format!(
+                "{apply_error}; {filter_name} rollback also failed: {rollback_error}"
+            ))),
+        };
+    }
+    Ok(())
+}
+
 pub fn unload_software_eq(card_index: i32) -> io::Result<PipeWireNode> {
     let output = ae5_output(card_index)?.ok_or_else(|| {
         io::Error::new(
@@ -267,6 +1285,7 @@ pub(crate) fn suspend_ae5_output(card_index: i32) -> io::Result<SuspendedAe5Outp
         return Ok(SuspendedAe5Output {
             card_index,
             resume_on_drop: false,
+            parked_inputs: None,
         });
     };
     if pactl_sink_is_suspended(&node.node_name)? {
@@ -274,14 +1293,28 @@ pub(crate) fn suspend_ae5_output(card_index: i32) -> io::Result<SuspendedAe5Outp
         return Ok(SuspendedAe5Output {
             card_index,
             resume_on_drop: false,
+            parked_inputs: None,
         });
     }
 
-    run_pactl(&["suspend-sink", &node.node_name, "1"])?;
-    let suspended = SuspendedAe5Output {
+    let parked_inputs = park_sink_inputs(&node.node_name)?;
+    let mut suspended = SuspendedAe5Output {
         card_index,
-        resume_on_drop: true,
+        resume_on_drop: false,
+        parked_inputs,
     };
+    if let Err(error) = run_pactl(&["suspend-sink", &node.node_name, "1"]) {
+        return match suspended.restore() {
+            Ok(()) => Err(error),
+            Err(restore_error) => Err(io::Error::other(format!(
+                "{error}; transition stream rollback also failed: {restore_error}"
+            ))),
+        };
+    }
+    suspended.resume_on_drop = true;
+    if let Some(parked) = suspended.parked_inputs.as_mut() {
+        parked.park_additional_inputs()?;
+    }
     wait_for_alsa_playback_closed(card_index)?;
     Ok(suspended)
 }
@@ -386,6 +1419,182 @@ where
         return Err(io::Error::new(error.kind(), detail));
     }
     Ok(())
+}
+
+fn set_software_volume_with<F>(
+    node: &PipeWireNode,
+    percent: f64,
+    mut run: F,
+) -> io::Result<(f64, bool)>
+where
+    F: FnMut(&[&str]) -> io::Result<String>,
+{
+    validate_software_volume(percent)?;
+    let node_id = node.id.to_string();
+    let before = parse_wpctl_volume(&run(&["get-volume", &node_id])?)?;
+    let requested = format_volume_percent(percent);
+    run(&["set-volume", &node_id, &requested])?;
+
+    let result = (|| {
+        let after = parse_wpctl_volume(&run(&["get-volume", &node_id])?)?;
+        if (after.0 * 100.0 - percent).abs() > 0.1 {
+            return Err(io::Error::other(format!(
+                "PipeWire read back {:.3}% after requesting {percent:.3}%",
+                after.0 * 100.0
+            )));
+        }
+        if after.1 != before.1 {
+            return Err(io::Error::other(
+                "PipeWire changed the AE-5 mute state while setting volume",
+            ));
+        }
+        Ok((after.0 * 100.0, after.1))
+    })();
+    match result {
+        Ok(applied) => Ok(applied),
+        Err(error) => {
+            let restore_volume = format_volume_percent(before.0 * 100.0);
+            let volume_restore = run(&["set-volume", &node_id, &restore_volume]);
+            let mute_restore = run(&["set-mute", &node_id, if before.1 { "1" } else { "0" }]);
+            Err(match (volume_restore, mute_restore) {
+                (Ok(_), Ok(_)) => match run(&["get-volume", &node_id])
+                    .and_then(|output| parse_wpctl_volume(&output))
+                {
+                    Ok(restored)
+                        if (restored.0 - before.0).abs() <= 0.001 && restored.1 == before.1 =>
+                    {
+                        error
+                    }
+                    Ok(restored) => io::Error::other(format!(
+                        "{error}; rollback read back {:.3}% and mute={}, expected {:.3}% and mute={}",
+                        restored.0 * 100.0,
+                        restored.1,
+                        before.0 * 100.0,
+                        before.1
+                    )),
+                    Err(rollback) => io::Error::other(format!(
+                        "{error}; rollback verification failed: {rollback}"
+                    )),
+                },
+                (volume, mute) => io::Error::other(format!(
+                    "{error}; rollback failed (volume: {}; mute: {})",
+                    volume
+                        .err()
+                        .map_or_else(|| "restored".to_owned(), |error| error.to_string()),
+                    mute.err()
+                        .map_or_else(|| "restored".to_owned(), |error| error.to_string())
+                )),
+            })
+        }
+    }
+}
+
+fn set_software_mute_with<F>(
+    node: &PipeWireNode,
+    muted: bool,
+    mut run: F,
+) -> io::Result<(f64, bool)>
+where
+    F: FnMut(&[&str]) -> io::Result<String>,
+{
+    let node_id = node.id.to_string();
+    let before = parse_wpctl_volume(&run(&["get-volume", &node_id])?)?;
+    if before.1 == muted {
+        return Ok((before.0 * 100.0, before.1));
+    }
+
+    run(&["set-mute", &node_id, if muted { "1" } else { "0" }])?;
+    let result = (|| {
+        let after = parse_wpctl_volume(&run(&["get-volume", &node_id])?)?;
+        if (after.0 - before.0).abs() > 0.001 {
+            return Err(io::Error::other(format!(
+                "PipeWire changed AE-5 volume from {:.3}% to {:.3}% while setting mute",
+                before.0 * 100.0,
+                after.0 * 100.0
+            )));
+        }
+        if after.1 != muted {
+            return Err(io::Error::other(format!(
+                "PipeWire read back mute={} after requesting mute={muted}",
+                after.1
+            )));
+        }
+        Ok((after.0 * 100.0, after.1))
+    })();
+    match result {
+        Ok(applied) => Ok(applied),
+        Err(error) => {
+            let restore_volume = format_volume_percent(before.0 * 100.0);
+            let volume_restore = run(&["set-volume", &node_id, &restore_volume]);
+            let mute_restore = run(&["set-mute", &node_id, if before.1 { "1" } else { "0" }]);
+            Err(match (volume_restore, mute_restore) {
+                (Ok(_), Ok(_)) => match run(&["get-volume", &node_id])
+                    .and_then(|output| parse_wpctl_volume(&output))
+                {
+                    Ok(restored)
+                        if (restored.0 - before.0).abs() <= 0.001 && restored.1 == before.1 =>
+                    {
+                        error
+                    }
+                    Ok(restored) => io::Error::other(format!(
+                        "{error}; rollback read back {:.3}% and mute={}, expected {:.3}% and mute={}",
+                        restored.0 * 100.0,
+                        restored.1,
+                        before.0 * 100.0,
+                        before.1
+                    )),
+                    Err(rollback) => io::Error::other(format!(
+                        "{error}; rollback verification failed: {rollback}"
+                    )),
+                },
+                (volume, mute) => io::Error::other(format!(
+                    "{error}; rollback failed (volume: {}; mute: {})",
+                    volume
+                        .err()
+                        .map_or_else(|| "restored".to_owned(), |error| error.to_string()),
+                    mute.err()
+                        .map_or_else(|| "restored".to_owned(), |error| error.to_string())
+                )),
+            })
+        }
+    }
+}
+
+fn validate_software_volume(percent: f64) -> io::Result<()> {
+    if !percent.is_finite() || !(0.0..=100.0).contains(&percent) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "PipeWire software volume must be between 0 and 100 percent",
+        ));
+    }
+    Ok(())
+}
+
+fn format_volume_percent(percent: f64) -> String {
+    let formatted = format!("{percent:.3}");
+    let trimmed = formatted.trim_end_matches('0').trim_end_matches('.');
+    format!("{trimmed}%")
+}
+
+fn parse_wpctl_volume(output: &str) -> io::Result<(f64, bool)> {
+    let line = output.trim();
+    let scalar = line
+        .strip_prefix("Volume:")
+        .and_then(|value| value.split_ascii_whitespace().next())
+        .and_then(|value| value.parse::<f64>().ok())
+        .filter(|value| value.is_finite() && (0.0..=1.0).contains(value))
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "wpctl returned an invalid software volume",
+            )
+        })?;
+    Ok((
+        scalar,
+        line.split_ascii_whitespace().any(|part| {
+            part.trim_matches(|character| character == '[' || character == ']') == "MUTED"
+        }),
+    ))
 }
 
 pub fn native_rates_config() -> io::Result<NativeRatesConfig> {
@@ -906,15 +2115,18 @@ fn require_direct_filter_support(node_id: u32) -> io::Result<()> {
 }
 
 fn set_direct_filter(node_id: u32, graph: &str) -> io::Result<()> {
-    let parameter = direct_filter_parameter(graph)?;
+    let parameter = direct_filter_parameter(DIRECT_FILTER_PARAMETER, graph)?;
     run_pw_cli(&["set-param", &node_id.to_string(), "Props", &parameter]).map(|_| ())
 }
 
-fn direct_filter_parameter(graph: &str) -> io::Result<String> {
+fn set_effects_filter(node_id: u32, graph: &str) -> io::Result<()> {
+    let parameter = direct_filter_parameter(EFFECTS_FILTER_PARAMETER, graph)?;
+    run_pw_cli(&["set-param", &node_id.to_string(), "Props", &parameter]).map(|_| ())
+}
+
+fn direct_filter_parameter(property: &str, graph: &str) -> io::Result<String> {
     let graph = escape_spa_string(graph)?;
-    Ok(format!(
-        "{{ params = [ \"{DIRECT_FILTER_PARAMETER}\" \"{graph}\" ] }}"
-    ))
+    Ok(format!("{{ params = [ \"{property}\" \"{graph}\" ] }}"))
 }
 
 fn escape_spa_string(value: &str) -> io::Result<String> {
@@ -939,12 +2151,24 @@ fn escape_spa_string(value: &str) -> io::Result<String> {
 }
 
 fn set_software_eq_signature(node_id: u32, signature: Option<&str>) -> io::Result<()> {
+    set_software_filter_signature(node_id, SOFTWARE_EQ_SIGNATURE_PROPERTY, signature)
+}
+
+fn set_software_effects_signature(node_id: u32, signature: Option<&str>) -> io::Result<()> {
+    set_software_filter_signature(node_id, SOFTWARE_EFFECTS_SIGNATURE_PROPERTY, signature)
+}
+
+fn set_software_filter_signature(
+    node_id: u32,
+    property: &str,
+    signature: Option<&str>,
+) -> io::Result<()> {
     let id = node_id.to_string();
-    let mut arguments = vec!["-n", SOFTWARE_EQ_METADATA_NAME];
+    let mut arguments = vec!["-n", PIPEWIRE_SETTINGS_METADATA_NAME];
     if signature.is_none() {
         arguments.push("-d");
     }
-    arguments.extend([id.as_str(), SOFTWARE_EQ_SIGNATURE_PROPERTY]);
+    arguments.extend([id.as_str(), property]);
     if let Some(signature) = signature {
         arguments.extend([signature, "Spa:String"]);
     }
@@ -963,12 +2187,80 @@ fn require_software_eq_signature(node_id: u32, expected: Option<&str>) -> io::Re
     )))
 }
 
+fn require_software_effects_signature(node_id: u32, expected: Option<&str>) -> io::Result<()> {
+    let actual = software_effects_signature(node_id)?;
+    if actual.as_deref() == expected {
+        return Ok(());
+    }
+    Err(io::Error::other(format!(
+        "PipeWire did not retain the software Effects marker (expected {}, read back {})",
+        expected.unwrap_or("not loaded"),
+        actual.as_deref().unwrap_or("not loaded")
+    )))
+}
+
 fn software_eq_signature(node_id: u32) -> io::Result<Option<String>> {
     parse_metadata_value(
-        &run_pw_metadata(&["-n", SOFTWARE_EQ_METADATA_NAME])?,
+        &run_pw_metadata(&["-n", PIPEWIRE_SETTINGS_METADATA_NAME])?,
         node_id,
         SOFTWARE_EQ_SIGNATURE_PROPERTY,
     )
+}
+
+fn software_effects_signature(node_id: u32) -> io::Result<Option<String>> {
+    parse_metadata_value(
+        &run_pw_metadata(&["-n", PIPEWIRE_SETTINGS_METADATA_NAME])?,
+        node_id,
+        SOFTWARE_EFFECTS_SIGNATURE_PROPERTY,
+    )
+}
+
+fn parse_runtime_sample_rate(output: &str) -> io::Result<RuntimeSampleRate> {
+    match parse_metadata_value(output, 0, PIPEWIRE_FORCE_RATE_PROPERTY)?.as_deref() {
+        None | Some("0") => Ok(RuntimeSampleRate::Auto),
+        Some("48000") => Ok(RuntimeSampleRate::Hz48000),
+        Some("96000") => Ok(RuntimeSampleRate::Hz96000),
+        Some(rate) => Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("PipeWire uses unsupported forced sample rate '{rate}'"),
+        )),
+    }
+}
+
+fn parse_active_pcm_format(output: &str) -> io::Result<AudioFormat> {
+    let mut sample_format = None;
+    let mut sample_rate = None;
+    let mut lines = output.lines();
+    while let Some(line) = lines.next() {
+        if line.contains("Format:Audio:format") {
+            sample_format = lines.next().and_then(|value| {
+                value
+                    .trim()
+                    .split_once("(Spa:Enum:AudioFormat:")
+                    .and_then(|(_, value)| value.strip_suffix(')'))
+                    .map(str::to_owned)
+            });
+        } else if line.contains("Format:Audio:rate") {
+            sample_rate = lines
+                .next()
+                .and_then(|value| value.split_ascii_whitespace().nth(1))
+                .and_then(|value| value.parse().ok());
+        }
+    }
+    Ok(AudioFormat {
+        sample_format: sample_format.ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "PipeWire did not report the AE-5 PCM format",
+            )
+        })?,
+        sample_rate: sample_rate.ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "PipeWire did not report the AE-5 sample rate",
+            )
+        })?,
+    })
 }
 
 fn parse_metadata_value(output: &str, id: u32, key: &str) -> io::Result<Option<String>> {
@@ -1108,6 +2400,148 @@ fn run_pactl(arguments: &[&str]) -> io::Result<String> {
         }));
     }
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+fn park_sink_inputs(node_name: &str) -> io::Result<Option<ParkedSinkInputs>> {
+    let sink_index = pactl_sink_index(node_name)?;
+    let input_ids = pactl_sink_inputs(sink_index)?;
+    if input_ids.is_empty() {
+        return Ok(None);
+    }
+
+    let sequence = NEXT_TRANSITION_SINK.fetch_add(1, Ordering::Relaxed);
+    let sink_name = format!("ae5_control_transition_{}_{}", std::process::id(), sequence);
+    let sink_argument = format!("sink_name={sink_name}");
+    let module_output = run_pactl(&[
+        "load-module",
+        "module-null-sink",
+        &sink_argument,
+        "rate=96000",
+        "channels=2",
+        "sink_properties=device.description=AE5_Control_Transition",
+    ])?;
+    let module_id = module_output.trim().parse::<u32>().map_err(|error| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "pactl returned invalid transition module id {:?}: {error}",
+                module_output.trim()
+            ),
+        )
+    })?;
+    let mut parked = ParkedSinkInputs {
+        module_id,
+        sink_name,
+        original_sink_name: node_name.to_owned(),
+        input_ids: Vec::with_capacity(input_ids.len()),
+    };
+    for input_id in input_ids {
+        if let Err(error) = move_sink_input(input_id, &parked.sink_name) {
+            return match parked.restore() {
+                Ok(()) => Err(error),
+                Err(restore_error) => Err(io::Error::other(format!(
+                    "{error}; transition stream rollback also failed: {restore_error}"
+                ))),
+            };
+        }
+        parked.input_ids.push(input_id);
+    }
+    Ok(Some(parked))
+}
+
+fn move_sink_input(input_id: u32, sink_name: &str) -> io::Result<()> {
+    run_pactl(&["move-sink-input", &input_id.to_string(), sink_name]).map(|_| ())
+}
+
+fn pactl_sink_index(node_name: &str) -> io::Result<u32> {
+    let output = run_pactl(&["--format=json", "list", "sinks"])?;
+    parse_pactl_sink_index(&output, node_name)
+}
+
+fn parse_pactl_sink_index(output: &str, node_name: &str) -> io::Result<u32> {
+    let sinks = serde_json::from_str::<serde_json::Value>(output)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    let sinks = sinks.as_array().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "pactl did not return a sink array",
+        )
+    })?;
+    let mut matches = sinks
+        .iter()
+        .filter(|sink| sink["name"].as_str() == Some(node_name));
+    let sink = matches.next().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("pactl has no AE-5 sink named '{node_name}'"),
+        )
+    })?;
+    if matches.next().is_some() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("pactl returned duplicate sinks named '{node_name}'"),
+        ));
+    }
+    json_u32(sink, "index", "sink")
+}
+
+fn pactl_sink_inputs(sink_index: u32) -> io::Result<Vec<u32>> {
+    let output = run_pactl(&["--format=json", "list", "sink-inputs"])?;
+    parse_pactl_sink_inputs(&output, sink_index)
+}
+
+fn pactl_sink_input_ids() -> io::Result<BTreeSet<u32>> {
+    let output = run_pactl(&["--format=json", "list", "sink-inputs"])?;
+    parse_pactl_sink_input_ids(&output)
+}
+
+fn parse_pactl_sink_inputs(output: &str, sink_index: u32) -> io::Result<Vec<u32>> {
+    let inputs = pactl_sink_input_values(output)?;
+    inputs
+        .iter()
+        .filter(|input| input["sink"].as_u64() == Some(u64::from(sink_index)))
+        .map(|input| json_u32(input, "index", "sink input"))
+        .collect()
+}
+
+fn parse_pactl_sink_input_ids(output: &str) -> io::Result<BTreeSet<u32>> {
+    pactl_sink_input_values(output)?
+        .iter()
+        .map(|input| json_u32(input, "index", "sink input"))
+        .collect()
+}
+
+fn pactl_sink_input_values(output: &str) -> io::Result<Vec<serde_json::Value>> {
+    serde_json::from_str::<serde_json::Value>(output)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?
+        .as_array()
+        .cloned()
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "pactl did not return a sink-input array",
+            )
+        })
+}
+
+fn json_u32(value: &serde_json::Value, field: &str, object: &str) -> io::Result<u32> {
+    value[field]
+        .as_u64()
+        .and_then(|value| u32::try_from(value).ok())
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("pactl {object} has no valid {field}"),
+            )
+        })
+}
+
+fn combine_transition_results(first: io::Result<()>, second: io::Result<()>) -> io::Result<()> {
+    match (first, second) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
+        (Err(first), Err(second)) => Err(io::Error::other(format!("{first}; {second}"))),
+    }
 }
 
 fn pactl_sink_is_suspended(node_name: &str) -> io::Result<bool> {
@@ -1294,10 +2728,143 @@ fn property(output: &str, name: &str) -> Option<String> {
     })
 }
 
+fn has_windows_audio_taper(details: &str) -> bool {
+    property(details, "channelmix.volume-curve").as_deref() == Some("windows-audio-taper")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::RefCell;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn replacing_eq_restores_the_previous_graph_after_failed_readback() {
+        let signature = RefCell::new(Some("old".to_owned()));
+        let writes = RefCell::new(Vec::new());
+
+        let error = replace_software_filter_state_with(
+            "software EQ",
+            "new-graph",
+            "new",
+            PreviousFilterState {
+                graph: Some("old-graph"),
+                signature: Some("old"),
+            },
+            |graph| {
+                writes.borrow_mut().push(format!("filter:{graph}"));
+                Ok(())
+            },
+            |requested| {
+                writes
+                    .borrow_mut()
+                    .push(format!("signature:{}", requested.unwrap_or("none")));
+                *signature.borrow_mut() = requested.map(|value| {
+                    if value == "new" {
+                        "wrong".to_owned()
+                    } else {
+                        value.to_owned()
+                    }
+                });
+                Ok(())
+            },
+            || Ok(signature.borrow().clone()),
+        )
+        .unwrap_err();
+
+        assert_eq!(
+            (error.kind(), signature.into_inner(), writes.into_inner(),),
+            (
+                io::ErrorKind::Other,
+                Some("old".to_owned()),
+                vec![
+                    "filter:new-graph".to_owned(),
+                    "signature:new".to_owned(),
+                    "filter:old-graph".to_owned(),
+                    "signature:old".to_owned(),
+                ],
+            )
+        );
+    }
+
+    #[test]
+    fn replacing_eq_restores_the_previous_graph_after_filter_write_failure() {
+        let signature = RefCell::new(Some("old".to_owned()));
+        let writes = RefCell::new(Vec::new());
+
+        let error = replace_software_filter_state_with(
+            "software EQ",
+            "new-graph",
+            "new",
+            PreviousFilterState {
+                graph: Some("old-graph"),
+                signature: Some("old"),
+            },
+            |graph| {
+                writes.borrow_mut().push(format!("filter:{graph}"));
+                if graph == "new-graph" {
+                    Err(io::Error::new(
+                        io::ErrorKind::BrokenPipe,
+                        "simulated filter write failure",
+                    ))
+                } else {
+                    Ok(())
+                }
+            },
+            |requested| {
+                writes
+                    .borrow_mut()
+                    .push(format!("signature:{}", requested.unwrap_or("none")));
+                *signature.borrow_mut() = requested.map(str::to_owned);
+                Ok(())
+            },
+            || Ok(signature.borrow().clone()),
+        )
+        .unwrap_err();
+
+        assert_eq!(
+            (error.kind(), signature.into_inner(), writes.into_inner()),
+            (
+                io::ErrorKind::BrokenPipe,
+                Some("old".to_owned()),
+                vec![
+                    "filter:new-graph".to_owned(),
+                    "filter:old-graph".to_owned(),
+                    "signature:old".to_owned(),
+                ],
+            )
+        );
+    }
+
+    #[test]
+    fn replacing_eq_refuses_an_unowned_runtime_graph_before_writing() {
+        let writes = RefCell::new(Vec::new());
+
+        let error = replace_software_filter_state_with(
+            "software EQ",
+            "new-graph",
+            "new",
+            PreviousFilterState {
+                graph: None,
+                signature: None,
+            },
+            |graph| {
+                writes.borrow_mut().push(format!("filter:{graph}"));
+                Ok(())
+            },
+            |signature| {
+                writes.borrow_mut().push(format!("signature:{signature:?}"));
+                Ok(())
+            },
+            || Ok(Some("foreign".to_owned())),
+        )
+        .unwrap_err();
+
+        assert_eq!(
+            (error.kind(), writes.into_inner()),
+            (io::ErrorKind::Other, Vec::<String>::new())
+        );
+    }
 
     #[test]
     fn parses_wpctl_node_identity_and_default_marker() {
@@ -1363,6 +2930,13 @@ id 58, type PipeWire:Interface:Node
             property(details, "node.name").as_deref(),
             Some("alsa_output.pci-ae5.analog-stereo")
         );
+        assert!(!has_windows_audio_taper(details));
+        assert!(has_windows_audio_taper(
+            "channelmix.volume-curve = \"windows-audio-taper\""
+        ));
+        assert!(!has_windows_audio_taper(
+            "channelmix.volume-curve = \"cubic\""
+        ));
         assert_eq!(
             node_from_details(
                 NodeListing {
@@ -1387,16 +2961,23 @@ id 58, type PipeWire:Interface:Node
     #[test]
     fn builds_a_single_in_place_filter_parameter_without_shell_parsing() {
         assert_eq!(
-            direct_filter_parameter("{ inputs = [ \"preL:In\" ] }\n").unwrap(),
+            direct_filter_parameter(DIRECT_FILTER_PARAMETER, "{ inputs = [ \"preL:In\" ] }\n")
+                .unwrap(),
             "{ params = [ \"audioconvert.filter-graph.0\" \"{ inputs = [ \\\"preL:In\\\" ] }\\n\" ] }"
         );
         assert_eq!(
-            direct_filter_parameter("").unwrap(),
+            direct_filter_parameter(DIRECT_FILTER_PARAMETER, "").unwrap(),
             "{ params = [ \"audioconvert.filter-graph.0\" \"\" ] }"
         );
         assert_eq!(
-            direct_filter_parameter("bad\u{7f}").unwrap_err().kind(),
+            direct_filter_parameter(DIRECT_FILTER_PARAMETER, "bad\u{7f}")
+                .unwrap_err()
+                .kind(),
             io::ErrorKind::InvalidInput
+        );
+        assert_eq!(
+            direct_filter_parameter(EFFECTS_FILTER_PARAMETER, "").unwrap(),
+            "{ params = [ \"audioconvert.filter-graph.1\" \"\" ] }"
         );
     }
 
@@ -1431,10 +3012,14 @@ update: id:52 key:'ae5.control.eq.signature' value:'other' type:'Spa:String'
     #[test]
     fn parses_the_exact_pactl_sink_state_without_ambiguity() {
         let sinks = r#"[
-          {"name":"alsa_output.pci-ae5.analog-stereo","state":"SUSPENDED"},
-          {"name":"alsa_output.usb-other.analog-stereo","state":"RUNNING"}
+          {"index":68,"name":"alsa_output.pci-ae5.analog-stereo","state":"SUSPENDED"},
+          {"index":73,"name":"alsa_output.usb-other.analog-stereo","state":"RUNNING"}
         ]"#;
         assert!(parse_pactl_sink_suspended(sinks, "alsa_output.pci-ae5.analog-stereo").unwrap());
+        assert_eq!(
+            parse_pactl_sink_index(sinks, "alsa_output.pci-ae5.analog-stereo").unwrap(),
+            68
+        );
         assert_eq!(
             parse_pactl_sink_suspended(sinks, "missing")
                 .unwrap_err()
@@ -1448,6 +3033,30 @@ update: id:52 key:'ae5.control.eq.signature' value:'other' type:'Spa:String'
         ]"#;
         assert_eq!(
             parse_pactl_sink_suspended(duplicate, "duplicate")
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::InvalidData
+        );
+    }
+
+    #[test]
+    fn selects_only_streams_linked_to_the_exact_sink() {
+        let inputs = r#"[
+          {"index":118191,"sink":68,"corked":false},
+          {"index":118192,"sink":73,"corked":false},
+          {"index":118193,"sink":68,"corked":true}
+        ]"#;
+
+        assert_eq!(
+            parse_pactl_sink_inputs(inputs, 68).unwrap(),
+            vec![118191, 118193]
+        );
+        assert_eq!(
+            parse_pactl_sink_input_ids(inputs).unwrap(),
+            BTreeSet::from([118191, 118192, 118193])
+        );
+        assert_eq!(
+            parse_pactl_sink_inputs(r#"[{"index":"bad","sink":68}]"#, 68)
                 .unwrap_err()
                 .kind(),
             io::ErrorKind::InvalidData
@@ -1563,6 +3172,102 @@ update: id:52 key:'ae5.control.eq.signature' value:'other' type:'Spa:String'
                 ["set-mute", "62", "0"],
             ]
             .map(|command| command.map(str::to_owned).to_vec())
+        );
+    }
+
+    #[test]
+    fn software_volume_updates_the_existing_sink_and_preserves_mute() {
+        let node = PipeWireNode {
+            id: 62,
+            node_name: "alsa_output.pci-ae5.analog-stereo".to_owned(),
+            description: "AE-5".to_owned(),
+            is_default: true,
+            volume_percent: Some(5),
+            muted: Some(true),
+        };
+        let mut commands = Vec::new();
+        let mut reads = 0;
+
+        let applied = set_software_volume_with(&node, 34.567, |arguments| {
+            commands.push(
+                arguments
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>(),
+            );
+            Ok(if arguments.first() == Some(&"get-volume") {
+                reads += 1;
+                if reads == 1 {
+                    "Volume: 0.050 [MUTED]\n".to_owned()
+                } else {
+                    "Volume: 0.346 [MUTED]\n".to_owned()
+                }
+            } else {
+                String::new()
+            })
+        })
+        .unwrap();
+
+        assert!((applied.0 - 34.6).abs() < 1e-9);
+        assert!(applied.1);
+        assert_eq!(
+            commands,
+            vec![
+                vec!["get-volume".to_owned(), "62".to_owned()],
+                vec![
+                    "set-volume".to_owned(),
+                    "62".to_owned(),
+                    "34.567%".to_owned()
+                ],
+                vec!["get-volume".to_owned(), "62".to_owned()],
+            ]
+        );
+    }
+
+    #[test]
+    fn software_volume_rejects_a_mute_state_change() {
+        let node = PipeWireNode {
+            id: 62,
+            node_name: "alsa_output.pci-ae5.analog-stereo".to_owned(),
+            description: "AE-5".to_owned(),
+            is_default: true,
+            volume_percent: Some(5),
+            muted: Some(true),
+        };
+        let mut reads = 0;
+        let mut commands = Vec::new();
+
+        let error = set_software_volume_with(&node, 20.0, |arguments| {
+            commands.push(
+                arguments
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>(),
+            );
+            Ok(if arguments.first() == Some(&"get-volume") {
+                reads += 1;
+                if reads == 1 || reads == 3 {
+                    "Volume: 0.050 [MUTED]\n".to_owned()
+                } else {
+                    "Volume: 0.200\n".to_owned()
+                }
+            } else {
+                String::new()
+            })
+        })
+        .unwrap_err();
+
+        assert!(error.to_string().contains("mute"));
+        assert_eq!(
+            commands,
+            vec![
+                vec!["get-volume".to_owned(), "62".to_owned()],
+                vec!["set-volume".to_owned(), "62".to_owned(), "20%".to_owned()],
+                vec!["get-volume".to_owned(), "62".to_owned()],
+                vec!["set-volume".to_owned(), "62".to_owned(), "5%".to_owned()],
+                vec!["set-mute".to_owned(), "62".to_owned(), "1".to_owned()],
+                vec!["get-volume".to_owned(), "62".to_owned()],
+            ]
         );
     }
 
@@ -1925,5 +3630,331 @@ update: id:52 key:'ae5.control.eq.signature' value:'other' type:'Spa:String'
         );
 
         fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn parses_the_runtime_sample_rate_from_pipewire_metadata() {
+        let metadata = "\
+Found \"settings\" metadata 32
+update: id:0 key:'clock.rate' value:'48000' type:''
+update: id:0 key:'clock.force-rate' value:'96000' type:''
+";
+
+        assert_eq!(
+            parse_runtime_sample_rate(metadata).unwrap(),
+            RuntimeSampleRate::Hz96000
+        );
+    }
+
+    #[test]
+    fn runtime_sample_rate_policy_names_round_trip() {
+        for rate in [
+            RuntimeSampleRate::Auto,
+            RuntimeSampleRate::Hz48000,
+            RuntimeSampleRate::Hz96000,
+        ] {
+            assert_eq!(
+                RuntimeSampleRate::from_policy_name(rate.policy_name()),
+                Some(rate)
+            );
+        }
+        assert_eq!(RuntimeSampleRate::from_policy_name("192 kHz"), None);
+    }
+
+    #[test]
+    fn parses_the_active_s16_pipewire_format() {
+        let format = "\
+    Prop: key Spa:Pod:Object:Param:Format:Audio:format (65537), flags 00000000
+      Id 259      (Spa:Enum:AudioFormat:S16LE)
+    Prop: key Spa:Pod:Object:Param:Format:Audio:rate (65539), flags 00000000
+      Int 96000
+";
+
+        assert_eq!(
+            parse_active_pcm_format(format).unwrap(),
+            AudioFormat {
+                sample_format: "S16LE".to_owned(),
+                sample_rate: 96_000,
+            }
+        );
+    }
+
+    #[test]
+    fn idle_pipewire_format_is_reported_as_absent() {
+        let missing = parse_active_pcm_format("").unwrap_err();
+        assert_eq!(optional_active_pcm_format(Err(missing)).unwrap(), None);
+    }
+
+    #[test]
+    fn unexpected_pipewire_format_errors_are_preserved() {
+        let error = io::Error::new(io::ErrorKind::PermissionDenied, "denied");
+        let actual = optional_active_pcm_format(Err(error)).unwrap_err();
+        assert_eq!(actual.kind(), io::ErrorKind::PermissionDenied);
+    }
+
+    #[test]
+    fn software_mute_updates_the_existing_sink_and_preserves_volume() {
+        let node = PipeWireNode {
+            id: 62,
+            node_name: "alsa_output.pci-ae5.analog-stereo".to_owned(),
+            description: "AE-5".to_owned(),
+            is_default: true,
+            volume_percent: Some(20),
+            muted: Some(false),
+        };
+        let mut commands = Vec::new();
+        let mut reads = 0;
+
+        let applied = set_software_mute_with(&node, true, |arguments| {
+            commands.push(
+                arguments
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>(),
+            );
+            Ok(if arguments.first() == Some(&"get-volume") {
+                reads += 1;
+                if reads == 1 {
+                    "Volume: 0.200\n".to_owned()
+                } else {
+                    "Volume: 0.200 [MUTED]\n".to_owned()
+                }
+            } else {
+                String::new()
+            })
+        })
+        .unwrap();
+
+        assert_eq!(applied, (20.0, true));
+        assert_eq!(
+            commands,
+            vec![
+                vec!["get-volume".to_owned(), "62".to_owned()],
+                vec!["set-mute".to_owned(), "62".to_owned(), "1".to_owned()],
+                vec!["get-volume".to_owned(), "62".to_owned()],
+            ]
+        );
+    }
+
+    #[test]
+    fn software_mute_rolls_back_an_unexpected_volume_change() {
+        let node = PipeWireNode {
+            id: 62,
+            node_name: "alsa_output.pci-ae5.analog-stereo".to_owned(),
+            description: "AE-5".to_owned(),
+            is_default: true,
+            volume_percent: Some(20),
+            muted: Some(false),
+        };
+        let mut commands = Vec::new();
+        let mut reads = 0;
+
+        let error = set_software_mute_with(&node, true, |arguments| {
+            commands.push(
+                arguments
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>(),
+            );
+            Ok(if arguments.first() == Some(&"get-volume") {
+                reads += 1;
+                match reads {
+                    1 => "Volume: 0.200\n".to_owned(),
+                    2 => "Volume: 0.150 [MUTED]\n".to_owned(),
+                    _ => "Volume: 0.200\n".to_owned(),
+                }
+            } else {
+                String::new()
+            })
+        })
+        .unwrap_err();
+
+        assert!(error.to_string().contains("volume"));
+        assert_eq!(
+            commands,
+            vec![
+                vec!["get-volume".to_owned(), "62".to_owned()],
+                vec!["set-mute".to_owned(), "62".to_owned(), "1".to_owned()],
+                vec!["get-volume".to_owned(), "62".to_owned()],
+                vec!["set-volume".to_owned(), "62".to_owned(), "20%".to_owned()],
+                vec!["set-mute".to_owned(), "62".to_owned(), "0".to_owned()],
+                vec!["get-volume".to_owned(), "62".to_owned()],
+            ]
+        );
+    }
+
+    #[test]
+    fn runtime_rate_transition_mutes_before_the_change_and_restores_mute_state() {
+        let node = PipeWireNode {
+            id: 62,
+            node_name: "alsa_output.pci-ae5.analog-stereo".to_owned(),
+            description: "AE-5".to_owned(),
+            is_default: true,
+            volume_percent: Some(20),
+            muted: Some(false),
+        };
+        let mut wpctl_commands = Vec::new();
+        let mut metadata_commands = Vec::new();
+        let mut metadata_reads = 0;
+        let mut suspension_changes = Vec::new();
+        let mut verified = None;
+
+        let applied = set_runtime_sample_rate_with(
+            &node,
+            RuntimeSampleRate::Hz96000,
+            |arguments| {
+                wpctl_commands.push(arguments.join(" "));
+                Ok(String::new())
+            },
+            |arguments| {
+                metadata_commands.push(arguments.join(" "));
+                if arguments.len() == 2 {
+                    metadata_reads += 1;
+                    Ok(format!(
+                        "update: id:0 key:'clock.force-rate' value:'{}' type:''\n",
+                        if metadata_reads == 1 { "0" } else { "96000" }
+                    ))
+                } else {
+                    Ok(String::new())
+                }
+            },
+            |suspended| {
+                suspension_changes.push(suspended);
+                Ok(())
+            },
+            |rate| {
+                verified = Some(rate);
+                Ok(())
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            (
+                applied,
+                wpctl_commands,
+                metadata_commands,
+                suspension_changes,
+                verified,
+            ),
+            (
+                RuntimeSampleRate::Hz96000,
+                vec!["set-mute 62 1".to_owned(), "set-mute 62 0".to_owned()],
+                vec![
+                    "-n settings".to_owned(),
+                    "-n settings 0 clock.force-rate 96000".to_owned(),
+                    "-n settings".to_owned(),
+                ],
+                vec![true, false],
+                Some(RuntimeSampleRate::Hz96000),
+            )
+        );
+    }
+
+    #[test]
+    fn runtime_rate_failure_reopens_at_the_previous_rate_and_stays_muted() {
+        let node = PipeWireNode {
+            id: 62,
+            node_name: "alsa_output.pci-ae5.analog-stereo".to_owned(),
+            description: "AE-5".to_owned(),
+            is_default: true,
+            volume_percent: Some(20),
+            muted: Some(false),
+        };
+        let mut wpctl_commands = Vec::new();
+        let mut metadata_commands = Vec::new();
+        let mut metadata_reads = 0;
+        let mut suspension_changes = Vec::new();
+        let mut verified = Vec::new();
+
+        let error = set_runtime_sample_rate_with(
+            &node,
+            RuntimeSampleRate::Hz48000,
+            |arguments| {
+                wpctl_commands.push(arguments.join(" "));
+                Ok(String::new())
+            },
+            |arguments| {
+                metadata_commands.push(arguments.join(" "));
+                if arguments.len() == 2 {
+                    metadata_reads += 1;
+                    Ok(format!(
+                        "update: id:0 key:'clock.force-rate' value:'{}' type:''\n",
+                        match metadata_reads {
+                            1 | 3 => "96000",
+                            _ => "48000",
+                        }
+                    ))
+                } else {
+                    Ok(String::new())
+                }
+            },
+            |suspended| {
+                suspension_changes.push(suspended);
+                Ok(())
+            },
+            |rate| {
+                verified.push(rate);
+                if rate == RuntimeSampleRate::Hz48000 {
+                    Err(io::Error::other("AE-5 stayed at 96000 Hz"))
+                } else {
+                    Ok(())
+                }
+            },
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("AE-5 stayed at 96000 Hz"));
+        assert!(error.to_string().contains("rate rollback verified"));
+        assert_eq!(
+            wpctl_commands,
+            vec!["set-mute 62 1".to_owned(), "set-mute 62 1".to_owned()]
+        );
+        assert_eq!(
+            metadata_commands,
+            vec![
+                "-n settings".to_owned(),
+                "-n settings 0 clock.force-rate 48000".to_owned(),
+                "-n settings".to_owned(),
+                "-n settings 0 clock.force-rate 96000".to_owned(),
+                "-n settings".to_owned(),
+            ]
+        );
+        assert_eq!(suspension_changes, vec![true, false, true, false]);
+        assert_eq!(
+            verified,
+            vec![RuntimeSampleRate::Hz48000, RuntimeSampleRate::Hz96000]
+        );
+    }
+
+    #[test]
+    fn runtime_rate_verification_primes_a_closed_sink_with_silent_s16() {
+        let mut attempts = 0;
+        let mut primed_at = None;
+
+        verify_runtime_sample_rate_with(
+            RuntimeSampleRate::Hz48000,
+            || {
+                attempts += 1;
+                if attempts == 1 {
+                    Err(io::Error::new(
+                        io::ErrorKind::NotFound,
+                        "the sink is closed",
+                    ))
+                } else {
+                    Ok(AudioFormat {
+                        sample_format: "S16LE".to_owned(),
+                        sample_rate: 48_000,
+                    })
+                }
+            },
+            |rate| {
+                primed_at = Some(rate);
+                Ok(())
+            },
+        )
+        .unwrap();
+
+        assert_eq!((attempts, primed_at), (2, Some(48_000)));
     }
 }

@@ -3,20 +3,20 @@ use ae5_control::gui::editors::*;
 use ae5_control::linux_driver_defaults_for;
 use ae5_control::{
     Ae5Device, Ae5Lighting, Ae5Mixer, BuiltinProfile, COMMAND_DEFAULT_PROFILE_COUNT, ControlError,
-    ControlSnapshot, DIRECT_MODE_CONTROL, EqChainChange, EqChainConfig,
+    ControlSnapshot, DIRECT_MODE_CONTROL, EqChainChange, EqChainConfig, HARDWARE_OUTFX_CONTROL,
     LINUX_DRIVER_DEFAULTS_PRESERVED, Level, NativeRatesConfig, ONBOARD_LED_COUNT, PipeWireNode,
-    PipeWireRouteState, Profile, ProfileControl, RgbColor, SbCommandImport, SbCommandTarget,
-    SoftwareEqOutput, ae5_input, ae5_output, ae5_route_state, apply_linux_driver_defaults,
-    apply_software_eq, builtin_profiles, capture_control_block_reason, direct_mode_block_reason,
-    disable_eq_chain, discover_sbcommand_installation, enable_eq_chain, eq_chain_config,
-    equalizer_band_block_reason, export_library_profile, front_vmaster_clamp_warning,
-    headphone_playback_issue, import_discovered_sbcommand_profile_with_report,
-    import_sbcommand_profile_with_report, library_profile, native_rates_config,
-    playback_switch_block_reason, profile_library, profile_library_directory,
-    rename_library_profile, set_ae5_default_input, set_ae5_default_output,
-    set_native_rates_enabled, set_saved_led, set_saved_lighting, smart_volume_level_block_reason,
-    snapshot_controls, software_eq_output, unload_software_eq,
-    unsafe_playback_control_block_reason, validate_eq_chain_activation,
+    PipeWireRouteState, Profile, ProfileControl, RgbColor, RuntimeSampleRate, SbCommandImport,
+    SbCommandTarget, SoftwareEqOutput, ae5_input, ae5_output, ae5_route_state,
+    apply_linux_driver_defaults, apply_software_eq, builtin_profiles, capture_control_block_reason,
+    direct_mode_block_reason, disable_eq_chain, discover_sbcommand_installation, enable_eq_chain,
+    eq_chain_config, equalizer_band_block_reason, export_library_profile,
+    front_vmaster_clamp_warning, hardware_outfx_lab_active, headphone_playback_issue,
+    import_discovered_sbcommand_profile_with_report, import_sbcommand_profile_with_report,
+    library_profile, native_rates_config, playback_switch_block_reason, profile_library,
+    profile_library_directory, rename_library_profile, runtime_sample_rate, set_ae5_default_input,
+    set_ae5_default_output, set_ae5_runtime_sample_rate, set_native_rates_enabled, set_saved_led,
+    set_saved_lighting, smart_volume_level_block_reason, snapshot_controls, software_eq_output,
+    unload_software_eq, unsafe_playback_control_block_reason, validate_eq_chain_activation,
     validate_linux_driver_defaults,
 };
 use gtk::gio;
@@ -52,6 +52,13 @@ enum KernelReadiness {
 struct OperationStatus {
     success: bool,
     message: String,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+struct UnsignalledUiState {
+    outfx_enabled: Result<Option<bool>, String>,
+    saved_eq_signature: Result<Option<String>, String>,
+    runtime_eq_signature: Result<Option<String>, String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -778,11 +785,14 @@ fn sound_effects_page(
     }
     page.append(&header);
 
-    let safety = gtk::Label::new(Some(
+    let safety = gtk::Label::new(Some(if hardware_outfx_lab_active() {
+        "UNSAFE OUTFX LAB ACTIVE — analog outputs must remain physically disconnected. Every \
+         hardware effect change can corrupt the DSP until a driver rebind or cold boot."
+    } else {
         "Hardware OutFX is disabled: repeated tests produced severe distortion and required \
          codec reinitialization. These values are retained for the Windows-like software \
-         effects implementation.",
-    ));
+         effects implementation."
+    }));
     safety.set_xalign(0.0);
     safety.set_wrap(true);
     safety.add_css_class("warning-label");
@@ -1821,9 +1831,7 @@ fn equalizer_page(
     intro.add_css_class("dim-label");
     page.append(&intro);
 
-    page.append(&software_equalizer_card(
-        window, card_index, status, controls,
-    ));
+    page.append(&software_equalizer_card(window, card_index, status));
 
     let hardware = gtk::Label::new(Some("Hardware equalizer · disabled"));
     hardware.set_xalign(0.0);
@@ -1901,16 +1909,10 @@ fn software_equalizer_card(
     window: &gtk::ApplicationWindow,
     card_index: i32,
     status: &gtk::Label,
-    controls: &[ControlSnapshot],
 ) -> gtk::Box {
     let config = eq_chain_config();
     let output = software_eq_output(card_index);
     let physical = ae5_output(card_index);
-    let outfx_disabled = controls
-        .iter()
-        .find(|control| control.name == "Enable OutFX")
-        .and_then(|control| control.playback_switch)
-        == Some(false);
 
     let actions = gtk::Box::new(gtk::Orientation::Vertical, 10);
     let state = gtk::Label::new(Some(&software_eq_summary(
@@ -1940,15 +1942,8 @@ fn software_equalizer_card(
             && config.signature().as_deref() == live.and_then(|output| output.signature.as_deref())
             && config.target_node.as_deref() == current_target
     });
-    configure.set_sensitive(config.is_ok() && outfx_disabled);
-    if !outfx_disabled {
-        configure.set_tooltip_text(Some(
-            "Turn OutFX off first so hardware and software effects are not applied together.",
-        ));
-    }
-    activate.set_sensitive(
-        config_ok.is_some_and(|config| config.enabled) && !graph_current && outfx_disabled,
-    );
+    configure.set_sensitive(config.is_ok());
+    activate.set_sensitive(config_ok.is_some_and(|config| config.enabled) && !graph_current);
     if graph_current {
         activate.set_label("Applied in place");
     }
@@ -1972,10 +1967,9 @@ fn software_equalizer_card(
                     Ok(Some(change)) => {
                         let message = match activate_software_eq(card_index) {
                             Ok(output) => format!(
-                                "Software EQ {} and applied inside {}. Automatic preamp: {:+.2} dB.",
+                                "Software EQ {} and applied inside {}. No automatic preamp is inserted.",
                                 if change.changed { "saved" } else { "was already saved" },
-                                output.node.description,
-                                change.config.preamp_db
+                                output.node.description
                             ),
                             Err(error) => {
                                 set_status(
@@ -2057,7 +2051,7 @@ fn software_equalizer_card(
     ae5_control::gui::widgets::profile_card(
         "01",
         "PipeWire in-place equalizer",
-        "Phase A processes stereo audio inside the existing physical AE-5 sink, so volume and mute remain single-stage. Response-aware preamp headroom is automatic, and activation is refused while OutFX is on.",
+        "Phase A processes stereo audio inside the existing physical AE-5 sink, so volume and mute remain single-stage. No automatic preamp is inserted; boosted curves can clip near full scale. Software EQ can remain active alongside the separately managed OutFX effects group.",
         &actions,
     )
 }
@@ -2080,17 +2074,25 @@ fn software_eq_summary(
 
     let target = config.target_node.as_deref().unwrap_or("unavailable");
     match output {
-        None => format!(
-            "Saved for {target}\nNot applied in this PipeWire session · automatic preamp {:+.2} dB.",
+        None if config.preamp_db != 0.0 => format!(
+            "Saved for {target}\nLegacy {:+.2} dB preamp remains saved; apply the preset again to remove it.",
             config.preamp_db
         ),
-        Some(output) if config.signature().as_deref() != output.signature.as_deref() => format!(
-            "Saved for {target}\nA different runtime graph is active · automatic preamp {:+.2} dB.",
-            config.preamp_db
+        None => format!(
+            "Saved for {target}\nNot applied in this PipeWire session · no automatic preamp."
+        ),
+        Some(output) if config.signature().as_deref() != output.signature.as_deref() => {
+            format!(
+                "Saved for {target}\nA different runtime graph is active · no automatic preamp in the saved graph."
+            )
+        }
+        Some(output) if config.preamp_db != 0.0 => format!(
+            "Applied in place to {} · legacy {:+.2} dB preamp; reapply to remove it.",
+            output.node.description, config.preamp_db
         ),
         Some(output) => format!(
-            "Applied in place to {} · one volume stage · automatic preamp {:+.2} dB.",
-            output.node.description, config.preamp_db
+            "Applied in place to {} · one volume stage · no automatic preamp.",
+            output.node.description
         ),
     }
 }
@@ -2117,6 +2119,7 @@ async fn install_software_eq_profile(
         .map_err(|error| error.to_string())?
         .ok_or_else(|| "PipeWire has no physical AE-5 output".to_owned())?;
     enable_eq_chain(&profile, &controls, &output.node_name)
+        .inspect(|_| ae5_control::gui::tracelog::note_self_write())
         .map(Some)
         .map_err(|error| error.to_string())
 }
@@ -2125,11 +2128,10 @@ fn activate_software_eq(card_index: i32) -> Result<SoftwareEqOutput, String> {
     ae5_control::gui::tracelog::trace("eq", "activation requested");
     let result = (|| {
         let config = eq_chain_config().map_err(|error| error.to_string())?;
-        let controls = snapshot_controls(card_index).map_err(|error| error.to_string())?;
         let physical = ae5_output(card_index)
             .map_err(|error| error.to_string())?
             .ok_or_else(|| "PipeWire has no physical AE-5 output".to_owned())?;
-        validate_eq_chain_activation(&config, &controls, &physical.node_name)
+        validate_eq_chain_activation(&config, &physical.node_name)
             .map_err(|error| error.to_string())?;
         let graph = config
             .filter_graph()
@@ -2141,10 +2143,13 @@ fn activate_software_eq(card_index: i32) -> Result<SoftwareEqOutput, String> {
         apply_software_eq(card_index, &graph, &signature).map_err(|error| error.to_string())
     })();
     match &result {
-        Ok(output) => ae5_control::gui::tracelog::trace(
-            "eq",
-            &format!("activation verified: target={}", output.node.description),
-        ),
+        Ok(output) => {
+            ae5_control::gui::tracelog::note_self_write();
+            ae5_control::gui::tracelog::trace(
+                "eq",
+                &format!("activation verified: target={}", output.node.description),
+            );
+        }
         Err(error) => {
             ae5_control::gui::tracelog::trace("eq", &format!("activation FAILED: {error}"))
         }
@@ -2158,10 +2163,13 @@ fn disable_software_eq_safely(card_index: i32) -> Result<EqChainChange, String> 
         .map_err(|error| error.to_string())
         .and_then(|_| disable_eq_chain().map_err(|error| error.to_string()));
     match &result {
-        Ok(change) => ae5_control::gui::tracelog::trace(
-            "eq",
-            &format!("disable verified: saved_state_changed={}", change.changed),
-        ),
+        Ok(change) => {
+            ae5_control::gui::tracelog::note_self_write();
+            ae5_control::gui::tracelog::trace(
+                "eq",
+                &format!("disable verified: saved_state_changed={}", change.changed),
+            );
+        }
         Err(error) => ae5_control::gui::tracelog::trace("eq", &format!("disable FAILED: {error}")),
     }
     result
@@ -2380,6 +2388,11 @@ fn mixer_page(
         ae5_input(card_index),
         set_ae5_default_input,
     ));
+    page.append(&runtime_sample_rate_card(
+        card_index,
+        status,
+        runtime_sample_rate(),
+    ));
     page.append(&native_rates_card(status, native_rates_config()));
 
     gtk::ScrolledWindow::builder()
@@ -2581,6 +2594,162 @@ fn rgb_from_rgba(color: &gtk::gdk::RGBA) -> RgbColor {
     )
 }
 
+fn runtime_sample_rate_card(
+    card_index: i32,
+    status: &gtk::Label,
+    current: std::io::Result<RuntimeSampleRate>,
+) -> gtk::Box {
+    let actions = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    let state = gtk::Label::new(None);
+    state.set_xalign(0.0);
+    state.set_wrap(true);
+    state.set_hexpand(true);
+
+    let picker = gtk::DropDown::from_strings(&["Auto", "48 kHz", "96 kHz"]);
+    picker.update_property(&[gtk::accessible::Property::Label(
+        "Live PipeWire sample rate",
+    )]);
+    picker.set_tooltip_text(Some(
+        "Temporarily mute the AE-5 output, reopen it at the selected rate, verify S16LE, then restore the previous mute state.",
+    ));
+    let verified = Rc::new(Cell::new(0));
+    let updating = Rc::new(Cell::new(false));
+
+    match current {
+        Ok(rate) => {
+            let selected = runtime_sample_rate_index(rate);
+            verified.set(selected);
+            picker.set_selected(selected);
+            state.set_text(runtime_sample_rate_summary(rate));
+        }
+        Err(error) => {
+            state.set_text(&format!("Live rate unavailable: {error}"));
+            picker.set_sensitive(false);
+        }
+    }
+    actions.append(&state);
+    actions.append(&picker);
+
+    let status = status.clone();
+    let state_on_change = state.clone();
+    let verified_on_change = verified.clone();
+    let updating_on_change = updating.clone();
+    picker.connect_selected_notify(move |picker| {
+        if updating_on_change.get() || !picker.is_sensitive() {
+            return;
+        }
+        let selected = picker.selected();
+        if selected == verified_on_change.get() {
+            return;
+        }
+        let requested = runtime_sample_rate_from_index(selected);
+        picker.set_sensitive(false);
+        state_on_change.set_text("Applying safely…\nOutput is temporarily muted");
+        set_status(
+            &status,
+            true,
+            "Applying the live sample rate and verifying the AE-5 transport…",
+        );
+
+        let picker = picker.clone();
+        let state = state_on_change.clone();
+        let status = status.clone();
+        let verified = verified_on_change.clone();
+        let updating = updating_on_change.clone();
+        gtk::glib::spawn_future_local(async move {
+            match gio::spawn_blocking(move || set_ae5_runtime_sample_rate(card_index, requested))
+                .await
+            {
+                Ok(Ok(actual)) => {
+                    let actual_index = runtime_sample_rate_index(actual);
+                    verified.set(actual_index);
+                    revert_dropdown(&picker, &updating, actual_index);
+                    state.set_text(runtime_sample_rate_summary(actual));
+                    set_status(&status, true, runtime_sample_rate_applied_status(actual));
+                }
+                Ok(Err(error)) => {
+                    revert_dropdown(&picker, &updating, verified.get());
+                    state.set_text(runtime_sample_rate_summary(runtime_sample_rate_from_index(
+                        verified.get(),
+                    )));
+                    set_status(
+                        &status,
+                        false,
+                        &format!(
+                            "Sample-rate change failed; playback was left muted for safety: {error}"
+                        ),
+                    );
+                }
+                Err(_) => {
+                    revert_dropdown(&picker, &updating, verified.get());
+                    state.set_text(runtime_sample_rate_summary(runtime_sample_rate_from_index(
+                        verified.get(),
+                    )));
+                    set_status(
+                        &status,
+                        false,
+                        "Sample-rate worker stopped unexpectedly; check that playback is muted.",
+                    );
+                }
+            }
+            picker.set_sensitive(true);
+        });
+    });
+
+    ae5_control::gui::widgets::profile_card(
+        "03",
+        "Live sample rate",
+        "Choose the current PipeWire graph rate without restarting. This is a temporary global \
+         setting; AE5 Control accepts only the qualified S16 transport and restores the previous \
+         mute state after successful verification.",
+        &actions,
+    )
+}
+
+fn runtime_sample_rate_index(rate: RuntimeSampleRate) -> u32 {
+    match rate {
+        RuntimeSampleRate::Auto => 0,
+        RuntimeSampleRate::Hz48000 => 1,
+        RuntimeSampleRate::Hz96000 => 2,
+    }
+}
+
+fn runtime_sample_rate_from_index(index: u32) -> RuntimeSampleRate {
+    match index {
+        1 => RuntimeSampleRate::Hz48000,
+        2 => RuntimeSampleRate::Hz96000,
+        _ => RuntimeSampleRate::Auto,
+    }
+}
+
+fn runtime_sample_rate_summary(rate: RuntimeSampleRate) -> &'static str {
+    match rate {
+        RuntimeSampleRate::Auto => {
+            "Automatic for this session\nS16LE transport · follows PipeWire clock policy"
+        }
+        RuntimeSampleRate::Hz48000 => {
+            "48 kHz for this session\nS16LE transport · resets when PipeWire restarts"
+        }
+        RuntimeSampleRate::Hz96000 => {
+            "96 kHz for this session\nS16LE transport · resets when PipeWire restarts"
+        }
+    }
+}
+
+fn runtime_sample_rate_applied_status(rate: RuntimeSampleRate) -> &'static str {
+    match rate {
+        RuntimeSampleRate::Auto => {
+            "Applied and verified: S16LE with automatic PipeWire rate selection. Previous mute state restored."
+        }
+        RuntimeSampleRate::Hz48000 => {
+            "Applied and verified: S16LE at 48 kHz. Previous mute state restored."
+        }
+        RuntimeSampleRate::Hz96000 => {
+            "Applied and verified: S16LE at 96 kHz. Previous mute state restored."
+        }
+    }
+}
+
 fn native_rates_card(status: &gtk::Label, current: std::io::Result<NativeRatesConfig>) -> gtk::Box {
     let actions = gtk::Box::new(gtk::Orientation::Horizontal, 12);
     let state = gtk::Label::new(None);
@@ -2636,7 +2805,7 @@ fn native_rates_card(status: &gtk::Label, current: std::io::Result<NativeRatesCo
     });
 
     ae5_control::gui::widgets::profile_card(
-        "03",
+        "04",
         "Native sample rates",
         "Experimental: allow 44.1, 48, and 96 kHz streams to avoid unnecessary \
          resampling. This changes the global PipeWire graph and may affect other devices.",
@@ -3946,6 +4115,32 @@ const REFRESH_SETTLE_TICK: Duration = Duration::from_millis(120);
 /// How many consecutive quiet ticks count as settled. 120 ms x 3 keeps the
 /// window responsive while absorbing the burst a route change produces.
 const REFRESH_SETTLE_TICKS: u32 = 3;
+const UNSIGNALLED_STATE_POLL_INTERVAL: Duration = Duration::from_secs(1);
+const EXTERNAL_SYNC_MESSAGE: &str = "Audio state changed outside AE-5 Control; synchronized.";
+
+fn unsignalled_ui_state(mixer: &Ae5Mixer, card_index: i32) -> UnsignalledUiState {
+    UnsignalledUiState {
+        outfx_enabled: mixer
+            .snapshot(HARDWARE_OUTFX_CONTROL)
+            .map(|control| control.playback_switch)
+            .map_err(|error| error.to_string()),
+        saved_eq_signature: eq_chain_config()
+            .map(|config| config.signature())
+            .map_err(|error| error.to_string()),
+        runtime_eq_signature: software_eq_output(card_index)
+            .map(|output| output.and_then(|output| output.signature))
+            .map_err(|error| error.to_string()),
+    }
+}
+
+fn unsignalled_change_is_external(
+    before: &UnsignalledUiState,
+    after: &UnsignalledUiState,
+    self_write_before: u64,
+    self_write_after: u64,
+) -> bool {
+    before != after && self_write_before == self_write_after
+}
 
 fn start_mixer_watch(window: &gtk::ApplicationWindow, card_index: i32) -> Result<(), String> {
     let mixer = Ae5Mixer::open(card_index).map_err(|error| error.to_string())?;
@@ -3961,6 +4156,9 @@ fn start_mixer_watch(window: &gtk::ApplicationWindow, card_index: i32) -> Result
     thread::Builder::new()
         .name("ae5-mixer-events".to_owned())
         .spawn(move || {
+            let mut unsignalled_state = unsignalled_ui_state(&mixer, card_index);
+            let mut self_write_generation = ae5_control::gui::tracelog::self_write_generation();
+            let mut next_unsignalled_poll = Instant::now() + UNSIGNALLED_STATE_POLL_INTERVAL;
             while running.load(Ordering::Acquire) {
                 match mixer.wait_for_event(Duration::from_millis(500)) {
                     Ok(false) => {}
@@ -4006,7 +4204,7 @@ fn start_mixer_watch(window: &gtk::ApplicationWindow, card_index: i32) -> Result
                                 "burst settled -> rebuilding window once",
                             );
                             if let Some(window) = active_main_window() {
-                                let _ = refresh_window(&window, None);
+                                let _ = refresh_window(&window, Some(EXTERNAL_SYNC_MESSAGE));
                             }
                         });
                     }
@@ -4021,6 +4219,44 @@ fn start_mixer_watch(window: &gtk::ApplicationWindow, card_index: i32) -> Result
                         break;
                     }
                 }
+
+                if Instant::now() < next_unsignalled_poll {
+                    continue;
+                }
+                next_unsignalled_poll = Instant::now() + UNSIGNALLED_STATE_POLL_INTERVAL;
+                let current_state = unsignalled_ui_state(&mixer, card_index);
+                let current_self_write_generation =
+                    ae5_control::gui::tracelog::self_write_generation();
+                if current_state != unsignalled_state {
+                    let external = unsignalled_change_is_external(
+                        &unsignalled_state,
+                        &current_state,
+                        self_write_generation,
+                        current_self_write_generation,
+                    );
+                    if external {
+                        if !refresh_queued.swap(true, Ordering::AcqRel) {
+                            ae5_control::gui::tracelog::trace(
+                                "watch",
+                                "external non-notifying state change -> rebuilding window",
+                            );
+                            let refresh_queued = refresh_queued.clone();
+                            gtk::glib::MainContext::default().invoke(move || {
+                                refresh_queued.store(false, Ordering::Release);
+                                if let Some(window) = active_main_window() {
+                                    let _ = refresh_window(&window, Some(EXTERNAL_SYNC_MESSAGE));
+                                }
+                            });
+                        }
+                    } else {
+                        ae5_control::gui::tracelog::trace(
+                            "watch",
+                            "self-originated non-notifying state synchronized",
+                        );
+                    }
+                    unsignalled_state = current_state;
+                }
+                self_write_generation = current_self_write_generation;
             }
         })
         .map(|_| ())
@@ -4519,6 +4755,31 @@ mod tests {
     }
 
     #[test]
+    fn maps_and_summarizes_runtime_sample_rates() {
+        for (rate, index, summary) in [
+            (
+                RuntimeSampleRate::Auto,
+                0,
+                "Automatic for this session\nS16LE transport · follows PipeWire clock policy",
+            ),
+            (
+                RuntimeSampleRate::Hz48000,
+                1,
+                "48 kHz for this session\nS16LE transport · resets when PipeWire restarts",
+            ),
+            (
+                RuntimeSampleRate::Hz96000,
+                2,
+                "96 kHz for this session\nS16LE transport · resets when PipeWire restarts",
+            ),
+        ] {
+            assert_eq!(runtime_sample_rate_index(rate), index);
+            assert_eq!(runtime_sample_rate_from_index(index), rate);
+            assert_eq!(runtime_sample_rate_summary(rate), summary);
+        }
+    }
+
+    #[test]
     fn round_trips_lighting_colors_through_gtk() {
         for color in [
             RgbColor::new(0, 0, 0),
@@ -4928,7 +5189,7 @@ mod tests {
             enabled: true,
             bands: Vec::new(),
             target_node: Some("alsa_output.pci-ae5.analog-stereo".to_owned()),
-            preamp_db: -10.25,
+            preamp_db: 0.0,
         };
         assert!(software_eq_summary(Some(&config), None).contains("Not applied"));
 
@@ -5002,5 +5263,37 @@ mod tests {
                 message: "Applied “My profile · Headphones”; 21 controls were verified.".to_owned(),
             })
         );
+    }
+
+    #[test]
+    fn unsignalled_state_change_is_external_without_a_self_write() {
+        let before = UnsignalledUiState {
+            outfx_enabled: Ok(Some(true)),
+            saved_eq_signature: Ok(None),
+            runtime_eq_signature: Ok(None),
+        };
+        let after = UnsignalledUiState {
+            outfx_enabled: Ok(Some(false)),
+            saved_eq_signature: Ok(Some("saved".to_owned())),
+            runtime_eq_signature: Ok(Some("saved".to_owned())),
+        };
+
+        assert!(unsignalled_change_is_external(&before, &after, 7, 7));
+    }
+
+    #[test]
+    fn unsignalled_state_change_is_not_external_after_a_self_write() {
+        let before = UnsignalledUiState {
+            outfx_enabled: Ok(Some(true)),
+            saved_eq_signature: Ok(None),
+            runtime_eq_signature: Ok(None),
+        };
+        let after = UnsignalledUiState {
+            outfx_enabled: Ok(Some(false)),
+            saved_eq_signature: Ok(None),
+            runtime_eq_signature: Ok(None),
+        };
+
+        assert!(!unsignalled_change_is_external(&before, &after, 7, 8));
     }
 }

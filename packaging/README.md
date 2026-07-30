@@ -7,7 +7,8 @@ runs Cargo in offline/frozen mode.
 Install the build tools:
 
 ```sh
-sudo dnf install rpm-build cargo rust alsa-lib-devel gtk4-devel \
+sudo dnf install rpm-build cargo rust gcc-c++ alsa-lib-devel gtk4-devel \
+  qt6-qtbase-devel qt6-qtdeclarative-devel \
   desktop-file-utils appstream systemd-udev
 ```
 
@@ -18,16 +19,19 @@ bash scripts/build-rpm.sh
 ```
 
 The binary RPM and source RPM are written to `dist/`. The binary package
-contains the GTK application, CLI, desktop integration, the privacy-conscious
-`ae5-collect-report` diagnostics command, and a card-scoped PipeWire ACP
+contains the Qt 6/QML application, the on-demand `ae5d` user service, the GTK
+fallback, CLI, desktop integration, the privacy-conscious `ae5-collect-report`
+diagnostics command, and a card-scoped PipeWire ACP
 profile that prevents the generic headphone route from muting the AE-5's
 shared Front DAC. The same profile exposes exact Microphone, Front Microphone,
 and Line In routes for the card's `Input Source` enum. It also installs the
 exact onboard-LED udev rule and hidden desktop autostart entry used to restore
-saved colors. `pipewire-utils` supplies the native `pw-dump` JSON used by the
-read-only ALSA/PipeWire route-health check. `pulseaudio-utils` supplies the
-PipeWire-compatible `pactl` command used to suspend only the AE-5 sink during
-an optional patched-kernel Direct Mode transition. Install it with:
+saved colors. A second autostart entry starts the Qt control application hidden
+in the system tray; closing its window hides it, and the tray menu provides the
+explicit Quit action. `pipewire-utils` supplies the native `pw-dump` JSON used
+by the read-only ALSA/PipeWire route-health check. `pulseaudio-utils` supplies
+the PipeWire-compatible `pactl` command used to suspend only the AE-5 sink
+during an optional patched-kernel Direct Mode transition. Install it with:
 
 ```sh
 sudo dnf install ./dist/ae5-control-0.1.0-1.*.x86_64.rpm
@@ -37,7 +41,9 @@ The RPM license expression accounts for the statically linked Rust dependency
 set. Those crates can be distributed under MIT terms, with `unicode-ident`
 additionally requiring the Unicode-3.0 license shipped in the package.
 
-Normal use does not require root, a project daemon, or a setuid helper.
+Normal use does not require root or a setuid helper. The desktop application
+activates the unprivileged `ae5d` user service over the session D-Bus; QML
+does not access ALSA or PipeWire directly.
 WirePlumber reads the packaged profile on its next start; log out and back in,
 or restart the user WirePlumber service when no audio stream is active.
 
@@ -52,8 +58,10 @@ bash scripts/install-user.sh
 
 The installer builds with Cargo, copies a private payload under
 `~/.local/share/ae5-control/user-install`, and creates only the required
-per-user binary, self-contained uninstaller, desktop, AppStream, icon,
-autostart, WirePlumber, and ACP links. Existing byte-identical routing files
+per-user binaries, user-service activation metadata, self-contained
+uninstaller, desktop, AppStream, icon, application and lighting autostart,
+WirePlumber, and ACP links.
+Existing byte-identical routing files
 are retained, any conflicting path aborts the operation before installation,
 and missing system ACP includes are rejected instead of producing dangling
 links. Rerunning the installer stages and verifies a complete payload before

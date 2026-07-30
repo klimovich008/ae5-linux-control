@@ -127,6 +127,23 @@ for marker in \
 	grep -Fq -- "$marker" <<< "$module_strings" ||
 		fail "CA0132 feature marker is missing: $marker"
 done
+
+lab_parameter=$(modinfo -F parm "$ca0132_module" |
+	grep -F -- 'ae5_unsafe_outfx_lab:' || true)
+lab_warning='AE-5 unsafe hardware OutFX lab enable accepted'
+if [[ $release == *-ae5-outfx-lab ]]; then
+	[[ -n $lab_parameter ]] ||
+		fail 'OutFX lab kernel is missing its opt-in module parameter'
+	grep -Fq -- "$lab_warning" <<< "$module_strings" ||
+		fail 'OutFX lab kernel is missing its accepted-write warning'
+else
+	[[ -z $lab_parameter ]] ||
+		fail 'non-lab kernel exposes the unsafe OutFX lab parameter'
+	if grep -Fq -- "$lab_warning" <<< "$module_strings"; then
+		fail 'non-lab kernel contains the unsafe OutFX accepted-write path'
+	fi
+fi
+
 if grep -Fq -- 'AE-5: Direct Mode Playback Switch' <<< "$module_strings"; then
 	fail 'unsafe AE-5 Direct Mode control is present'
 fi

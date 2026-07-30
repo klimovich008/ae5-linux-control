@@ -2,7 +2,7 @@
 set -euo pipefail
 
 repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
-for binary in ae5-control ae5ctl; do
+for binary in ae5-control ae5-control-qml ae5ctl ae5d; do
 	[[ -x $repo_root/target/release/$binary ]] || {
 		printf 'error: build release binaries before the user-install check\n' >&2
 		exit 1
@@ -43,18 +43,94 @@ run_installer --from-build
 payload=$data_root/ae5-control/user-install
 manifest=$state_root/ae5-control/user-install-links.v1
 [[ -x $payload/bin/ae5-control && -x $payload/bin/ae5ctl ]]
+[[ -x $payload/bin/ae5-control-qml && -x $payload/bin/ae5d ]]
 [[ -x $payload/bin/ae5-control-user-install ]]
 cmp "$payload/bin/ae5-control" "$repo_root/target/release/ae5-control"
+cmp "$payload/bin/ae5-control-qml" "$repo_root/target/release/ae5-control-qml"
 cmp "$payload/bin/ae5ctl" "$repo_root/target/release/ae5ctl"
+cmp "$payload/bin/ae5d" "$repo_root/target/release/ae5d"
 [[ -L $test_home/.local/bin/ae5-control ]]
+[[ -L $test_home/.local/bin/ae5-control-qml ]]
+[[ -L $test_home/.local/bin/ae5d ]]
 [[ -L $data_root/applications/io.github.klimovich008.ae5control.desktop ]]
+[[ -L $data_root/dbus-1/services/io.github.klimovich008.Ae5Control.service ]]
+[[ -L $config_root/systemd/user/ae5d.service ]]
+[[ -L $config_root/autostart/io.github.klimovich008.ae5control-autostart.desktop ]]
 [[ -L $config_root/wireplumber/wireplumber.conf.d/90-ae5-control.conf ]]
 [[ -L $config_root/alsa-card-profile/mixer/profile-sets/sound-blaster-ae5.conf ]]
 [[ -L $config_root/alsa-card-profile/mixer/profile-sets/default.conf ]]
+grep -Fxq 'Exec=ae5-control-qml' \
+	"$data_root/applications/io.github.klimovich008.ae5control.desktop"
+grep -Fxq 'Exec=ae5-control-qml --start-hidden' \
+	"$config_root/autostart/io.github.klimovich008.ae5control-autostart.desktop"
+grep -Fxq 'X-GNOME-Autostart-enabled=true' \
+	"$config_root/autostart/io.github.klimovich008.ae5control-autostart.desktop"
+grep -Fxq "Exec=\"$payload/bin/ae5d\"" \
+	"$data_root/dbus-1/services/io.github.klimovich008.Ae5Control.service"
+grep -Fxq "ExecStart=\"$payload/bin/ae5d\"" \
+	"$config_root/systemd/user/ae5d.service"
 desktop-file-validate \
 	"$data_root/applications/io.github.klimovich008.ae5control.desktop"
 appstreamcli validate --no-net --strict \
 	"$data_root/metainfo/io.github.klimovich008.ae5control.metainfo.xml"
+grep -Fq 'org.freedesktop.DBus ReloadConfig' \
+	"$repo_root/scripts/install-user.sh"
+
+reload_home=$test_root/reload-home
+reload_data=$reload_home/.local/share
+reload_config=$reload_home/.config
+reload_state=$reload_home/.local/state
+runtime_fake_bin=$test_root/runtime-fake-bin
+install -d -m0755 "$reload_home" "$runtime_fake_bin"
+printf '#!/usr/bin/env bash\nexit 1\n' > "$runtime_fake_bin/systemctl"
+chmod 0755 "$runtime_fake_bin/systemctl"
+HOME="$reload_home" \
+XDG_DATA_HOME="$reload_data" \
+XDG_CONFIG_HOME="$reload_config" \
+XDG_STATE_HOME="$reload_state" \
+	AE5_SYSTEM_ACP_ROOT="$system_acp" \
+	AE5_TEST_REPO_ROOT="$repo_root" \
+	PATH="$runtime_fake_bin:$PATH" \
+	dbus-run-session -- bash -euo pipefail -c '
+		bash "$AE5_TEST_REPO_ROOT/scripts/install-user.sh" --from-build \
+			>/dev/null
+		service=io.github.klimovich008.Ae5Control
+		object=/io/github/klimovich008/Ae5Control
+		dbus-send --session --print-reply \
+			--dest="$service" "$object" org.freedesktop.DBus.Peer.Ping \
+			>/dev/null
+		read -r response_type daemon_pid < <(
+			dbus-send --session --print-reply=literal \
+				--dest=org.freedesktop.DBus /org/freedesktop/DBus \
+				org.freedesktop.DBus.GetConnectionUnixProcessID \
+				string:"$service"
+		)
+		[[ $response_type == uint32 && $daemon_pid =~ ^[0-9]+$ ]]
+		kill "$daemon_pid"
+		bash "$AE5_TEST_REPO_ROOT/scripts/install-user.sh" --uninstall \
+			>/dev/null
+	'
+
+HOME=$test_home \
+XDG_DATA_HOME=$data_root \
+XDG_CONFIG_HOME=$config_root \
+XDG_STATE_HOME=$state_root \
+	dbus-run-session -- bash -euo pipefail -c '
+		service=io.github.klimovich008.Ae5Control
+		object=/io/github/klimovich008/Ae5Control
+		dbus-send --session --print-reply \
+			--dest="$service" "$object" org.freedesktop.DBus.Peer.Ping \
+			>/dev/null
+		read -r response_type daemon_pid < <(
+			dbus-send --session --print-reply=literal \
+				--dest=org.freedesktop.DBus /org/freedesktop/DBus \
+				org.freedesktop.DBus.GetConnectionUnixProcessID \
+				string:"$service"
+		)
+		[[ $response_type == uint32 ]]
+		[[ $daemon_pid =~ ^[0-9]+$ ]]
+		kill "$daemon_pid"
+	'
 PATH="$test_home/.local/bin:$PATH" ae5ctl help | grep -Fq 'route-repair'
 PATH="$test_home/.local/bin:$PATH" ae5ctl features unsupported |
 	grep -Fq 'Device · Super X-Fi'
@@ -100,13 +176,17 @@ run_installer --from-build >/dev/null
 
 printf '%s\n' old-cli > "$payload/bin/ae5ctl"
 printf '%s\n' old-gui > "$payload/bin/ae5-control"
+printf '%s\n' old-qml-gui > "$payload/bin/ae5-control-qml"
+printf '%s\n' old-daemon > "$payload/bin/ae5d"
 install -Dm0600 /dev/null \
 	"$config_root/ae5-control/profiles/preserve-me.json"
 printf '%s\n' preserve > "$config_root/ae5-control/lighting.json"
 upgrade_output=$(run_installer --from-build)
 grep -Fq 'AE-5 Control upgraded' <<<"$upgrade_output"
 cmp "$payload/bin/ae5-control" "$repo_root/target/release/ae5-control"
+cmp "$payload/bin/ae5-control-qml" "$repo_root/target/release/ae5-control-qml"
 cmp "$payload/bin/ae5ctl" "$repo_root/target/release/ae5ctl"
+cmp "$payload/bin/ae5d" "$repo_root/target/release/ae5d"
 [[ $(sha256sum "$manifest") == "$manifest_before" ]]
 [[ -f $config_root/ae5-control/profiles/preserve-me.json ]]
 grep -Fxq preserve "$config_root/ae5-control/lighting.json"
@@ -217,8 +297,18 @@ PATH="$test_home/.local/bin:$PATH" \
 [[ ! -e $payload && ! -L $payload ]]
 [[ ! -e $test_home/.local/bin/ae5-control &&
 	! -L $test_home/.local/bin/ae5-control ]]
+[[ ! -e $test_home/.local/bin/ae5-control-qml &&
+	! -L $test_home/.local/bin/ae5-control-qml ]]
+[[ ! -e $test_home/.local/bin/ae5d &&
+	! -L $test_home/.local/bin/ae5d ]]
 [[ ! -e $data_root/applications/io.github.klimovich008.ae5control.desktop &&
 	! -L $data_root/applications/io.github.klimovich008.ae5control.desktop ]]
+[[ ! -e $data_root/dbus-1/services/io.github.klimovich008.Ae5Control.service &&
+	! -L $data_root/dbus-1/services/io.github.klimovich008.Ae5Control.service ]]
+[[ ! -e $config_root/systemd/user/ae5d.service &&
+	! -L $config_root/systemd/user/ae5d.service ]]
+[[ ! -e $config_root/autostart/io.github.klimovich008.ae5control-autostart.desktop &&
+	! -L $config_root/autostart/io.github.klimovich008.ae5control-autostart.desktop ]]
 [[ -f $config_root/ae5-control/profiles/preserve-me.json ]]
 grep -Fxq preserve "$config_root/ae5-control/lighting.json"
 

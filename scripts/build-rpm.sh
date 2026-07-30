@@ -11,6 +11,7 @@ need_tool() {
 need_tool appstreamcli
 need_tool cargo
 need_tool desktop-file-validate
+need_tool g++
 need_tool git
 need_tool pkg-config
 need_tool rpmbuild
@@ -55,6 +56,12 @@ pkg-config --atleast-version=4.10 gtk4 || {
 }
 pkg-config --exists alsa || {
 	printf 'error: ALSA development files are required\n' >&2
+	exit 1
+}
+pkg-config --exists \
+	Qt6Core Qt6Gui Qt6Qml Qt6Quick Qt6QuickControls2 Qt6QuickShapes \
+	Qt6Widgets || {
+	printf 'error: Qt 6 base and declarative development files are required\n' >&2
 	exit 1
 }
 

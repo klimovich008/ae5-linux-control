@@ -5,13 +5,14 @@ original scope in [PORT_PLAN.md](PORT_PLAN.md), the incident history in
 [GOAL.md](GOAL.md), and the current-state snapshot in
 [HANDOVER.md](HANDOVER.md) into one sequence with explicit exit criteria.
 
-Last audited: **2026-07-29**
+Last audited: **2026-07-30**
 
 ## Current state
 
 The project already provides a guarded, hardware-specific MVP:
 
-- a Rust CLI and native GTK 4/Wayland application;
+- a Rust CLI, the temporary native GTK 4 fallback, and the selected Qt 6/QML
+  Sound screen backed by the `ae5d` user service;
 - exact AE-5 discovery and checked ALSA/PipeWire controls;
 - native profiles, 33 embedded Command profile pairs, and personal Windows
   settings migration;
@@ -75,7 +76,9 @@ external dependency.
 
 ## Ordered milestones
 
-Only the first unfinished milestone is active.
+The user selected volume/loudness parity as the active prerequisite before
+software OutFX. M2's accepted shutdown-reset work moves to normal release
+packaging; M3 is active.
 
 ### M0 — Consolidate repository and evidence
 
@@ -125,7 +128,7 @@ the matched route, 5% muted sink, OutFX-off state, and closed playback PCMs.
 
 ### M2 — Warm-handoff kernel acceptance
 
-Status: **in progress**
+Status: **complete; stable-package promotion moved to M5**
 
 - Completed: install the package-verified `7.1.4-ae5-shutdown` kernel side by
   side for one boot while retaining the stock saved/default entry.
@@ -138,22 +141,22 @@ Status: **in progress**
   user confirmed normal Windows playback, then the acknowledged Linux return
   gate proved one successful candidate shutdown reset, no failure, one DSP
   initialization after return, and zero kernel taint.
-- Promote the accepted ninth patch into the daily stable package without the
-  candidate-only EFI-pstore arguments.
 - Keep stock and `7.1.4-ae5-stable` as recoverable boot choices until accepted.
 
-Exit: the ninth patch either passes and replaces the eight-patch build, or is
+Exit: the ninth patch passes the Linux and Windows warm-handoff gates or is
 rejected with captured evidence and a narrower follow-up task.
 
 ### M3 — Representative cross-rate EQ acceptance
 
-Status: **pending**
+Status: **in progress**
 
-- Record the live Windows AE-5 endpoint volume range, hardware-support flags,
-  and scalar-to-decibel points while muted. Binary analysis proves that
-  Command forwards its displayed percentage as a Windows endpoint scalar, so
-  parity must match measured attenuation rather than equal-looking
-  percentages.
+- Completed prerequisite: matching Windows symbols and disassembly recovered
+  the exact `-96..0 dB`, exponent-`1.75` endpoint taper. A tested PipeWire SPA
+  overlay applies it only to the exact `11020051` AE-5 analog node while
+  preserving ordinary desktop percentages; non-AE-5 nodes remain cubic.
+- Run the guarded physical Windows/Linux loudness comparison at the same
+  user-selected listening level and record whether the formula closes the
+  reported level difference.
 - Prove the active PipeWire graph and ALSA PCM rates at 44.1, 48, and 96 kHz.
 - Measure neutral repeatability and three curves: the personal headphone
   profile plus two materially different factory profiles.
@@ -165,9 +168,9 @@ Status: **pending**
 Exit: one evidence matrix closes the rate/preset gate. Rerun it only after EQ,
 PipeWire policy, kernel audio-path, or rate-negotiation changes.
 
-### M4 — Profile and GUI daily-use acceptance
+### M4 — Profile and Qt/QML GUI daily-use acceptance
 
-Status: **pending**
+Status: **in progress — hardware Effects transaction complete**
 
 - Reproduce and fix the reported profile-card fallback to Adventure and Action.
 - Make profile application state explicit: selected profile, route variant,
@@ -176,9 +179,105 @@ Status: **pending**
   switching, output selector, restart persistence, keyboard access, and the
   diagnostics action.
 - Keep unsupported controls disabled and explained.
-- Limit current-GUI work to functional and safety acceptance. Do not optimize
-  its performance or start the Qt/QML visual redesign before the user confirms
-  that the core audio behavior works as intended.
+- The user has confirmed that the core audio MVP is sufficient to begin the
+  Qt/QML redesign. Implement the selected **Section-Owned Profiles with
+  Hardware Faceplate** direction from
+  [`docs/QT_QML_SELECTED_DESIGN_SPEC.md`](docs/QT_QML_SELECTED_DESIGN_SPEC.md)
+  incrementally while retaining the GTK application as a temporary fallback.
+- Keep live device output separate from independently selectable and savable
+  Effects profiles and EQ presets. There is no global profile Save action.
+- Completed Phase 2: the optional `ae5-control-qml` target now provides the
+  selected responsive shell, semantic theme, separate object ownership,
+  Shape-based ten-band preview, persistent faceplate, and native
+  Wayland/X11 smoke coverage. It is explicitly labelled as a preview and makes
+  no ALSA or PipeWire writes.
+- Completed Phase 3 read-only slice: the separate `ae5d` user service exposes
+  a typed session D-Bus state contract, and the Qt faceplate now reads exact
+  device, format, output, gain, volume, mute, capability, and write-block
+  reasons. The UI enters a precise daemon-unavailable state and recovers on its
+  five-second refresh without an application restart.
+- Completed Phase 3 safe-write slice: volume and mute now use narrowly scoped
+  typed D-Bus methods, exact AE-5 PipeWire targeting, readback, rollback, and
+  structured daemon-journal events. Native Wayland tests passed 20% → 19% →
+  20% and mute → unmute through the actual QML controls.
+- Completed Phase 4 profile-object slice: `ae5d` exposes the 33 embedded Command
+  profiles and route-compatible personal imports as separate typed Effects
+  profiles and EQ presets. The QML selectors load the real independent
+  objects, default to `My profile` and `SHP Last` when present, and update the
+  Effects values or ten-band curve without changing live audio. Independent
+  Rust-owned drafts now support editing, Revert, Save, and Save as through
+  typed D-Bus methods. Combined imports and factory objects remain read-only
+  and are copied into section-only files on Save as. Atomic persistence,
+  strict validation, duplicate-name refusal, hidden section-control
+  preservation, catalog refresh, restart discovery, and independent unsaved
+  counts were verified against an isolated copy of the personal library.
+- Completed Phase 5 checked-transaction slice: the ten-band QML draft now has
+  typed Apply and Disable actions backed by `ae5d`. Saved preset state remains
+  separate from live software-EQ state. The daemon validates the draft and
+  exact output, blocks Direct Mode conflicts before writes, verifies graph
+  ownership and PipeWire markers, omits the retired fixed EQ preamp, migrates
+  managed v1 graphs, and restores the prior managed config and runtime graph
+  on failure. OutFX and software EQ
+  are now permitted together, matching the recovered Windows processing
+  groups; native Wayland and X11 launches showed no QML errors.
+- Completed the first Phase 7 acceptance slice: Qt Quick Controls Basic now
+  uses dark and light semantic palettes; custom controls have keyboard-only
+  focus rings; disabled controls explain their capability block; scoped
+  `Ctrl+S`, `Ctrl+Shift+S`, and faceplate Review actions preserve independent
+  Effects/EQ ownership; and AT-SPI exposes meaningful roles, names,
+  descriptions, values, and live status. Native Wayland checks passed at
+  1024 × 680, 1280 × 800, and 1600 × 1000 without horizontal overflow, and an
+  X11 smoke launch produced no QML error. Object-scoped close-with-unsaved
+  choices and 125%, 150%, and 200% Wayland scale smokes also pass. Automated
+  focus-order assertions and complete injected failure-state tests remain
+  open.
+- Completed the first Phase 8 packaging slice: both the RPM and transactional
+  rootless installer now ship `ae5-control-qml`, `ae5d`, D-Bus activation, and
+  the systemd user unit while retaining GTK as a fallback. The installed
+  desktop entry launches Qt. An already-running session bus reloads the new
+  activation metadata immediately. The isolated rootless lifecycle, a clean
+  Fedora 44 RPM install/remove transaction, native Wayland and X11 startup,
+  and a live daemon stop/reactivation cycle passed without an audio write;
+  the physical sink remained at 20%.
+- Completed the desktop lifecycle slice: RPM and rootless packages autostart
+  the Qt application hidden when a tray is available; closing hides the window,
+  the tray provides Open/Hide and Quit, unsupported tray environments fall
+  back to a visible window, and object-scoped unsaved handling remains active
+  for both hide and quit. Automated QML and installer lifecycle checks cover
+  the new paths.
+- Completed the selected Sound-screen installed-host acceptance at commit
+  `b068ff9`: the transactional user install upgraded without changing any of
+  the seven existing configuration/profile files; installed binaries matched
+  the rebuilt release; all ten deterministic states passed under native
+  Wayland and X11/XWayland; focus audits passed at 1024×680, 1280×800,
+  1600×1000, and 200% scaling; and the live physical-card Wayland screen
+  exposed the expected AT-SPI semantics. The sink remained at 20%, `ae5d`
+  logged no write, and no writable ALSA control changed. The exact green RPM
+  is retained under `dist/qt-qml-b068ff9/`; authenticated host system-RPM
+  installation remains a distinct M5 gate.
+- Completed the Phase 8 multi-page shell slice: Overview, Equalizer, Playback,
+  Recording, Mixer, Lighting, Device, and Settings now share functional
+  navigation, semantic components, the Rust-owned EQ object, and the single
+  persistent hardware faceplate. Unsupported typed writes are visible as
+  read-only, deferred, or guarded. Native Wayland visual checks passed for all
+  nine destinations at 1280 × 800, representative dense pages at 1024 × 680,
+  and the Sound page in both dark and light themes. This closes navigation and
+  layout only; typed backend integration and physical acceptance for deferred
+  controls remain open.
+- Completed the guarded hardware Effects slice on
+  `7.1.4-ae5-outfx-lab`: `ae5d` applies the complete profile with active-stream
+  parking, master-last ordering, exact ALSA readback, managed-state
+  persistence, and rollback while paused. Software EQ remained active during
+  a silent physical-card apply; the exact PipeWire stream survived, no
+  transition sink leaked, disable/reapply verified, and kernel taint stayed
+  zero. The UI now reports the confirmed hardware state and cannot stack the
+  software-Effects fallback with OutFX.
+- Active next step: run a user-controlled audible profile A/B, then verify the
+  same profile and EQ state after daemon restart and a cold boot. Keep output,
+  and Direct Mode writes unavailable until their own transactions are
+  implemented. Headphone gain now has a route-matched checked transaction,
+  exact readback/rollback, and explicit High-gain confirmation. Do not spend
+  the core-validation milestone on GUI performance or visual redesign.
 - Keep hardware, profiles, state transitions, readback, rollback, and
   diagnostics outside toolkit-specific UI code so the backend can be reused by
   the future `ae5d`/CXX-Qt/QML architecture documented in
@@ -192,6 +291,8 @@ apply leaves the prior state intact.
 Status: **pending**
 
 - Build and install the current RPM on the host.
+- Promote the accepted ninth shutdown-reset patch into the daily stable
+  package without the candidate-only EFI-pstore arguments.
 - Verify upgrade, desktop launch, exact device detection, profile persistence,
   diagnostics, and removal/rollback behavior.
 - Refresh README, handover, screenshots, known limitations, and recovery
@@ -239,7 +340,8 @@ smallest related evidence set, not every result in the repository.
 
 Every physical harness must:
 
-- enforce the 20% ceiling and Low gain;
+- preserve the user's volume/mute state, hard-mute silent transactions, and
+  avoid High gain for an acoustic test;
 - fail closed when identity or state is ambiguous;
 - capture before/after state and relevant journals;
 - restore mixer, route, volume/mute, graph, and PCM state;

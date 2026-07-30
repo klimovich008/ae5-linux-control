@@ -12,13 +12,15 @@ const PIPEWIRE_MAX_GAIN_DB: f64 = 20.0;
 const PIPEWIRE_MIN_GAIN_DB: f64 = -120.0;
 const PIPEWIRE_RATES: [f64; 3] = [44_100.0, 48_000.0, 96_000.0];
 const RESPONSE_STEPS: usize = 65_536;
-const AUTO_HEADROOM_MARGIN_DB: f64 = 0.25;
+const LEGACY_HEADROOM_MARGIN_DB: f64 = 0.25;
 const CONFIG_FILE: &str = "software-eq.state";
 const MANAGED_HEADER: &str = "# Managed by AE-5 Control.\n";
-const FORMAT_LINE: &str = "# Format: direct-filter-v1\n";
+const FORMAT_LINE: &str = "# Format: direct-filter-v2\n";
+const LEGACY_FORMAT_LINE: &str = "# Format: direct-filter-v1\n";
 const GAINS_PREFIX: &str = "# EQ gains (dB): [ ";
 const TARGET_PREFIX: &str = "# Target: ";
-const PREAMP_PREFIX: &str = "# Automatic preamp (dB): ";
+const PREAMP_PREFIX: &str = "# Preamp (dB): ";
+const LEGACY_PREAMP_PREFIX: &str = "# Automatic preamp (dB): ";
 static NEXT_TEMP_FILE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Debug, PartialEq)]
@@ -42,23 +44,24 @@ impl EqChainConfig {
         if !self.enabled {
             return None;
         }
-        self.target_node
-            .as_deref()
-            .map(|target| eq_chain_signature(&self.bands, target, self.preamp_db))
+        self.target_node.as_deref().map(|target| {
+            if self.preamp_db == 0.0 {
+                eq_chain_signature(&self.bands, target)
+            } else {
+                legacy_eq_chain_signature(&self.bands, target, self.preamp_db)
+            }
+        })
     }
 
     pub fn filter_graph(&self) -> Result<Option<String>, EqChainError> {
         if !self.enabled {
             return Ok(None);
         }
-        let graph = render_filter_graph(&self.bands)?;
-        let expected = automatic_preamp_db(&self.bands)?;
-        if self.preamp_db != expected {
-            return Err(EqChainError::Invalid(format!(
-                "saved software equalizer preamp {:+.2} dB does not match the required {:+.2} dB",
-                self.preamp_db, expected
-            )));
-        }
+        let graph = if self.preamp_db == 0.0 {
+            render_filter_graph(&self.bands)?
+        } else {
+            render_legacy_filter_graph(&self.bands, self.preamp_db)?
+        };
         Ok(Some(graph))
     }
 
@@ -162,6 +165,27 @@ pub fn bands_from_profile(
         .collect()
 }
 
+pub fn bands_from_gains_tenths_db(gains: &[i16]) -> Result<Vec<EqBand>, EqChainError> {
+    if gains.len() != EQ_FREQUENCIES.len() {
+        return Err(EqChainError::Invalid(format!(
+            "equalizer needs exactly {} gains, found {}",
+            EQ_FREQUENCIES.len(),
+            gains.len()
+        )));
+    }
+    let bands = EQ_FREQUENCIES
+        .into_iter()
+        .zip(gains.iter().copied())
+        .map(|(frequency, gain)| EqBand {
+            frequency,
+            q: EQ_Q,
+            gain_db: f64::from(gain) / 10.0,
+        })
+        .collect::<Vec<_>>();
+    validate_bands(&bands)?;
+    Ok(bands)
+}
+
 pub fn eq_chain_config() -> Result<EqChainConfig, EqChainError> {
     eq_chain_config_at(&eq_chain_path()?)
 }
@@ -174,13 +198,19 @@ pub fn enable_eq_chain(
     enable_eq_chain_at(&eq_chain_path()?, profile, controls, target_node)
 }
 
+pub fn enable_eq_chain_bands(
+    bands: &[EqBand],
+    target_node: &str,
+) -> Result<EqChainChange, EqChainError> {
+    set_eq_chain_enabled_at(&eq_chain_path()?, Some((bands, target_node)))
+}
+
 fn enable_eq_chain_at(
     path: &Path,
     profile: &Profile,
     controls: &[ControlSnapshot],
     target_node: &str,
 ) -> Result<EqChainChange, EqChainError> {
-    require_outfx_disabled(controls)?;
     let bands = bands_from_profile(profile, controls)?;
     set_eq_chain_enabled_at(path, Some((&bands, target_node)))
 }
@@ -189,9 +219,74 @@ pub fn disable_eq_chain() -> Result<EqChainChange, EqChainError> {
     set_eq_chain_enabled_at(&eq_chain_path()?, None)
 }
 
+pub fn restore_eq_chain_config(config: &EqChainConfig) -> Result<EqChainChange, EqChainError> {
+    let path = eq_chain_path()?;
+    if config.path != path {
+        return Err(EqChainError::Invalid(format!(
+            "cannot restore software equalizer state from {} into {}",
+            config.path.display(),
+            path.display()
+        )));
+    }
+    restore_eq_chain_config_at(&path, config)
+}
+
+fn restore_eq_chain_config_at(
+    path: &Path,
+    config: &EqChainConfig,
+) -> Result<EqChainChange, EqChainError> {
+    match (config.enabled, config.target_node.as_deref()) {
+        (false, _) => set_eq_chain_enabled_at(path, None),
+        (true, Some(target)) if config.preamp_db == 0.0 => {
+            set_eq_chain_enabled_at(path, Some((&config.bands, target)))
+        }
+        (true, Some(target)) => restore_legacy_eq_chain_at(path, config, target),
+        (true, None) => Err(EqChainError::Invalid(
+            "enabled software equalizer state has no target node".to_owned(),
+        )),
+    }
+}
+
+fn restore_legacy_eq_chain_at(
+    path: &Path,
+    config: &EqChainConfig,
+    target_node: &str,
+) -> Result<EqChainChange, EqChainError> {
+    let current = eq_chain_config_at(path)?;
+    let expected_preamp = legacy_v1_preamp_db(&config.bands)?;
+    if config.preamp_db != expected_preamp {
+        return Err(EqChainError::Invalid(format!(
+            "legacy software equalizer preamp {:+.2} dB does not match its saved bands",
+            config.preamp_db
+        )));
+    }
+    let contents = render_legacy_config(&config.bands, target_node)?;
+    if fs::read_to_string(path).ok().as_deref() == Some(contents.as_str()) {
+        return Ok(EqChainChange {
+            config: current,
+            changed: false,
+        });
+    }
+
+    let parent = path.parent().ok_or_else(|| {
+        EqChainError::Invalid(format!("{} has no parent directory", path.display()))
+    })?;
+    fs::create_dir_all(parent)?;
+    if current.enabled {
+        replace_file(path, contents.as_bytes())?;
+    } else {
+        let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
+        file.write_all(contents.as_bytes())?;
+        file.sync_all()?;
+    }
+    Ok(EqChainChange {
+        config: eq_chain_config_at(path)?,
+        changed: true,
+    })
+}
+
 pub fn validate_eq_chain_activation(
     config: &EqChainConfig,
-    controls: &[ControlSnapshot],
     target_node: &str,
 ) -> Result<(), EqChainError> {
     if !config.enabled {
@@ -205,8 +300,14 @@ pub fn validate_eq_chain_activation(
             config.target_node.as_deref().unwrap_or("no PipeWire node")
         )));
     }
+    if config.preamp_db != 0.0 {
+        return Err(EqChainError::Invalid(
+            "this saved equalizer still uses the retired preamp; apply the EQ preset again to migrate it to unity gain"
+                .to_owned(),
+        ));
+    }
     config.filter_graph()?;
-    require_outfx_disabled(controls)
+    Ok(())
 }
 
 fn render_config(bands: &[EqBand], target_node: &str) -> Result<String, EqChainError> {
@@ -218,26 +319,59 @@ fn render_config(bands: &[EqBand], target_node: &str) -> Result<String, EqChainE
         .map(|band| format_gain(band.gain_db))
         .collect::<Vec<_>>()
         .join(" ");
-    let preamp_db = automatic_preamp_db(bands)?;
     Ok(format!(
         "{MANAGED_HEADER}{FORMAT_LINE}{GAINS_PREFIX}{gains} ]\n\
          {TARGET_PREFIX}{target_node}\n\
-         {PREAMP_PREFIX}{}\n",
+         {PREAMP_PREFIX}0.0\n"
+    ))
+}
+
+fn render_legacy_config(bands: &[EqBand], target_node: &str) -> Result<String, EqChainError> {
+    validate_bands(bands)?;
+    validate_target_node(target_node)?;
+
+    let gains = bands
+        .iter()
+        .map(|band| format_gain(band.gain_db))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let preamp_db = legacy_v1_preamp_db(bands)?;
+    Ok(format!(
+        "{MANAGED_HEADER}{LEGACY_FORMAT_LINE}{GAINS_PREFIX}{gains} ]\n\
+         {TARGET_PREFIX}{target_node}\n\
+         {LEGACY_PREAMP_PREFIX}{}\n",
         format_gain(preamp_db)
     ))
 }
 
 fn render_filter_graph(bands: &[EqBand]) -> Result<String, EqChainError> {
+    render_filter_graph_with_preamp(bands, None)
+}
+
+fn render_legacy_filter_graph(bands: &[EqBand], preamp_db: f64) -> Result<String, EqChainError> {
+    if !preamp_db.is_finite() || preamp_db > 0.0 {
+        return Err(EqChainError::Invalid(format!(
+            "legacy software equalizer preamp {preamp_db:+.2} dB is invalid"
+        )));
+    }
+    render_filter_graph_with_preamp(bands, Some(preamp_db))
+}
+
+fn render_filter_graph_with_preamp(
+    bands: &[EqBand],
+    preamp_db: Option<f64>,
+) -> Result<String, EqChainError> {
     validate_bands(bands)?;
-    let preamp_db = automatic_preamp_db(bands)?;
-    let multiplier = 10.0_f64.powf(preamp_db / 20.0);
     let mut output = String::from("{ nodes = [\n");
-    for channel in ['L', 'R'] {
-        output.push_str(&format!(
-            "  {{ type = builtin name = pre{channel} label = linear \
-             control = {{ Mult = {} Add = 0.0 }} }}\n",
-            format_multiplier(multiplier)
-        ));
+    if let Some(preamp_db) = preamp_db {
+        let multiplier = 10.0_f64.powf(preamp_db / 20.0);
+        for channel in ['L', 'R'] {
+            output.push_str(&format!(
+                "  {{ type = builtin name = pre{channel} label = linear \
+                 control = {{ Mult = {} Add = 0.0 }} }}\n",
+                format_multiplier(multiplier)
+            ));
+        }
     }
     for channel in ['L', 'R'] {
         for (index, band) in bands.iter().enumerate() {
@@ -252,9 +386,11 @@ fn render_filter_graph(bands: &[EqBand]) -> Result<String, EqChainError> {
     }
     output.push_str("] links = [\n");
     for channel in ['L', 'R'] {
-        output.push_str(&format!(
-            "  {{ output = \"pre{channel}:Out\" input = \"eq{channel}0:In\" }}\n"
-        ));
+        if preamp_db.is_some() {
+            output.push_str(&format!(
+                "  {{ output = \"pre{channel}:Out\" input = \"eq{channel}0:In\" }}\n"
+            ));
+        }
         for index in 0..bands.len() - 1 {
             output.push_str(&format!(
                 "  {{ output = \"eq{channel}{index}:Out\" input = \"eq{channel}{}:In\" }}\n",
@@ -262,14 +398,29 @@ fn render_filter_graph(bands: &[EqBand]) -> Result<String, EqChainError> {
             ));
         }
     }
-    output.push_str(
-        "] inputs = [ \"preL:In\" \"preR:In\" ] \
-         outputs = [ \"eqL9:Out\" \"eqR9:Out\" ] }\n",
-    );
+    let inputs = if preamp_db.is_some() {
+        "\"preL:In\" \"preR:In\""
+    } else {
+        "\"eqL0:In\" \"eqR0:In\""
+    };
+    output.push_str(&format!(
+        "] inputs = [ {inputs} ] outputs = [ \"eqL9:Out\" \"eqR9:Out\" ] }}\n"
+    ));
     Ok(output)
 }
 
-fn eq_chain_signature(bands: &[EqBand], target_node: &str, preamp_db: f64) -> String {
+fn eq_chain_signature(bands: &[EqBand], target_node: &str) -> String {
+    format!(
+        "direct-v2|{target_node}|{}",
+        bands
+            .iter()
+            .map(|band| format_gain(band.gain_db))
+            .collect::<Vec<_>>()
+            .join(",")
+    )
+}
+
+fn legacy_eq_chain_signature(bands: &[EqBand], target_node: &str, preamp_db: f64) -> String {
     format!(
         "direct-v1|{target_node}|{}|{}",
         format_gain(preamp_db),
@@ -304,6 +455,7 @@ fn set_eq_chain_enabled_at(
     if current.enabled
         && current.bands == bands
         && current.target_node.as_deref() == Some(target_node)
+        && current.preamp_db == 0.0
     {
         return Ok(EqChainChange {
             config: current,
@@ -365,24 +517,6 @@ fn validate_target_node(target_node: &str) -> Result<(), EqChainError> {
     Ok(())
 }
 
-fn require_outfx_disabled(controls: &[ControlSnapshot]) -> Result<(), EqChainError> {
-    match controls
-        .iter()
-        .find(|control| control.name == "Enable OutFX")
-        .and_then(|control| control.playback_switch)
-    {
-        Some(false) => Ok(()),
-        Some(true) => Err(EqChainError::Invalid(
-            "turn OutFX off before enabling the software equalizer; otherwise both the hardware and software effect paths remain active"
-                .to_owned(),
-        )),
-        None => Err(EqChainError::Invalid(
-            "live Enable OutFX state is unavailable; refusing to enable a second processing path"
-                .to_owned(),
-        )),
-    }
-}
-
 fn format_gain(gain: f64) -> String {
     let formatted = format!("{gain:.2}");
     let trimmed = formatted.trim_end_matches('0').trim_end_matches('.');
@@ -403,12 +537,12 @@ fn format_multiplier(multiplier: f64) -> String {
     }
 }
 
-fn automatic_preamp_db(bands: &[EqBand]) -> Result<f64, EqChainError> {
+fn legacy_v1_preamp_db(bands: &[EqBand]) -> Result<f64, EqChainError> {
     let peak_db = maximum_response_db(bands)?;
     if peak_db <= 0.0 {
         return Ok(0.0);
     }
-    Ok(-((peak_db + AUTO_HEADROOM_MARGIN_DB) * 100.0).ceil() / 100.0)
+    Ok(-((peak_db + LEGACY_HEADROOM_MARGIN_DB) * 100.0).ceil() / 100.0)
 }
 
 fn maximum_response_db(bands: &[EqBand]) -> Result<f64, EqChainError> {
@@ -518,6 +652,10 @@ fn parse_managed_config(
     path: &Path,
     contents: &str,
 ) -> Result<(Vec<EqBand>, Option<String>, f64), EqChainError> {
+    let format_line = contents
+        .lines()
+        .nth(1)
+        .ok_or_else(|| foreign_config(path))?;
     let gains = contents
         .lines()
         .nth(2)
@@ -541,13 +679,23 @@ fn parse_managed_config(
         .nth(3)
         .and_then(|line| line.strip_prefix(TARGET_PREFIX))
         .ok_or_else(|| foreign_config(path))?;
+    let (preamp_prefix, rendered) = if format_line == FORMAT_LINE.trim_end() {
+        (PREAMP_PREFIX, render_config(&bands, target_node))
+    } else if format_line == LEGACY_FORMAT_LINE.trim_end() {
+        (
+            LEGACY_PREAMP_PREFIX,
+            render_legacy_config(&bands, target_node),
+        )
+    } else {
+        return Err(foreign_config(path));
+    };
     let preamp_db = contents
         .lines()
         .nth(4)
-        .and_then(|line| line.strip_prefix(PREAMP_PREFIX))
+        .and_then(|line| line.strip_prefix(preamp_prefix))
         .and_then(|value| value.parse::<f64>().ok())
         .ok_or_else(|| foreign_config(path))?;
-    if render_config(&bands, target_node).ok().as_deref() != Some(contents) {
+    if rendered.ok().as_deref() != Some(contents) {
         return Err(foreign_config(path));
     }
     Ok((bands, Some(target_node.to_owned()), preamp_db))
@@ -699,6 +847,38 @@ mod tests {
         bands_from_profile(&profile_with([24; 10]), &live_controls()).unwrap()
     }
 
+    #[test]
+    fn draft_gains_map_to_the_fixed_ten_band_graph() {
+        let bands =
+            bands_from_gains_tenths_db(&[-120, -60, 0, 10, 20, 30, 40, 50, 60, 120]).unwrap();
+
+        assert_eq!(
+            bands
+                .iter()
+                .map(|band| (band.frequency, band.gain_db))
+                .collect::<Vec<_>>(),
+            vec![
+                (31, -12.0),
+                (62, -6.0),
+                (125, 0.0),
+                (250, 1.0),
+                (500, 2.0),
+                (1000, 3.0),
+                (2000, 4.0),
+                (4000, 5.0),
+                (8000, 6.0),
+                (16000, 12.0),
+            ]
+        );
+    }
+
+    #[test]
+    fn draft_gains_reject_an_incomplete_equalizer() {
+        let error = bands_from_gains_tenths_db(&[0; 9]).unwrap_err();
+
+        assert!(error.to_string().contains("exactly 10"));
+    }
+
     fn test_path() -> PathBuf {
         std::env::temp_dir()
             .join(format!(
@@ -803,6 +983,54 @@ mod tests {
     }
 
     #[test]
+    fn restoring_a_previous_config_recreates_it_byte_identically() {
+        let path = test_path();
+        let mut previous_bands = flat_bands();
+        previous_bands[2].gain_db = 3.0;
+        set_eq_chain_enabled_at(
+            &path,
+            Some((&previous_bands, "alsa_output.pci-ae5.analog-stereo")),
+        )
+        .unwrap();
+        let previous = eq_chain_config_at(&path).unwrap();
+        let previous_bytes = fs::read(&path).unwrap();
+
+        let mut replacement_bands = flat_bands();
+        replacement_bands[5].gain_db = -4.0;
+        set_eq_chain_enabled_at(
+            &path,
+            Some((&replacement_bands, "alsa_output.pci-ae5.analog-stereo")),
+        )
+        .unwrap();
+        restore_eq_chain_config_at(&path, &previous).unwrap();
+
+        assert_eq!(fs::read(&path).unwrap(), previous_bytes);
+        fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn restoring_a_legacy_config_after_a_failed_migration_is_byte_identical() {
+        let path = test_path();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let mut previous_bands = flat_bands();
+        previous_bands[5].gain_db = 10.0;
+        let previous_bytes =
+            render_legacy_config(&previous_bands, "alsa_output.pci-ae5.analog-stereo").unwrap();
+        fs::write(&path, &previous_bytes).unwrap();
+        let previous = eq_chain_config_at(&path).unwrap();
+
+        set_eq_chain_enabled_at(
+            &path,
+            Some((&previous_bands, "alsa_output.pci-ae5.analog-stereo")),
+        )
+        .unwrap();
+        restore_eq_chain_config_at(&path, &previous).unwrap();
+
+        assert_eq!(fs::read_to_string(&path).unwrap(), previous_bytes);
+        fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[test]
     fn refuses_to_replace_or_remove_foreign_config() {
         let path = test_path();
         fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -829,7 +1057,7 @@ mod tests {
     }
 
     #[test]
-    fn enabling_software_eq_rejects_active_hardware_effects() {
+    fn enabling_software_eq_accepts_active_hardware_effects() {
         let profile = profile_with([24; 10]);
         let mut controls = live_controls();
         controls
@@ -838,15 +1066,17 @@ mod tests {
             .unwrap()
             .playback_switch = Some(true);
 
-        let error = enable_eq_chain_at(
-            &test_path(),
+        let path = test_path();
+        let change = enable_eq_chain_at(
+            &path,
             &profile,
             &controls,
             "alsa_output.pci-ae5.analog-stereo",
         )
-        .unwrap_err();
+        .unwrap();
 
-        assert!(error.to_string().contains("turn OutFX off"));
+        assert!(change.config.enabled);
+        fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 
     #[test]
@@ -860,14 +1090,13 @@ mod tests {
         };
 
         let error =
-            validate_eq_chain_activation(&config, &live_controls(), "alsa_output.current-profile")
-                .unwrap_err();
+            validate_eq_chain_activation(&config, "alsa_output.current-profile").unwrap_err();
 
         assert!(error.to_string().contains("reinstall it"));
     }
 
     #[test]
-    fn activation_rejects_stale_automatic_preamp_state() {
+    fn activation_rejects_a_legacy_attenuated_graph() {
         let config = EqChainConfig {
             path: test_path(),
             enabled: true,
@@ -877,10 +1106,9 @@ mod tests {
         };
 
         let error =
-            validate_eq_chain_activation(&config, &live_controls(), "alsa_output.current-profile")
-                .unwrap_err();
+            validate_eq_chain_activation(&config, "alsa_output.current-profile").unwrap_err();
 
-        assert!(error.to_string().contains("required"));
+        assert!(error.to_string().contains("retired preamp"));
     }
 
     #[test]
@@ -893,8 +1121,7 @@ mod tests {
             preamp_db: 0.0,
         };
 
-        validate_eq_chain_activation(&config, &live_controls(), "alsa_output.current-profile")
-            .unwrap();
+        validate_eq_chain_activation(&config, "alsa_output.current-profile").unwrap();
     }
 
     #[test]
@@ -909,47 +1136,68 @@ mod tests {
     }
 
     #[test]
-    fn flat_equalizer_needs_no_automatic_preamp() {
-        assert_eq!(automatic_preamp_db(&flat_bands()).unwrap(), 0.0);
+    fn new_config_records_unity_preamp() {
+        let config = render_config(&flat_bands(), "alsa_output.current-profile").unwrap();
+
+        assert!(config.contains("# Format: direct-filter-v2"));
+        assert!(config.contains("# Preamp (dB): 0.0"));
+        assert!(!config.contains("# Automatic preamp"));
     }
 
     #[test]
-    fn automatic_preamp_covers_a_single_boost_and_margin() {
+    fn boosted_equalizer_does_not_add_automatic_attenuation() {
         let mut bands = flat_bands();
         bands[5].gain_db = 10.0;
 
-        let preamp = automatic_preamp_db(&bands).unwrap();
+        let config = render_config(&bands, "alsa_output.current-profile").unwrap();
+        let graph = render_filter_graph(&bands).unwrap();
 
-        assert!((-10.27..=-10.25).contains(&preamp), "{preamp}");
+        assert!(config.contains("# Preamp (dB): 0.0"));
+        assert!(!graph.contains("label = linear"));
+        assert!(!graph.contains("name = preL"));
+        assert!(!graph.contains("name = preR"));
     }
 
     #[test]
-    fn automatic_preamp_keeps_the_imported_curve_below_full_scale() {
-        let bands = bands_from_profile(
-            &profile_with([33, 30, 34, 24, 25, 22, 24, 21, 24, 25]),
-            &live_controls(),
-        )
-        .unwrap();
-        let preamp = automatic_preamp_db(&bands).unwrap();
-        let peak = maximum_response_db(&bands).unwrap();
-
-        assert!(preamp < -10.0, "{preamp}");
-        assert!(peak + preamp <= -0.24, "peak={peak} preamp={preamp}");
-    }
-
-    #[test]
-    fn direct_graph_has_headroom_and_no_virtual_sink() {
+    fn direct_graph_starts_with_equalizer_nodes_and_has_no_virtual_sink() {
         let mut bands = flat_bands();
         bands[5].gain_db = 10.0;
 
         let graph = render_filter_graph(&bands).unwrap();
 
-        assert!(graph.contains("name = preL label = linear"));
-        assert!(graph.contains("name = preR label = linear"));
-        assert!(graph.contains("preL:Out"));
-        assert!(graph.contains("inputs = [ \"preL:In\" \"preR:In\" ]"));
+        assert!(!graph.contains("label = linear"));
+        assert!(!graph.contains("preL"));
+        assert!(!graph.contains("preR"));
+        assert!(graph.contains("inputs = [ \"eqL0:In\" \"eqR0:In\" ]"));
         assert!(!graph.contains("libpipewire-module-filter-chain"));
         assert!(!graph.contains("target.object"));
+    }
+
+    #[test]
+    fn applying_the_same_bands_migrates_a_managed_v1_preamp_config() {
+        let path = test_path();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            "# Managed by AE-5 Control.\n\
+             # Format: direct-filter-v1\n\
+             # EQ gains (dB): [ 0.0 0.0 0.0 0.0 0.0 10.0 0.0 0.0 0.0 0.0 ]\n\
+             # Target: alsa_output.current-profile\n\
+             # Automatic preamp (dB): -10.26\n",
+        )
+        .unwrap();
+        let mut bands = flat_bands();
+        bands[5].gain_db = 10.0;
+
+        let change =
+            set_eq_chain_enabled_at(&path, Some((&bands, "alsa_output.current-profile"))).unwrap();
+        let contents = fs::read_to_string(&path).unwrap();
+
+        assert!(change.changed);
+        assert_eq!(change.config.preamp_db, 0.0);
+        assert!(contents.contains("# Format: direct-filter-v2"));
+        assert!(!contents.contains("# Automatic preamp"));
+        fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 
     #[test]

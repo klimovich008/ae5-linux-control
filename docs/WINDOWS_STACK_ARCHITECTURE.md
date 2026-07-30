@@ -149,31 +149,18 @@ function argument and the COM call. The neighboring volume-range export calls
 `IAudioEndpointVolume::GetVolumeRange`.
 
 Consequently, Command's displayed 5% and 30% values mean scalar 0.05 and 0.30
-respectively. Windows then maps that normalized scalar through its endpoint
-volume curve. Microsoft documents this scalar curve as nonlinear and
-audio-tapered; it is not encoded in the Creative binaries and must not be
-treated as a stable formula:
+respectively. Windows maps that normalized scalar through its endpoint volume
+curve:
 [`SetMasterVolumeLevelScalar`](https://learn.microsoft.com/windows/win32/api/endpointvolume/nf-endpointvolume-iaudioendpointvolume-setmastervolumelevelscalar).
 
-The installed 0065 INF supplies 0 dB maximum-volume values for the generic
-line-out, extended line-out, and direct-out paths. The AE-5 subsystem has
-minus-1 dB maxima for additional extended channels, but no static
-percentage-to-decibel table and no AE-5 `HPVolume_*` default block. This does
-not reveal whether the live endpoint volume is implemented in hardware or
-software.
-
-This resolves the application's role but not the exact AE-5 curve. A final,
-silent Windows runtime query must record:
-
-- `GetVolumeRange`;
-- `GetVolumeStepInfo`;
-- `QueryHardwareSupport`; and
-- `GetMasterVolumeLevel` after setting known scalar values while muted.
-
-The query must preserve and restore the original endpoint scalar and mute
-state. It requires no audio playback. Those measured scalar-to-decibel points,
-not equal-looking percentages, are the appropriate reference for Linux volume
-parity.
+The matching symbols and disassembly for the installed `audiosrv.dll` resolve
+the remaining curve: `CVolumeUnit` uses a `1.75`-power taper over the default
+`-96..0 dB` endpoint range. Creative's installed INF independently matches
+the resulting quantized 20% and 50% values. The formula, binary identity,
+AE-5-only PipeWire patch, and tests are recorded in
+[`WINDOWS_VOLUME_CURVE.md`](WINDOWS_VOLUME_CURVE.md). A silent runtime capture
+is now an independent driver/range check rather than an implementation
+prerequisite.
 
 ## Exact headphone load/gain and destination trace
 

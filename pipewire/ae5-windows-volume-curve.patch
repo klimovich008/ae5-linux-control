@@ -1,0 +1,177 @@
+diff --git a/spa/plugins/audioconvert/audioconvert.c b/spa/plugins/audioconvert/audioconvert.c
+index 56d3ea9..8513b65 100644
+--- a/spa/plugins/audioconvert/audioconvert.c
++++ b/spa/plugins/audioconvert/audioconvert.c
+@@ -39,6 +39,7 @@
+ #include "channelmix-ops.h"
+ #include "resample.h"
+ #include "wavfile.h"
++#include "windows-volume-curve.h"
+ 
+ #undef SPA_LOG_TOPIC_DEFAULT
+ #define SPA_LOG_TOPIC_DEFAULT &log_topic
+@@ -105,6 +106,7 @@ struct props {
+ 	char wav_path[512];
+ 	unsigned int lock_volumes:1;
+ 	unsigned int filter_graph_disabled:1;
++	unsigned int windows_audio_taper:1;
+ };
+ 
+ static void props_reset(struct props *props)
+@@ -128,6 +130,7 @@ static void props_reset(struct props *props)
+ 	spa_zero(props->wav_path);
+ 	props->lock_volumes = false;
+ 	props->filter_graph_disabled = false;
++	props->windows_audio_taper = false;
+ }
+ 
+ struct buffer {
+@@ -831,10 +834,19 @@ static int node_param_prop_info(struct impl *this, uint32_t id, uint32_t index,
+ 			SPA_PROP_INFO_type, SPA_POD_String(""),
+ 			SPA_PROP_INFO_params, SPA_POD_Bool(true));
+ 		break;
++	case 30:
++		*param = spa_pod_builder_add_object(b,
++			SPA_TYPE_OBJECT_PropInfo, id,
++			SPA_PROP_INFO_name, SPA_POD_String("channelmix.volume-curve"),
++			SPA_PROP_INFO_description, SPA_POD_String("Software volume curve"),
++			SPA_PROP_INFO_type, SPA_POD_String(
++				p->windows_audio_taper ? "windows-audio-taper" : "cubic"),
++			SPA_PROP_INFO_params, SPA_POD_Bool(true));
++		break;
+ 	default:
+ 		if (this->filter_graph[0] && this->filter_graph[0]->graph) {
+ 			return spa_filter_graph_enum_prop_info(this->filter_graph[0]->graph,
+-					index - 30, b, param);
++					index - 31, b, param);
+ 		}
+ 		return 0;
+ 	}
+@@ -916,6 +928,9 @@ static int node_param_props(struct impl *this, uint32_t id, uint32_t index,
+ 		spa_pod_builder_string(b, p->wav_path);
+ 		spa_pod_builder_string(b, "channelmix.lock-volumes");
+ 		spa_pod_builder_bool(b, p->lock_volumes);
++		spa_pod_builder_string(b, "channelmix.volume-curve");
++		spa_pod_builder_string(b,
++				p->windows_audio_taper ? "windows-audio-taper" : "cubic");
+ 		spa_pod_builder_string(b, "audioconvert.filter-graph.disable");
+ 		spa_pod_builder_bool(b, p->filter_graph_disabled);
+ 		spa_pod_builder_string(b, "audioconvert.filter-graph");
+@@ -1519,6 +1534,8 @@ static int audioconvert_set_param(struct impl *this, const char *k, const char *
+ 	}
+ 	else if (spa_streq(k, "channelmix.lock-volumes"))
+ 		this->props.lock_volumes = spa_atob(s);
++	else if (spa_streq(k, "channelmix.volume-curve"))
++		this->props.windows_audio_taper = spa_streq(s, "windows-audio-taper");
+ 	else if (spa_streq(k, "audioconvert.filter-graph.disable")) {
+ 		if (!*disable_filter)
+ 			*disable_filter = spa_atob(s);
+@@ -2192,6 +2209,7 @@ static void set_volume(struct impl *this)
+ 	struct volumes *vol;
+ 	uint32_t i;
+ 	float volumes[MAX_CHANNELS];
++	float volume;
+ 	struct dir *dir = &this->dir[this->direction];
+ 
+ 	spa_log_debug(this->log, "%p set volume %f have_format:%d", this, this->props.volume, dir->have_format);
+@@ -2207,12 +2225,21 @@ static void set_volume(struct impl *this)
+ 	else
+ 		vol = &this->props.channel;
+ 
+-	for (i = 0; i < vol->n_volumes; i++)
++	volume = SPA_CLAMPF(this->props.volume,
++			this->props.min_volume, this->props.max_volume);
++	for (i = 0; i < vol->n_volumes; i++) {
+ 		volumes[i] = SPA_CLAMPF(vol->volumes[dir->remap[i]],
+ 				this->props.min_volume, this->props.max_volume);
++		if (this->props.windows_audio_taper)
++			volumes[i] = windows_audio_taper_from_cubic(volumes[i] * volume);
++	}
++
++	if (this->props.windows_audio_taper)
++		volume = vol->n_volumes == 0 ?
++			windows_audio_taper_from_cubic(volume) : 1.0f;
+ 
+ 	channelmix_set_volume(&this->mix,
+-			SPA_CLAMPF(this->props.volume, this->props.min_volume, this->props.max_volume),
++			volume,
+ 			vol->mute, vol->n_volumes, volumes);
+ 
+ 	this->info.change_mask |= SPA_NODE_CHANGE_MASK_PARAMS;
+diff --git a/spa/plugins/audioconvert/meson.build b/spa/plugins/audioconvert/meson.build
+index bd60872..74894fb 100644
+--- a/spa/plugins/audioconvert/meson.build
++++ b/spa/plugins/audioconvert/meson.build
+@@ -186,6 +186,7 @@ test_apps = [
+   'test-peaks',
+   'test-resample',
+   'test-resample-delay',
++  'test-windows-volume-curve',
+   ]
+ 
+ foreach a : test_apps
+diff --git a/spa/plugins/audioconvert/test-windows-volume-curve.c b/spa/plugins/audioconvert/test-windows-volume-curve.c
+new file mode 100644
+index 0000000..b35bd64
+--- /dev/null
++++ b/spa/plugins/audioconvert/test-windows-volume-curve.c
+@@ -0,0 +1,24 @@
++/* SPDX-License-Identifier: MIT */
++
++#include <math.h>
++
++#include <spa/utils/defs.h>
++
++#include "windows-volume-curve.h"
++
++static void check_close(float actual, float expected)
++{
++	spa_assert_se(fabsf(actual - expected) < 0.000001f);
++}
++
++int main(void)
++{
++	check_close(windows_audio_taper_from_cubic(0.0f), 0.0f);
++	check_close(windows_audio_taper_from_cubic(0.000125f), 0.005608722f);
++	check_close(windows_audio_taper_from_cubic(0.008f), 0.060572911f);
++	check_close(windows_audio_taper_from_cubic(0.027f), 0.122507110f);
++	check_close(windows_audio_taper_from_cubic(0.079507f), 0.229291987f);
++	check_close(windows_audio_taper_from_cubic(0.125f), 0.298242959f);
++	check_close(windows_audio_taper_from_cubic(1.0f), 1.0f);
++	return 0;
++}
+diff --git a/spa/plugins/audioconvert/windows-volume-curve.h b/spa/plugins/audioconvert/windows-volume-curve.h
+new file mode 100644
+index 0000000..a598878
+--- /dev/null
++++ b/spa/plugins/audioconvert/windows-volume-curve.h
+@@ -0,0 +1,29 @@
++/* SPDX-License-Identifier: MIT */
++
++#ifndef SPA_AUDIOCONVERT_WINDOWS_VOLUME_CURVE_H
++#define SPA_AUDIOCONVERT_WINDOWS_VOLUME_CURVE_H
++
++#include <math.h>
++
++#include <spa/utils/defs.h>
++
++/*
++ * Windows audiosrv maps the displayed endpoint scalar through CVolumeUnit's
++ * 1.75-power audio taper. The default -96..0 dB endpoint range used by the
++ * Creative AE-5 therefore has this transfer function. PipeWire's Pulse-style
++ * channel volume arrives here as the cube of the displayed scalar.
++ */
++static inline float windows_audio_taper_from_cubic(float volume)
++{
++	const float minimum_taper = 0.0018077686769634343f;
++	float scalar, taper;
++
++	if (volume <= 0.0f)
++		return 0.0f;
++
++	scalar = cbrtf(SPA_MIN(volume, 1.0f));
++	taper = minimum_taper + scalar * (1.0f - minimum_taper);
++	return powf(taper, 1.75f);
++}
++
++#endif

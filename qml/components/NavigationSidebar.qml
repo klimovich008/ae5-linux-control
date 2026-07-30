@@ -113,7 +113,10 @@ Rectangle {
                         icon.source: Theme.iconSource(navItem.modelData.icon)
                         icon.width: root.opticalIconSize(navItem.modelData.icon)
                         icon.height: root.opticalIconSize(navItem.modelData.icon)
-                        icon.color: navItem.selected ? Theme.accent : Theme.textDisabled
+                        icon.color: navItem.selected
+                                    ? Theme.accent
+                                    : navItem.hovered
+                                      ? Theme.textPrimary : Theme.textDisabled
                         background: Item {}
                         enabled: false
                         opacity: 1
@@ -128,7 +131,8 @@ Rectangle {
                         Layout.preferredHeight: Theme.navItemHeight
                         Layout.alignment: Qt.AlignVCenter
                         text: navItem.modelData.label
-                        color: navItem.selected ? Theme.textPrimary : Theme.textDisabled
+                        color: navItem.selected || navItem.hovered
+                               ? Theme.textPrimary : Theme.textDisabled
                         font.pixelSize: Theme.fontBody
                         font.weight: navItem.selected ? Font.DemiBold : Font.Normal
                         verticalAlignment: Text.AlignVCenter
@@ -219,7 +223,10 @@ Rectangle {
                         icon.source: Theme.iconSource(utilityItem.modelData.icon)
                         icon.width: root.opticalIconSize(utilityItem.modelData.icon)
                         icon.height: root.opticalIconSize(utilityItem.modelData.icon)
-                        icon.color: utilityItem.selected ? Theme.accent : Theme.textDisabled
+                        icon.color: utilityItem.selected
+                                    ? Theme.accent
+                                    : utilityItem.hovered
+                                      ? Theme.textPrimary : Theme.textDisabled
                         background: Item {}
                         enabled: false
                         opacity: 1
@@ -234,7 +241,8 @@ Rectangle {
                         Layout.preferredHeight: Theme.navItemHeight
                         Layout.alignment: Qt.AlignVCenter
                         text: utilityItem.modelData.label
-                        color: utilityItem.selected ? Theme.textPrimary : Theme.textDisabled
+                        color: utilityItem.selected || utilityItem.hovered
+                               ? Theme.textPrimary : Theme.textDisabled
                         font.pixelSize: Theme.fontBody
                         font.weight: utilityItem.selected ? Font.DemiBold : Font.Normal
                         verticalAlignment: Text.AlignVCenter

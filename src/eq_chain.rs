@@ -197,10 +197,8 @@ pub fn enable_eq_chain(
 
 pub fn enable_eq_chain_bands(
     bands: &[EqBand],
-    controls: &[ControlSnapshot],
     target_node: &str,
 ) -> Result<EqChainChange, EqChainError> {
-    require_outfx_disabled(controls)?;
     set_eq_chain_enabled_at(&eq_chain_path()?, Some((bands, target_node)))
 }
 
@@ -210,7 +208,6 @@ fn enable_eq_chain_at(
     controls: &[ControlSnapshot],
     target_node: &str,
 ) -> Result<EqChainChange, EqChainError> {
-    require_outfx_disabled(controls)?;
     let bands = bands_from_profile(profile, controls)?;
     set_eq_chain_enabled_at(path, Some((&bands, target_node)))
 }
@@ -246,7 +243,6 @@ fn restore_eq_chain_config_at(
 
 pub fn validate_eq_chain_activation(
     config: &EqChainConfig,
-    controls: &[ControlSnapshot],
     target_node: &str,
 ) -> Result<(), EqChainError> {
     if !config.enabled {
@@ -261,7 +257,7 @@ pub fn validate_eq_chain_activation(
         )));
     }
     config.filter_graph()?;
-    require_outfx_disabled(controls)
+    Ok(())
 }
 
 fn render_config(bands: &[EqBand], target_node: &str) -> Result<String, EqChainError> {
@@ -418,24 +414,6 @@ fn validate_target_node(target_node: &str) -> Result<(), EqChainError> {
         )));
     }
     Ok(())
-}
-
-fn require_outfx_disabled(controls: &[ControlSnapshot]) -> Result<(), EqChainError> {
-    match controls
-        .iter()
-        .find(|control| control.name == "Enable OutFX")
-        .and_then(|control| control.playback_switch)
-    {
-        Some(false) => Ok(()),
-        Some(true) => Err(EqChainError::Invalid(
-            "turn OutFX off before enabling the software equalizer; otherwise both the hardware and software effect paths remain active"
-                .to_owned(),
-        )),
-        None => Err(EqChainError::Invalid(
-            "live Enable OutFX state is unavailable; refusing to enable a second processing path"
-                .to_owned(),
-        )),
-    }
 }
 
 fn format_gain(gain: f64) -> String {
@@ -942,7 +920,7 @@ mod tests {
     }
 
     #[test]
-    fn enabling_software_eq_rejects_active_hardware_effects() {
+    fn enabling_software_eq_accepts_active_hardware_effects() {
         let profile = profile_with([24; 10]);
         let mut controls = live_controls();
         controls
@@ -951,15 +929,17 @@ mod tests {
             .unwrap()
             .playback_switch = Some(true);
 
-        let error = enable_eq_chain_at(
-            &test_path(),
+        let path = test_path();
+        let change = enable_eq_chain_at(
+            &path,
             &profile,
             &controls,
             "alsa_output.pci-ae5.analog-stereo",
         )
-        .unwrap_err();
+        .unwrap();
 
-        assert!(error.to_string().contains("turn OutFX off"));
+        assert!(change.config.enabled);
+        fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 
     #[test]
@@ -973,8 +953,7 @@ mod tests {
         };
 
         let error =
-            validate_eq_chain_activation(&config, &live_controls(), "alsa_output.current-profile")
-                .unwrap_err();
+            validate_eq_chain_activation(&config, "alsa_output.current-profile").unwrap_err();
 
         assert!(error.to_string().contains("reinstall it"));
     }
@@ -990,8 +969,7 @@ mod tests {
         };
 
         let error =
-            validate_eq_chain_activation(&config, &live_controls(), "alsa_output.current-profile")
-                .unwrap_err();
+            validate_eq_chain_activation(&config, "alsa_output.current-profile").unwrap_err();
 
         assert!(error.to_string().contains("required"));
     }
@@ -1006,8 +984,7 @@ mod tests {
             preamp_db: 0.0,
         };
 
-        validate_eq_chain_activation(&config, &live_controls(), "alsa_output.current-profile")
-            .unwrap();
+        validate_eq_chain_activation(&config, "alsa_output.current-profile").unwrap();
     }
 
     #[test]

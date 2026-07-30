@@ -192,6 +192,23 @@ pub enum RuntimeSampleRate {
 }
 
 impl RuntimeSampleRate {
+    pub const fn policy_name(self) -> &'static str {
+        match self {
+            Self::Auto => "Automatic",
+            Self::Hz48000 => "48 kHz",
+            Self::Hz96000 => "96 kHz",
+        }
+    }
+
+    pub fn from_policy_name(value: &str) -> Option<Self> {
+        match value {
+            "Automatic" => Some(Self::Auto),
+            "48 kHz" => Some(Self::Hz48000),
+            "96 kHz" => Some(Self::Hz96000),
+            _ => None,
+        }
+    }
+
     fn metadata_value(self) -> &'static str {
         match self {
             Self::Auto => "0",
@@ -3049,6 +3066,21 @@ update: id:0 key:'clock.force-rate' value:'96000' type:''
             parse_runtime_sample_rate(metadata).unwrap(),
             RuntimeSampleRate::Hz96000
         );
+    }
+
+    #[test]
+    fn runtime_sample_rate_policy_names_round_trip() {
+        for rate in [
+            RuntimeSampleRate::Auto,
+            RuntimeSampleRate::Hz48000,
+            RuntimeSampleRate::Hz96000,
+        ] {
+            assert_eq!(
+                RuntimeSampleRate::from_policy_name(rate.policy_name()),
+                Some(rate)
+            );
+        }
+        assert_eq!(RuntimeSampleRate::from_policy_name("192 kHz"), None);
     }
 
     #[test]

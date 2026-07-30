@@ -25,6 +25,23 @@ pub mod qobject {
         #[qproperty(bool, profile_state_live, cxx_name = "profileStateLive")]
         #[qproperty(QString, audio_format, cxx_name = "audioFormat")]
         #[qproperty(bool, audio_format_available, cxx_name = "audioFormatAvailable")]
+        #[qproperty(QString, sample_rate_policy, cxx_name = "sampleRatePolicy")]
+        #[qproperty(
+            bool,
+            sample_rate_policy_available,
+            cxx_name = "sampleRatePolicyAvailable"
+        )]
+        #[qproperty(bool, sample_rate_write_enabled, cxx_name = "sampleRateWriteEnabled")]
+        #[qproperty(
+            QString,
+            sample_rate_write_block_reason,
+            cxx_name = "sampleRateWriteBlockReason"
+        )]
+        #[qproperty(
+            bool,
+            sample_rate_write_in_flight,
+            cxx_name = "sampleRateWriteInFlight"
+        )]
         #[qproperty(i32, master_volume, cxx_name = "masterVolume")]
         #[qproperty(bool, volume_available, cxx_name = "volumeAvailable")]
         #[qproperty(bool, muted)]
@@ -115,6 +132,10 @@ pub mod qobject {
         #[qinvokable]
         #[cxx_name = "requestMuted"]
         fn request_muted(self: Pin<&mut Self>, muted: bool);
+
+        #[qinvokable]
+        #[cxx_name = "requestSampleRatePolicy"]
+        fn request_sample_rate_policy(self: Pin<&mut Self>, policy: &QString);
 
         #[qinvokable]
         #[cxx_name = "setPreviewVolume"]
@@ -279,6 +300,11 @@ pub struct AppStateRust {
     profile_state_live: bool,
     audio_format: QString,
     audio_format_available: bool,
+    sample_rate_policy: QString,
+    sample_rate_policy_available: bool,
+    sample_rate_write_enabled: bool,
+    sample_rate_write_block_reason: QString,
+    sample_rate_write_in_flight: bool,
     master_volume: i32,
     volume_available: bool,
     muted: bool,
@@ -373,6 +399,13 @@ impl Default for AppStateRust {
             profile_state_live: false,
             audio_format: QString::from("Unavailable"),
             audio_format_available: false,
+            sample_rate_policy: QString::from("Unavailable"),
+            sample_rate_policy_available: false,
+            sample_rate_write_enabled: false,
+            sample_rate_write_block_reason: QString::from(
+                "ae5d is unavailable; reconnect before changing the sample rate.",
+            ),
+            sample_rate_write_in_flight: false,
             master_volume: 20,
             volume_available: false,
             muted: true,
@@ -480,6 +513,11 @@ impl AppStateRust {
         self.profile_state_live = false;
         self.audio_format = QString::from("S16LE · 96 kHz");
         self.audio_format_available = true;
+        self.sample_rate_policy = QString::from("96 kHz");
+        self.sample_rate_policy_available = true;
+        self.sample_rate_write_enabled = true;
+        self.sample_rate_write_block_reason = QString::default();
+        self.sample_rate_write_in_flight = false;
         self.master_volume = 20;
         self.volume_available = true;
         self.muted = false;
@@ -670,14 +708,19 @@ impl AppStateRust {
         self.output_write_enabled = false;
         self.headphone_gain_write_enabled = false;
         self.direct_mode_write_enabled = false;
+        self.sample_rate_write_enabled = false;
         let reason = self.status_detail.clone();
         self.hardware_write_block_reason = reason.clone();
-        self.output_write_block_reason = reason;
+        self.output_write_block_reason = reason.clone();
+        self.sample_rate_write_block_reason = reason;
     }
 
     fn disable_qa_hardware_values(&mut self) {
         self.audio_format = QString::from("Unavailable");
         self.audio_format_available = false;
+        self.sample_rate_policy = QString::from("Unavailable");
+        self.sample_rate_policy_available = false;
+        self.sample_rate_write_in_flight = false;
         self.volume_available = false;
         self.muted = true;
         self.mute_available = false;
@@ -798,6 +841,15 @@ impl qobject::AppState {
                     .set_daemon_available(status != crate::DeviceStatusCode::DaemonUnavailable);
                 self.as_mut().set_hardware_backed(false);
                 self.as_mut().set_audio_format_available(false);
+                self.as_mut()
+                    .set_sample_rate_policy(QString::from("Unavailable"));
+                self.as_mut().set_sample_rate_policy_available(false);
+                self.as_mut().set_sample_rate_write_enabled(false);
+                self.as_mut()
+                    .set_sample_rate_write_block_reason(QString::from(
+                        "ae5d is unavailable; reconnect before changing the sample rate.",
+                    ));
+                self.as_mut().set_sample_rate_write_in_flight(false);
                 self.as_mut().set_volume_available(false);
                 self.as_mut().set_mute_available(false);
                 self.as_mut().set_output_available(false);
@@ -899,6 +951,59 @@ impl qobject::AppState {
                 .as_mut()
                 .set_write_failure(&format!("Mute was not changed: {error}")),
         }
+    }
+
+    pub fn request_sample_rate_policy(mut self: Pin<&mut Self>, policy: &QString) {
+        let policy = policy.to_string();
+        let Some(requested) = crate::RuntimeSampleRate::from_policy_name(&policy) else {
+            self.as_mut()
+                .set_write_failure("Sample rate must be Automatic, 48 kHz, or 96 kHz.");
+            return;
+        };
+        if *self.as_ref().qa_mode() {
+            self.as_mut()
+                .set_sample_rate_policy(QString::from(requested.policy_name()));
+            if let Some(format) = match requested {
+                crate::RuntimeSampleRate::Auto => None,
+                crate::RuntimeSampleRate::Hz48000 => Some("S16LE · 48 kHz"),
+                crate::RuntimeSampleRate::Hz96000 => Some("S16LE · 96 kHz"),
+            } {
+                self.as_mut().set_audio_format(QString::from(format));
+            }
+            self.as_mut().bump_hardware_state_revision();
+            return;
+        }
+        if !*self.as_ref().sample_rate_write_enabled() {
+            let reason = self.as_ref().sample_rate_write_block_reason().to_string();
+            self.as_mut().set_write_failure(if reason.is_empty() {
+                "The sample-rate policy is unavailable."
+            } else {
+                &reason
+            });
+            return;
+        }
+        if *self.as_ref().sample_rate_write_in_flight() {
+            return;
+        }
+
+        self.as_mut().clear_write_error();
+        self.as_mut().set_sample_rate_write_in_flight(true);
+        let qt_thread = self.qt_thread();
+        std::thread::spawn(move || {
+            let result = crate::device_service::write_sample_rate_policy(&policy)
+                .map_err(|error| format!("Sample rate was not changed: {error}"));
+            qt_thread
+                .queue(move |mut app_state| {
+                    app_state.as_mut().set_sample_rate_write_in_flight(false);
+                    match result {
+                        Ok(state) => app_state
+                            .as_mut()
+                            .apply_successful_write_state(&state, true),
+                        Err(detail) => app_state.as_mut().set_write_failure(&detail),
+                    }
+                })
+                .ok();
+        });
     }
 
     pub fn apply_eq_draft(mut self: Pin<&mut Self>) {
@@ -1095,6 +1200,16 @@ impl qobject::AppState {
             .set_audio_format(QString::from(&state.audio_format));
         self.as_mut()
             .set_audio_format_available(state.audio_format_available);
+        self.as_mut()
+            .set_sample_rate_policy(QString::from(&state.sample_rate_policy));
+        self.as_mut()
+            .set_sample_rate_policy_available(state.sample_rate_policy_available);
+        self.as_mut()
+            .set_sample_rate_write_enabled(state.sample_rate_write_enabled);
+        self.as_mut()
+            .set_sample_rate_write_block_reason(QString::from(
+                &state.sample_rate_write_block_reason,
+            ));
         self.as_mut()
             .set_master_volume(i32::from(state.master_volume));
         self.as_mut().set_volume_available(state.volume_available);
@@ -1867,6 +1982,7 @@ mod tests {
             assert!(!state.output_write_enabled);
             assert!(!state.headphone_gain_write_enabled);
             assert!(!state.direct_mode_write_enabled);
+            assert!(!state.sample_rate_write_enabled);
         }
     }
 

@@ -55,11 +55,19 @@ Item {
                                                 ? qsTr("%1 support depends on the active AE-5 capability path.").arg(root.title)
                                                 : root.blockedReason
 
-            Image {
+            ToolButton {
                 anchors.centerIn: parent
                 width: 18
                 height: 18
-                source: Theme.iconSource("info")
+                padding: 0
+                display: AbstractButton.IconOnly
+                icon.source: Theme.iconSource("info")
+                icon.width: 18
+                icon.height: 18
+                icon.color: root.interactive
+                            ? Theme.textSecondary : Theme.textDisabled
+                background: Item {}
+                enabled: false
                 opacity: root.interactive ? 0.8 : 0.55
                 Accessible.ignored: true
             }
@@ -69,6 +77,7 @@ Item {
 
             HoverHandler {
                 id: helpHover
+                cursorShape: Qt.WhatsThisCursor
             }
         }
 

@@ -195,8 +195,10 @@ Rectangle {
             onMoved: root.setGain(index, value)
 
             HoverHandler {
-                enabled: band.enabled
-                cursorShape: band.pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor
+                cursorShape: !band.enabled
+                             ? Qt.ForbiddenCursor
+                             : band.pressed
+                               ? Qt.ClosedHandCursor : Qt.OpenHandCursor
             }
 
             Keys.onPressed: event => {

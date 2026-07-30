@@ -2,8 +2,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     Ae5Device, AudioFormat, ControlSnapshot, DIRECT_MODE_CONTROL, EqChainConfig, PipeWireNode,
-    SoftwareEqOutput, ae5_audio_format, ae5_output, eq_chain_config, snapshot_controls,
-    software_eq_output, unsafe_playback_control_block_reason,
+    RuntimeSampleRate, SoftwareEqOutput, ae5_audio_format, ae5_output, eq_chain_config,
+    runtime_sample_rate, snapshot_controls, software_eq_output,
+    unsafe_playback_control_block_reason,
 };
 
 const READ_ONLY_REASON: &str =
@@ -105,6 +106,10 @@ pub struct DeviceOutputState {
     pub status_message: String,
     pub audio_format: String,
     pub audio_format_available: bool,
+    pub sample_rate_policy: String,
+    pub sample_rate_policy_available: bool,
+    pub sample_rate_write_enabled: bool,
+    pub sample_rate_write_block_reason: String,
     pub master_volume: u16,
     pub volume_available: bool,
     pub muted: bool,
@@ -136,6 +141,7 @@ struct DeviceStateParts {
     controls: Result<Vec<ControlSnapshot>, String>,
     output_node: Result<Option<PipeWireNode>, String>,
     audio_format: Result<Option<AudioFormat>, String>,
+    sample_rate_policy: Result<RuntimeSampleRate, String>,
     eq_config: Result<EqChainConfig, String>,
     eq_output: Result<Option<SoftwareEqOutput>, String>,
     output_write_block_reason: Option<String>,
@@ -160,6 +166,7 @@ impl DeviceOutputState {
             controls: snapshot_controls(card_index).map_err(|error| error.to_string()),
             output_node: ae5_output(card_index).map_err(|error| error.to_string()),
             audio_format: ae5_audio_format(card_index).map_err(|error| error.to_string()),
+            sample_rate_policy: runtime_sample_rate().map_err(|error| error.to_string()),
             eq_config: eq_chain_config().map_err(|error| error.to_string()),
             eq_output: software_eq_output(card_index).map_err(|error| error.to_string()),
             output_write_block_reason: unsafe_playback_control_block_reason("Output Select")
@@ -177,13 +184,17 @@ impl DeviceOutputState {
 
     fn unavailable(status: DeviceStatusCode, status_message: String) -> Self {
         Self {
-            schema_version: 2,
+            schema_version: 3,
             device_name: "Sound BlasterX AE-5".to_owned(),
             connected: false,
             status_code: status.as_str().to_owned(),
             status_message: status_message.clone(),
             audio_format: "Unavailable".to_owned(),
             audio_format_available: false,
+            sample_rate_policy: "Unavailable".to_owned(),
+            sample_rate_policy_available: false,
+            sample_rate_write_enabled: false,
+            sample_rate_write_block_reason: status_message.clone(),
             master_volume: 0,
             volume_available: false,
             muted: true,
@@ -252,7 +263,6 @@ fn compose_state(device: Ae5Device, parts: DeviceStateParts) -> DeviceOutputStat
         .unwrap_or(false);
     let output_present = matches!(&parts.output_node, Ok(Some(_)));
     let software_eq = software_eq_summary(
-        &controls,
         &parts.eq_config,
         &parts.eq_output,
         output_present,
@@ -299,6 +309,22 @@ fn compose_state(device: Ae5Device, parts: DeviceStateParts) -> DeviceOutputStat
             ("Unavailable".to_owned(), false)
         }
     };
+    let (sample_rate_policy, sample_rate_policy_available, sample_rate_policy_error) =
+        match parts.sample_rate_policy {
+            Ok(policy) => (policy.policy_name().to_owned(), true, None),
+            Err(error) => {
+                issues.push(format!("PipeWire sample-rate policy unavailable: {error}."));
+                ("Unavailable".to_owned(), false, Some(error))
+            }
+        };
+    let sample_rate_write_enabled = output_present && sample_rate_policy_available;
+    let sample_rate_write_block_reason = if !output_present {
+        "PipeWire has no AE-5 playback output for a sample-rate change.".to_owned()
+    } else if let Some(error) = sample_rate_policy_error {
+        format!("The live PipeWire sample-rate policy is unavailable: {error}")
+    } else {
+        String::new()
+    };
 
     let status_code = if let Some(status) = specific_status {
         status
@@ -317,7 +343,7 @@ fn compose_state(device: Ae5Device, parts: DeviceStateParts) -> DeviceOutputStat
         .unwrap_or_else(|| READ_ONLY_REASON.to_owned());
 
     DeviceOutputState {
-        schema_version: 2,
+        schema_version: 3,
         device_name: device
             .codec_name
             .unwrap_or_else(|| "Sound BlasterX AE-5".to_owned()),
@@ -326,6 +352,10 @@ fn compose_state(device: Ae5Device, parts: DeviceStateParts) -> DeviceOutputStat
         status_message,
         audio_format,
         audio_format_available,
+        sample_rate_policy,
+        sample_rate_policy_available,
+        sample_rate_write_enabled,
+        sample_rate_write_block_reason,
         master_volume,
         volume_available,
         muted,
@@ -363,7 +393,6 @@ struct SoftwareEqSummary {
 }
 
 fn software_eq_summary(
-    controls: &[ControlSnapshot],
     config: &Result<EqChainConfig, String>,
     runtime: &Result<Option<SoftwareEqOutput>, String>,
     output_present: bool,
@@ -420,18 +449,10 @@ fn software_eq_summary(
             }
         }
     };
-    let outfx = controls
-        .iter()
-        .find(|control| control.name == "Enable OutFX")
-        .and_then(|control| control.playback_switch);
     let apply_block_reason = if !output_present {
         "PipeWire has no AE-5 playback output for software EQ.".to_owned()
     } else if direct_mode {
         "Turn Direct Mode off before applying software EQ.".to_owned()
-    } else if outfx == Some(true) {
-        "Turn OutFX off before applying software EQ to avoid two processing paths.".to_owned()
-    } else if outfx.is_none() {
-        "The live OutFX state is unavailable; software EQ cannot be applied safely.".to_owned()
     } else if state == "unavailable" {
         detail.clone()
     } else if state == "different" {
@@ -560,6 +581,7 @@ mod tests {
                 sample_format: "S16LE".to_owned(),
                 sample_rate: 96_000,
             })),
+            sample_rate_policy: Ok(RuntimeSampleRate::Hz96000),
             eq_config: Ok(EqChainConfig {
                 path: "/tmp/ae5-test-eq".into(),
                 enabled: false,
@@ -598,6 +620,8 @@ mod tests {
                 state.master_volume,
                 state.muted,
                 state.audio_format.as_str(),
+                state.sample_rate_policy.as_str(),
+                state.sample_rate_write_enabled,
                 state.volume_write_enabled,
                 state.mute_write_enabled,
                 state.software_eq_state.as_str(),
@@ -610,6 +634,8 @@ mod tests {
                 20,
                 false,
                 "S16LE · 96 kHz",
+                "96 kHz",
+                true,
                 true,
                 true,
                 "inactive",
@@ -619,7 +645,7 @@ mod tests {
     }
 
     #[test]
-    fn compose_state_blocks_software_eq_while_outfx_is_active() {
+    fn compose_state_allows_software_eq_while_outfx_is_active() {
         let mut parts = healthy_parts();
         parts
             .controls
@@ -637,10 +663,7 @@ mod tests {
                 state.eq_apply_available,
                 state.eq_apply_block_reason.as_str(),
             ),
-            (
-                false,
-                "Turn OutFX off before applying software EQ to avoid two processing paths.",
-            )
+            (true, "")
         );
     }
 

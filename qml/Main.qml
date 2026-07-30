@@ -67,8 +67,10 @@ ApplicationWindow {
     palette.alternateBase: Theme.surfaceRaised
     palette.brightText: Theme.textPrimary
     palette.dark: Theme.surfaceSunken
-    palette.highlight: Theme.accent
-    palette.highlightedText: Theme.background
+    // Qt's default delegates consume these colors for hover as well as
+    // selection. Keep both readable in dark and light themes.
+    palette.highlight: Theme.accentSubtle
+    palette.highlightedText: Theme.textPrimary
     palette.light: Theme.surface
     palette.link: Theme.accent
     palette.mid: Theme.separatorStrong

@@ -47,7 +47,54 @@ PageScaffold {
             value: root.appState.audioFormat
             statusText: root.appState.audioFormatAvailable ? qsTr("Current") : qsTr("Unknown")
             statusKind: root.appState.audioFormatAvailable ? "ready" : "partial"
+        }
+
+        StatusRow {
+            Layout.fillWidth: true
+            title: qsTr("Sample rate policy")
+            detail: qsTr("Automatic follows PipeWire. A fixed 48 or 96 kHz change briefly mutes and reopens only the AE-5, then verifies the negotiated S16 transport before restoring mute.")
+            statusText: root.appState.sampleRateWriteInFlight
+                        ? qsTr("Applying")
+                        : root.appState.sampleRatePolicyAvailable
+                          ? qsTr("Current") : qsTr("Unavailable")
+            statusKind: root.appState.sampleRateWriteInFlight
+                        ? "applying"
+                        : root.appState.sampleRatePolicyAvailable
+                          ? "ready" : "unavailable"
             showSeparator: false
+
+            AppComboBox {
+                id: sampleRatePicker
+
+                function syncPolicy() {
+                    const index = model.indexOf(root.appState.sampleRatePolicy)
+                    if (index >= 0 && currentIndex !== index)
+                        currentIndex = index
+                }
+
+                objectName: "sample-rate-policy"
+                Layout.preferredWidth: 164
+                model: ["Automatic", "48 kHz", "96 kHz"]
+                enabled: root.appState.sampleRateWriteEnabled
+                         && !root.appState.sampleRateWriteInFlight
+                blockedReason: root.appState.sampleRateWriteInFlight
+                               ? qsTr("Wait for the current sample-rate transition to finish.")
+                               : root.appState.sampleRateWriteBlockReason
+                Accessible.name: qsTr("AE-5 sample rate policy")
+                Accessible.description: enabled
+                                        ? qsTr("Select Automatic, 48 kHz, or 96 kHz. The AE-5 may be briefly muted.")
+                                        : blockedReason
+                Component.onCompleted: syncPolicy()
+                onActivated: root.appState.requestSampleRatePolicy(currentText)
+
+                Connections {
+                    target: root.appState
+
+                    function onSampleRatePolicyChanged() {
+                        sampleRatePicker.syncPolicy()
+                    }
+                }
+            }
         }
     }
 

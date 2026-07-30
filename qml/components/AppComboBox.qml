@@ -43,6 +43,42 @@ ComboBox {
         elide: Text.ElideRight
     }
 
+    delegate: ItemDelegate {
+        id: option
+
+        required property int index
+        required property var modelData
+
+        width: root.width
+        implicitHeight: Theme.controlHeight
+        leftPadding: Theme.space3
+        rightPadding: Theme.space3
+        topPadding: 0
+        bottomPadding: 0
+        text: modelData
+        highlighted: root.highlightedIndex === index
+        hoverEnabled: true
+
+        background: Rectangle {
+            radius: Theme.radiusSmall
+            color: option.highlighted || option.hovered
+                   ? Theme.accentSubtle : "transparent"
+        }
+
+        contentItem: Label {
+            text: option.text
+            color: option.enabled ? Theme.textPrimary : Theme.textDisabled
+            verticalAlignment: Text.AlignVCenter
+            font.pixelSize: Theme.fontBody
+            elide: Text.ElideRight
+        }
+
+        HoverHandler {
+            cursorShape: option.enabled
+                         ? Qt.PointingHandCursor : Qt.ForbiddenCursor
+        }
+    }
+
     indicator: ToolButton {
         x: root.width - width
         y: 0
@@ -59,8 +95,33 @@ ComboBox {
         Accessible.ignored: true
     }
 
+    popup: Popup {
+        y: root.height + Theme.space1
+        width: root.width
+        implicitHeight: Math.min(contentItem.implicitHeight
+                                 + topPadding + bottomPadding, 280)
+        topPadding: Theme.space1
+        bottomPadding: Theme.space1
+        leftPadding: Theme.space1
+        rightPadding: Theme.space1
+
+        contentItem: ListView {
+            clip: true
+            implicitHeight: contentHeight
+            model: root.popup.visible ? root.delegateModel : null
+            currentIndex: root.highlightedIndex
+            ScrollIndicator.vertical: ScrollIndicator {}
+        }
+
+        background: Rectangle {
+            color: Theme.surface
+            radius: Theme.radiusSmall
+            border.width: 1
+            border.color: Theme.separatorStrong
+        }
+    }
+
     HoverHandler {
-        enabled: root.enabled
-        cursorShape: Qt.PointingHandCursor
+        cursorShape: root.enabled ? Qt.PointingHandCursor : Qt.ForbiddenCursor
     }
 }

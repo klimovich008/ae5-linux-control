@@ -37,8 +37,9 @@ Button {
             if (root.variant === "warning")
                 return root.hovered ? Theme.surfaceRaised : Theme.modifiedSubtle
             if (root.variant === "primary")
-                return root.down ? Theme.accentPressed
-                                  : root.hovered ? Theme.accentHover : Theme.accent
+                return root.down ? Theme.accentFillPressed
+                                  : root.hovered ? Theme.accentFillHover
+                                                 : Theme.accentFill
             if (root.variant === "danger")
                 return root.hovered ? Theme.errorSubtle : Theme.surface
             if (root.checked)
@@ -85,7 +86,6 @@ Button {
     }
 
     HoverHandler {
-        enabled: root.enabled
-        cursorShape: Qt.PointingHandCursor
+        cursorShape: root.enabled ? Qt.PointingHandCursor : Qt.ForbiddenCursor
     }
 }

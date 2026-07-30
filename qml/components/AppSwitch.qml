@@ -28,11 +28,12 @@ Switch {
         radius: height / 2
         color: !root.enabled
                ? Theme.surfaceSunken
-               : root.checked ? Theme.accent : Theme.surfaceSunken
+               : root.checked ? Theme.accentFill : Theme.surfaceSunken
         border.width: root.visualFocus ? 2 : 1
         border.color: root.visualFocus
                       ? Theme.focus
-                      : root.checked && root.enabled ? Theme.accent : Theme.separatorStrong
+                      : root.checked && root.enabled
+                        ? Theme.accentFill : Theme.separatorStrong
 
         Rectangle {
             width: 18
@@ -60,7 +61,6 @@ Switch {
     contentItem: Item {}
 
     HoverHandler {
-        enabled: root.enabled
-        cursorShape: Qt.PointingHandCursor
+        cursorShape: root.enabled ? Qt.PointingHandCursor : Qt.ForbiddenCursor
     }
 }

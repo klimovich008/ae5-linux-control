@@ -213,12 +213,11 @@ Status: **in progress — packaged Qt runtime slice complete**
 - Completed Phase 5 checked-transaction slice: the ten-band QML draft now has
   typed Apply and Disable actions backed by `ae5d`. Saved preset state remains
   separate from live software-EQ state. The daemon validates the draft and
-  exact output, blocks Direct Mode or OutFX conflicts before writes, verifies
-  graph ownership and PipeWire markers, calculates automatic preamp, and
-  restores the prior managed config and runtime graph on failure. The physical
-  OutFX-on failure test left the config absent, runtime graph absent, and the
-  20% unmuted sink unchanged; native Wayland and X11 launches showed no QML
-  errors.
+  exact output, blocks Direct Mode conflicts before writes, verifies graph
+  ownership and PipeWire markers, calculates automatic preamp, and restores
+  the prior managed config and runtime graph on failure. OutFX and software EQ
+  are now permitted together, matching the recovered Windows processing
+  groups; native Wayland and X11 launches showed no QML errors.
 - Completed the first Phase 7 acceptance slice: Qt Quick Controls Basic now
   uses dark and light semantic palettes; custom controls have keyboard-only
   focus rings; disabled controls explain their capability block; scoped

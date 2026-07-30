@@ -52,7 +52,8 @@ Slider {
     }
 
     HoverHandler {
-        enabled: root.enabled
-        cursorShape: root.pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor
+        cursorShape: !root.enabled
+                     ? Qt.ForbiddenCursor
+                     : root.pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor
     }
 }

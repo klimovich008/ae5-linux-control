@@ -1,10 +1,10 @@
 use crate::{
     Ae5Device, DeviceOutputState, EffectsProfileEntry, EqChainConfig, EqPresetEntry,
-    SoftwareEqOutput, SoundObjectCatalog, ae5_output, bands_from_gains_tenths_db, disable_eq_chain,
-    enable_eq_chain_bands, eq_chain_config, remove_software_eq, replace_software_eq,
-    restore_eq_chain_config, save_effects_profile, save_effects_profile_as, save_eq_preset,
-    save_eq_preset_as, set_ae5_software_mute, set_ae5_software_volume, snapshot_controls,
-    software_eq_output, sound_object_catalog,
+    RuntimeSampleRate, SoftwareEqOutput, SoundObjectCatalog, ae5_output,
+    bands_from_gains_tenths_db, disable_eq_chain, enable_eq_chain_bands, eq_chain_config,
+    remove_software_eq, replace_software_eq, restore_eq_chain_config, save_effects_profile,
+    save_effects_profile_as, save_eq_preset, save_eq_preset_as, set_ae5_runtime_sample_rate,
+    set_ae5_software_mute, set_ae5_software_volume, software_eq_output, sound_object_catalog,
 };
 
 pub const SERVICE_NAME: &str = "io.github.klimovich008.Ae5Control";
@@ -128,6 +128,42 @@ impl Ae5DeviceService {
             })(),
         )
     }
+
+    fn set_sample_rate_policy(&self, policy: String) -> zbus::fdo::Result<DeviceOutputState> {
+        log_write(
+            "sample-rate-policy",
+            &policy,
+            (|| {
+                let requested =
+                    RuntimeSampleRate::from_policy_name(&policy).ok_or_else(|| {
+                        zbus::fdo::Error::InvalidArgs(format!(
+                            "Unsupported sample-rate policy '{policy}'; expected Automatic, 48 kHz, or 96 kHz."
+                        ))
+                    })?;
+                let card_index = live_card_index()?;
+                let applied = set_ae5_runtime_sample_rate(card_index, requested)
+                    .map_err(|error| zbus::fdo::Error::Failed(error.to_string()))?;
+                if applied != requested {
+                    return Err(zbus::fdo::Error::Failed(format!(
+                        "Sample-rate policy read back as '{}', expected '{}'.",
+                        applied.policy_name(),
+                        requested.policy_name()
+                    )));
+                }
+                let state = capture_state()?;
+                if !state.sample_rate_policy_available
+                    || state.sample_rate_policy != requested.policy_name()
+                {
+                    return Err(zbus::fdo::Error::Failed(format!(
+                        "Sample-rate policy state read back as '{}', expected '{}'.",
+                        state.sample_rate_policy,
+                        requested.policy_name()
+                    )));
+                }
+                Ok(state)
+            })(),
+        )
+    }
 }
 
 fn log_write<T>(
@@ -181,8 +217,6 @@ fn apply_eq_preset_checked(draft: &EqPresetEntry) -> zbus::fdo::Result<DeviceOut
         ));
     }
     let card_index = initial_state.card_index;
-    let controls = snapshot_controls(card_index)
-        .map_err(|error| zbus::fdo::Error::Failed(error.to_string()))?;
     let output = ae5_output(card_index)
         .map_err(|error| zbus::fdo::Error::Failed(error.to_string()))?
         .ok_or_else(|| {
@@ -199,7 +233,7 @@ fn apply_eq_preset_checked(draft: &EqPresetEntry) -> zbus::fdo::Result<DeviceOut
             .map_err(zbus::fdo::Error::Failed)?;
     let bands = bands_from_gains_tenths_db(&draft.gains_tenths_db)
         .map_err(|error| zbus::fdo::Error::InvalidArgs(error.to_string()))?;
-    let change = enable_eq_chain_bands(&bands, &controls, &output.node_name)
+    let change = enable_eq_chain_bands(&bands, &output.node_name)
         .map_err(|error| zbus::fdo::Error::Failed(error.to_string()))?;
     let graph = change
         .config
@@ -453,6 +487,7 @@ trait Ae5Device {
     fn disable_software_eq(&self) -> zbus::Result<DeviceOutputState>;
     fn set_master_volume(&self, percent: u16) -> zbus::Result<DeviceOutputState>;
     fn set_muted(&self, muted: bool) -> zbus::Result<DeviceOutputState>;
+    fn set_sample_rate_policy(&self, policy: &str) -> zbus::Result<DeviceOutputState>;
 }
 
 pub fn serve() -> zbus::Result<zbus::blocking::Connection> {
@@ -513,6 +548,11 @@ pub fn write_master_volume(percent: u16) -> zbus::Result<DeviceOutputState> {
 pub fn write_muted(muted: bool) -> zbus::Result<DeviceOutputState> {
     let connection = zbus::blocking::Connection::session()?;
     Ae5DeviceProxy::new(&connection)?.set_muted(muted)
+}
+
+pub fn write_sample_rate_policy(policy: &str) -> zbus::Result<DeviceOutputState> {
+    let connection = zbus::blocking::Connection::session()?;
+    Ae5DeviceProxy::new(&connection)?.set_sample_rate_policy(policy)
 }
 
 #[cfg(test)]

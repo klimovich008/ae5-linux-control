@@ -127,8 +127,9 @@ bare-metal 48 kHz response gate has passed:
   receives 0 dB preamp.
 - The saved state pins the exact current AE-5 PipeWire node name. A missing or
   renamed target fails before any runtime graph change.
-- Enabling refuses to create a second processing path unless live
-  `Enable OutFX` is readable and off.
+- Software EQ and OutFX are independent processing groups, matching the
+  recovered Windows architecture, so they may remain active together. Direct
+  Mode still blocks software EQ because it explicitly bypasses processing.
 - Activation verifies that the sink exposes
   `audioconvert.filter-graph.N`, suspends that exact sink, loads the graph at
   order zero through `pw-cli set-param`, stores a per-node runtime signature,

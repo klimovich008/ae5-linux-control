@@ -612,6 +612,9 @@ Exit: no state requires a terminal or application restart to understand.
 - [x] port Overview, Equalizer, Playback, Recording, Mixer, Lighting, Device,
   and Settings into the same shell and state model, with functional
   navigation, responsive scrolling, and honest capability states;
+- [x] expose Automatic, 48 kHz, and 96 kHz sample-rate policy on Playback
+  through the existing guarded Rust transition, typed D-Bus method, verified
+  readback, and rollback path;
 - [ ] connect the currently read-only Recording, extra Mixer, Lighting,
   speaker-configuration, and maintenance actions to narrowly scoped typed
   `ae5d` methods, then complete their physical acceptance;

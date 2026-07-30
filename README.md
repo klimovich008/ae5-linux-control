@@ -181,12 +181,12 @@ evidence, verification, rebuild procedure, and rollback are in
 [docs/WINDOWS_VOLUME_CURVE.md](docs/WINDOWS_VOLUME_CURVE.md). A guarded
 physical Windows/Linux loudness comparison remains pending.
 
-The GTK **Mixer** page has a **Live sample rate** selector for automatic,
-48 kHz, or 96 kHz operation in the current PipeWire session. A change mutes
-the exact AE-5 sink, closes and reopens its PCM, uses a zero-volume S16 probe
-when the sink is idle, verifies the negotiated ALSA format and rate, and only
-then restores the previous mute state. A failed transition is rolled back and
-left muted.
+The GTK **Mixer** page and Qt/QML **Playback** page have a live sample-rate
+policy selector for Automatic, 48 kHz, or 96 kHz operation in the current
+PipeWire session. Both use the same Rust path: a change mutes the exact AE-5
+sink, closes and reopens its PCM, uses a zero-volume S16 probe when the sink is
+idle, verifies the negotiated ALSA format and rate, and only then restores the
+previous mute state. A failed transition is rolled back and left muted.
 
 The separate optional native-rate configuration lets PipeWire switch the
 global graph between 44.1, 48, and 96 kHz after its next restart:
@@ -475,13 +475,12 @@ crossover are retained. Restart discovery and isolated-library writes are
 verified. Editing and saving do not implicitly apply audio. The EQ section has
 separate **Apply EQ** and **Disable EQ** actions backed by a checked `ae5d`
 transaction: it validates the ten-band draft, targets the exact physical AE-5
-output, blocks Direct Mode and OutFX conflicts before writing, verifies the
+output, blocks Direct Mode conflicts before writing, verifies the
 PipeWire graph marker, and restores the prior managed config and runtime graph
-if a write or readback fails. The UI distinguishes preset Saved/Modified state
-from live EQ Inactive/Saved only/Active/Error state. The guarded OutFX-on
-physical test confirmed that a blocked apply leaves the config, runtime graph,
-20% volume, and mute state unchanged; one user-observed OutFX-off
-apply/change/disable/restart acceptance cycle is still required.
+if a write or readback fails. OutFX and the software EQ are independent
+processing groups, matching the recovered Windows architecture, so both may
+remain active together. The UI distinguishes preset Saved/Modified state from
+live EQ Inactive/Saved only/Active/Error state.
 
 Master volume and mute use the same narrow typed D-Bus pattern with exact AE-5
 PipeWire targeting, checked readback, rollback on mismatch, and structured

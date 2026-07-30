@@ -19,12 +19,17 @@ QtObject {
     readonly property color textPrimary: light ? "#10212C" : "#F1F6F9"
     readonly property color textSecondary: light ? "#405967" : "#9FB1BC"
     readonly property color textDisabled: light ? "#778B97" : "#879CA9"
-    readonly property color textOnAccent: light ? "#FFFFFF" : "#04141C"
+    readonly property color textOnAccent: "#FFFFFF"
 
     // Interaction
     readonly property color accent: light ? "#006F86" : "#139CC0"
     readonly property color accentHover: light ? "#00596C" : "#32B1D0"
     readonly property color accentPressed: light ? "#004353" : "#0E7F9C"
+    // Filled controls use a darker cyan so white labels and icons retain
+    // accessible contrast without weakening the brighter graph/icon accent.
+    readonly property color accentFill: light ? "#006F86" : "#0E7F9C"
+    readonly property color accentFillHover: light ? "#00596C" : "#0B7892"
+    readonly property color accentFillPressed: light ? "#004353" : "#006F86"
     readonly property color accentSubtle: light ? "#DCEFF4" : "#123F52"
     readonly property color focus: light ? "#6941C6" : "#9B73F4"
 

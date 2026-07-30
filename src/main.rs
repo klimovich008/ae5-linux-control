@@ -595,11 +595,7 @@ fn activate_eq_chain() -> Result<(), Box<dyn Error>> {
             "PipeWire has no AE-5 output for the software equalizer",
         )
     })?;
-    validate_eq_chain_activation(
-        &config,
-        &snapshot_controls(device.card_index)?,
-        &output.node_name,
-    )?;
+    validate_eq_chain_activation(&config, &output.node_name)?;
     let graph = config.filter_graph()?.ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::InvalidData,

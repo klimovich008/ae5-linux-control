@@ -45,7 +45,6 @@ ToolButton {
     }
 
     HoverHandler {
-        enabled: root.enabled
-        cursorShape: Qt.PointingHandCursor
+        cursorShape: root.enabled ? Qt.PointingHandCursor : Qt.ForbiddenCursor
     }
 }

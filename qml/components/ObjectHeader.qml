@@ -188,13 +188,27 @@ Item {
                     MenuItem {
                         text: qsTr("Save as…")
                         enabled: root.options.length > 0
+                        hoverEnabled: true
                         onTriggered: root.openSaveAs()
+
+                        HoverHandler {
+                            cursorShape: parent.enabled
+                                         ? Qt.PointingHandCursor
+                                         : Qt.ForbiddenCursor
+                        }
                     }
 
                     MenuItem {
                         text: qsTr("Revert draft")
                         enabled: root.modified
+                        hoverEnabled: true
                         onTriggered: root.revertRequested()
+
+                        HoverHandler {
+                            cursorShape: parent.enabled
+                                         ? Qt.PointingHandCursor
+                                         : Qt.ForbiddenCursor
+                        }
                     }
                 }
             }

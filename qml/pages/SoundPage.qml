@@ -22,7 +22,7 @@ Rectangle {
     Accessible.role: Accessible.Pane
     Accessible.name: qsTr("Sound")
     Accessible.description: root.appState.statusCode === "ready"
-                            ? qsTr("Volume, mute, profile saving and checked software EQ are live. %1")
+                            ? qsTr("Volume, mute, profile saving, guarded hardware Effects and checked software EQ are live. %1")
                               .arg(root.appState.profileCatalogDetail)
                             : root.appState.statusDetail
 
@@ -324,6 +324,156 @@ Rectangle {
                     onSaveRequested: root.appState.saveEffectsDraft()
                     onSaveAsRequested: name => root.appState.saveEffectsDraftAs(name)
                     onRevertRequested: root.appState.revertEffectsDraft()
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Theme.controlHeightLarge + Theme.space2
+                    radius: Theme.radiusSmall
+                    color: Theme.surface
+                    border.color: root.appState.hardwareEffectsState === "error"
+                                  ? Theme.error
+                                  : root.appState.hardwareEffectsActive
+                                    ? Theme.accent
+                                    : Theme.separator
+
+                    RowLayout {
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.leftMargin: Theme.space3
+                        anchors.rightMargin: Theme.space3
+                        spacing: Theme.space2
+
+                        Label {
+                            text: qsTr("Hardware Effects")
+                            color: Theme.textPrimary
+                            font.pixelSize: Theme.fontLabel
+                            font.weight: Font.DemiBold
+                        }
+
+                        StateBadge {
+                            id: effectsRuntimeStateBadge
+                            stateKind: root.appState.hardwareEffectsState
+                            stateText: {
+                                switch (root.appState.hardwareEffectsState) {
+                                case "current": return qsTr("Active")
+                                case "configured": return qsTr("Saved only")
+                                case "different": return qsTr("Changed outside app")
+                                case "applying": return qsTr("Applying")
+                                case "error": return qsTr("Error")
+                                case "unavailable": return qsTr("Unavailable")
+                                default: return qsTr("Inactive")
+                                }
+                            }
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: root.appState.hardwareEffectsDetail
+                            color: Theme.textSecondary
+                            font.pixelSize: Theme.fontCaption
+                            elide: Text.ElideRight
+                            ToolTip.visible: truncated && effectsRuntimeDetailHover.hovered
+                            ToolTip.text: text
+
+                            HoverHandler {
+                                id: effectsRuntimeDetailHover
+                            }
+                        }
+
+                        AppButton {
+                            objectName: "live-effects-disable"
+                            visible: root.appState.hardwareEffectsActive
+                            enabled: visible
+                                     && root.appState.hardwareEffectsState !== "applying"
+                            Accessible.ignored: !visible
+                            text: qsTr("Disable")
+                            Accessible.name: qsTr("Bypass hardware Effects")
+                            onClicked: root.appState.disableHardwareEffects()
+                        }
+
+                        AppButton {
+                            objectName: "live-effects-apply"
+                            readonly property string applyBlockReason:
+                                !root.appState.effectsOutfxEnabled
+                                ? qsTr("Enable the Effects master before applying this profile.")
+                                : root.appState.effectsApplyBlockReason
+
+                            enabled: root.appState.effectsOutfxEnabled
+                                     && root.appState.effectsApplyAvailable
+                                     && root.appState.hardwareEffectsState !== "applying"
+                            blockedReason: applyBlockReason
+                            text: qsTr("Apply Effects")
+                            Accessible.name: qsTr("Apply selected Effects draft")
+                            Accessible.description: enabled
+                                                    ? qsTr("Parks active streams, writes the complete hardware profile, enables OutFX last, and verifies ALSA readback.")
+                                                    : applyBlockReason
+                            onClicked: root.appState.applyEffectsDraft()
+                        }
+                    }
+
+                    Accessible.role: root.appState.hardwareEffectsState === "error"
+                                     ? Accessible.AlertMessage : Accessible.StatusBar
+                    Accessible.name: qsTr("Live hardware Effects: %1")
+                                     .arg(effectsRuntimeStateBadge.stateText)
+                    Accessible.description: root.appState.hardwareEffectsDetail
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: effectsMasterRow.implicitHeight + Theme.space3
+                    radius: Theme.radiusSmall
+                    color: root.appState.effectsOutfxEnabled
+                           ? Theme.accentSubtle
+                           : Theme.surface
+                    border.color: root.appState.effectsOutfxEnabled
+                                  ? Theme.accent
+                                  : Theme.separator
+
+                    RowLayout {
+                        id: effectsMasterRow
+
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.leftMargin: Theme.space3
+                        anchors.rightMargin: Theme.space3
+                        spacing: Theme.space3
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.space1
+
+                            Label {
+                                text: qsTr("Effects master")
+                                color: Theme.textPrimary
+                                font.pixelSize: Theme.fontBody
+                            }
+
+                            Label {
+                                text: qsTr("Applies enabled controls as one verified hardware transaction. OutFX is enabled last.")
+                                color: Theme.textSecondary
+                                font.pixelSize: Theme.fontCaption
+                            }
+                        }
+
+                        AppSwitch {
+                            objectName: "effects-master"
+                            checked: root.appState.effectsOutfxEnabled
+                            enabled: root.appState.profileCatalogStatus === "ready"
+                                     && !root.appState.directMode
+                            blockedReason: root.appState.directMode
+                                           ? qsTr("Direct Mode bypasses Effects.")
+                                           : qsTr("Effects profiles are unavailable.")
+                            Accessible.name: qsTr("Effects master")
+                            Accessible.description: enabled
+                                                    ? qsTr("Include or bypass the enabled controls when applying this Effects profile.")
+                                                    : blockedReason
+                            onClicked: root.appState.updateEffectsDraft("master",
+                                                                        checked, 0)
+                        }
+                    }
                 }
 
                 Rectangle {

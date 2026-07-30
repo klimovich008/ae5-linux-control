@@ -4,6 +4,7 @@ use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::Duration;
 
@@ -15,9 +16,18 @@ context.properties = {
 ";
 const AE5_PROFILE_SET: &str = "sound-blaster-ae5.conf";
 const SOFTWARE_EQ_SIGNATURE_PROPERTY: &str = "ae5.control.eq.signature";
+const SOFTWARE_EFFECTS_SIGNATURE_PROPERTY: &str = "ae5.control.effects.signature";
 const PIPEWIRE_SETTINGS_METADATA_NAME: &str = "settings";
 const PIPEWIRE_FORCE_RATE_PROPERTY: &str = "clock.force-rate";
 const DIRECT_FILTER_PARAMETER: &str = "audioconvert.filter-graph.0";
+const EFFECTS_FILTER_PARAMETER: &str = "audioconvert.filter-graph.1";
+static NEXT_TRANSITION_SINK: AtomicU64 = AtomicU64::new(0);
+
+#[derive(Clone, Copy)]
+struct PreviousFilterState<'a> {
+    graph: Option<&'a str>,
+    signature: Option<&'a str>,
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PipeWireNode {
@@ -31,6 +41,12 @@ pub struct PipeWireNode {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SoftwareEqOutput {
+    pub node: PipeWireNode,
+    pub signature: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SoftwareEffectsOutput {
     pub node: PipeWireNode,
     pub signature: Option<String>,
 }
@@ -55,6 +71,14 @@ pub struct PipeWireRouteState {
 pub(crate) struct SuspendedAe5Output {
     card_index: i32,
     resume_on_drop: bool,
+    parked_inputs: Option<ParkedSinkInputs>,
+}
+
+struct ParkedSinkInputs {
+    module_id: u32,
+    sink_name: String,
+    original_sink_name: String,
+    input_ids: Vec<u32>,
 }
 
 impl SuspendedAe5Output {
@@ -62,32 +86,90 @@ impl SuspendedAe5Output {
         let Some(node) = ae5_output(self.card_index)? else {
             return Ok(());
         };
+        if self.parked_inputs.is_none() {
+            self.parked_inputs = park_sink_inputs(&node.node_name)?;
+        }
         if !pactl_sink_is_suspended(&node.node_name)? {
             run_pactl(&["suspend-sink", &node.node_name, "1"])?;
             self.resume_on_drop = true;
+        }
+        if let Some(parked) = self.parked_inputs.as_mut() {
+            parked.park_additional_inputs()?;
         }
         wait_for_alsa_playback_closed(self.card_index)
     }
 
     pub(crate) fn resume(mut self) -> io::Result<()> {
-        if !self.resume_on_drop {
-            return Ok(());
+        self.restore()
+    }
+
+    fn restore(&mut self) -> io::Result<()> {
+        let resume = if self.resume_on_drop {
+            match ae5_output(self.card_index)? {
+                Some(node) => run_pactl(&["suspend-sink", &node.node_name, "0"]).map(|_| ()),
+                None => Ok(()),
+            }
+        } else {
+            Ok(())
+        };
+        if resume.is_ok() {
+            self.resume_on_drop = false;
         }
-        if let Some(node) = ae5_output(self.card_index)? {
-            run_pactl(&["suspend-sink", &node.node_name, "0"])?;
+        let streams = self
+            .parked_inputs
+            .as_mut()
+            .map(ParkedSinkInputs::restore)
+            .unwrap_or(Ok(()));
+        if streams.is_ok() {
+            self.parked_inputs = None;
         }
-        self.resume_on_drop = false;
-        Ok(())
+        combine_transition_results(resume, streams)
     }
 }
 
 impl Drop for SuspendedAe5Output {
     fn drop(&mut self) {
-        if self.resume_on_drop {
-            if let Ok(Some(node)) = ae5_output(self.card_index) {
-                let _ = run_pactl(&["suspend-sink", &node.node_name, "0"]);
+        let _ = self.restore();
+    }
+}
+
+impl ParkedSinkInputs {
+    fn park_additional_inputs(&mut self) -> io::Result<()> {
+        let sink_index = pactl_sink_index(&self.original_sink_name)?;
+        for input_id in pactl_sink_inputs(sink_index)? {
+            if self.input_ids.contains(&input_id) {
+                continue;
             }
-            self.resume_on_drop = false;
+            move_sink_input(input_id, &self.sink_name)?;
+            self.input_ids.push(input_id);
+        }
+        Ok(())
+    }
+
+    fn restore(&mut self) -> io::Result<()> {
+        let mut errors = Vec::new();
+        match pactl_sink_input_ids() {
+            Ok(existing) => {
+                for input_id in &self.input_ids {
+                    if existing.contains(input_id)
+                        && let Err(error) = move_sink_input(*input_id, &self.original_sink_name)
+                    {
+                        errors.push(format!("stream {input_id}: {error}"));
+                    }
+                }
+            }
+            Err(error) => errors.push(format!("enumerating parked streams: {error}")),
+        }
+        if let Err(error) = run_pactl(&["unload-module", &self.module_id.to_string()]) {
+            errors.push(format!("silent transition sink: {error}"));
+        }
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(io::Error::other(format!(
+                "restoring parked audio streams failed ({})",
+                errors.join("; ")
+            )))
         }
     }
 }
@@ -242,7 +324,22 @@ pub fn ae5_audio_format(card_index: i32) -> io::Result<Option<AudioFormat>> {
     let Some(node) = ae5_output(card_index)? else {
         return Ok(None);
     };
-    active_pcm_format(node.id).map(Some)
+    optional_active_pcm_format(active_pcm_format(node.id))
+}
+
+fn optional_active_pcm_format(result: io::Result<AudioFormat>) -> io::Result<Option<AudioFormat>> {
+    match result {
+        Ok(format) => Ok(Some(format)),
+        Err(error)
+            if error.kind() == io::ErrorKind::InvalidData
+                && error
+                    .to_string()
+                    .starts_with("PipeWire did not report the AE-5") =>
+        {
+            Ok(None)
+        }
+        Err(error) => Err(error),
+    }
 }
 
 pub fn ae5_input(card_index: i32) -> io::Result<Option<PipeWireNode>> {
@@ -577,6 +674,18 @@ pub fn software_eq_output(card_index: i32) -> io::Result<Option<SoftwareEqOutput
     )
 }
 
+pub fn software_effects_output(card_index: i32) -> io::Result<Option<SoftwareEffectsOutput>> {
+    let Some(node) = ae5_output(card_index)? else {
+        return Ok(None);
+    };
+    Ok(
+        software_effects_signature(node.id)?.map(|signature| SoftwareEffectsOutput {
+            node,
+            signature: Some(signature),
+        }),
+    )
+}
+
 pub fn apply_software_eq(
     card_index: i32,
     graph: &str,
@@ -632,11 +741,14 @@ pub fn replace_software_eq(
     })?;
     require_direct_filter_support(output.id)?;
     let suspended = suspend_ae5_output(card_index)?;
-    replace_software_eq_state_with(
+    replace_software_filter_state_with(
+        "software EQ",
         graph,
         signature,
-        previous_graph,
-        previous_signature,
+        PreviousFilterState {
+            graph: previous_graph,
+            signature: previous_signature,
+        },
         |graph| set_direct_filter(output.id, graph),
         |signature| set_software_eq_signature(output.id, signature),
         || software_eq_signature(output.id),
@@ -844,11 +956,241 @@ pub fn remove_software_eq(
     }
 }
 
-fn replace_software_eq_state_with<SetFilter, SetSignature, ReadSignature>(
+pub fn replace_software_effects(
+    card_index: i32,
     graph: &str,
     signature: &str,
     previous_graph: Option<&str>,
     previous_signature: Option<&str>,
+) -> io::Result<SoftwareEffectsOutput> {
+    let output = ae5_output(card_index)?.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("PipeWire has no playback output for ALSA card {card_index}"),
+        )
+    })?;
+    require_direct_filter_support(output.id)?;
+    let suspended = suspend_ae5_output(card_index)?;
+    replace_software_filter_state_with(
+        "software Effects",
+        graph,
+        signature,
+        PreviousFilterState {
+            graph: previous_graph,
+            signature: previous_signature,
+        },
+        |graph| set_effects_filter(output.id, graph),
+        |signature| set_software_effects_signature(output.id, signature),
+        || software_effects_signature(output.id),
+    )?;
+    if let Err(error) = suspended.resume() {
+        return rollback_replaced_software_effects(
+            card_index,
+            signature,
+            previous_graph,
+            previous_signature,
+            error,
+        );
+    }
+    let current = match software_effects_output(card_index) {
+        Ok(Some(current)) => current,
+        Ok(None) => {
+            return rollback_replaced_software_effects(
+                card_index,
+                signature,
+                previous_graph,
+                previous_signature,
+                io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "PipeWire lost the AE-5 software Effects graph after applying it",
+                ),
+            );
+        }
+        Err(error) => {
+            return rollback_replaced_software_effects(
+                card_index,
+                signature,
+                previous_graph,
+                previous_signature,
+                error,
+            );
+        }
+    };
+    if current.node.id != output.id || current.signature.as_deref() != Some(signature) {
+        return rollback_replaced_software_effects(
+            card_index,
+            signature,
+            previous_graph,
+            previous_signature,
+            io::Error::other(
+                "PipeWire changed the AE-5 output identity or Effects marker after applying the graph",
+            ),
+        );
+    }
+    Ok(current)
+}
+
+fn rollback_replaced_software_effects(
+    card_index: i32,
+    applied_signature: &str,
+    previous_graph: Option<&str>,
+    previous_signature: Option<&str>,
+    apply_error: io::Error,
+) -> io::Result<SoftwareEffectsOutput> {
+    match restore_software_effects_runtime(
+        card_index,
+        Some(applied_signature),
+        previous_graph,
+        previous_signature,
+    ) {
+        Ok(()) => Err(apply_error),
+        Err(rollback_error) => Err(io::Error::other(format!(
+            "{apply_error}; software Effects rollback also failed: {rollback_error}"
+        ))),
+    }
+}
+
+fn restore_software_effects_runtime(
+    card_index: i32,
+    expected_signature: Option<&str>,
+    graph: Option<&str>,
+    signature: Option<&str>,
+) -> io::Result<()> {
+    if graph.is_some() != signature.is_some() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "restored software Effects graph and signature must be provided together",
+        ));
+    }
+    let output = ae5_output(card_index)?.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            "PipeWire lost the AE-5 output before software Effects rollback",
+        )
+    })?;
+    require_direct_filter_support(output.id)?;
+    let actual = software_effects_signature(output.id)?;
+    if actual.as_deref() != expected_signature {
+        return Err(io::Error::other(format!(
+            "refusing software Effects rollback because the active marker changed (expected {}, found {})",
+            expected_signature.unwrap_or("none"),
+            actual.as_deref().unwrap_or("none")
+        )));
+    }
+
+    let suspended = suspend_ae5_output(card_index)?;
+    let rollback = set_effects_filter(output.id, graph.unwrap_or(""))
+        .and_then(|_| set_software_effects_signature(output.id, signature))
+        .and_then(|_| require_software_effects_signature(output.id, signature));
+    let resume = suspended.resume();
+    match (rollback, resume) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
+        (Err(error), Err(resume_error)) => Err(io::Error::other(format!(
+            "{error}; resuming the AE-5 output also failed: {resume_error}"
+        ))),
+    }
+}
+
+pub fn remove_software_effects(
+    card_index: i32,
+    previous_graph: &str,
+    previous_signature: &str,
+) -> io::Result<PipeWireNode> {
+    if previous_graph.is_empty() || previous_signature.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "previous software Effects graph and signature must not be empty",
+        ));
+    }
+    let output = ae5_output(card_index)?.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("PipeWire has no playback output for ALSA card {card_index}"),
+        )
+    })?;
+    require_direct_filter_support(output.id)?;
+    if software_effects_signature(output.id)?.as_deref() != Some(previous_signature) {
+        return Err(io::Error::other(
+            "the active software Effects marker changed outside AE-5 Control",
+        ));
+    }
+
+    let suspended = suspend_ae5_output(card_index)?;
+    let removed = set_effects_filter(output.id, "")
+        .and_then(|_| set_software_effects_signature(output.id, None))
+        .and_then(|_| require_software_effects_signature(output.id, None));
+    if let Err(remove_error) = removed {
+        let rollback = set_effects_filter(output.id, previous_graph)
+            .and_then(|_| set_software_effects_signature(output.id, Some(previous_signature)))
+            .and_then(|_| require_software_effects_signature(output.id, Some(previous_signature)));
+        return match rollback {
+            Ok(()) => Err(remove_error),
+            Err(rollback_error) => Err(io::Error::other(format!(
+                "{remove_error}; software Effects rollback also failed: {rollback_error}"
+            ))),
+        };
+    }
+    if let Err(error) = suspended.resume() {
+        restore_software_effects_runtime(
+            card_index,
+            None,
+            Some(previous_graph),
+            Some(previous_signature),
+        )
+        .map_err(|rollback_error| {
+            io::Error::other(format!(
+                "{error}; software Effects rollback also failed: {rollback_error}"
+            ))
+        })?;
+        return Err(error);
+    }
+    match software_effects_output(card_index) {
+        Ok(None) => ae5_output(card_index)?.ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                "PipeWire lost the AE-5 output after disabling software Effects",
+            )
+        }),
+        Ok(Some(_)) => {
+            let error = io::Error::other(
+                "PipeWire still reports active AE-5 software Effects after disabling them",
+            );
+            restore_software_effects_runtime(
+                card_index,
+                None,
+                Some(previous_graph),
+                Some(previous_signature),
+            )
+            .map_err(|rollback_error| {
+                io::Error::other(format!(
+                    "{error}; software Effects rollback also failed: {rollback_error}"
+                ))
+            })?;
+            Err(error)
+        }
+        Err(error) => {
+            restore_software_effects_runtime(
+                card_index,
+                None,
+                Some(previous_graph),
+                Some(previous_signature),
+            )
+            .map_err(|rollback_error| {
+                io::Error::other(format!(
+                    "{error}; software Effects rollback also failed: {rollback_error}"
+                ))
+            })?;
+            Err(error)
+        }
+    }
+}
+
+fn replace_software_filter_state_with<SetFilter, SetSignature, ReadSignature>(
+    filter_name: &str,
+    graph: &str,
+    signature: &str,
+    previous: PreviousFilterState<'_>,
     mut set_filter: SetFilter,
     mut set_signature: SetSignature,
     mut read_signature: ReadSignature,
@@ -861,20 +1203,20 @@ where
     if graph.is_empty() || signature.is_empty() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "software equalizer graph and signature must not be empty",
+            format!("{filter_name} graph and signature must not be empty"),
         ));
     }
-    if previous_graph.is_some() != previous_signature.is_some() {
+    if previous.graph.is_some() != previous.signature.is_some() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "previous software equalizer graph and signature must be provided together",
+            format!("previous {filter_name} graph and signature must be provided together"),
         ));
     }
     let current = read_signature()?;
-    if current.as_deref() != previous_signature {
+    if current.as_deref() != previous.signature {
         return Err(io::Error::other(format!(
-            "the active software EQ marker changed outside AE-5 Control (expected {}, found {})",
-            previous_signature.unwrap_or("none"),
+            "the active {filter_name} marker changed outside AE-5 Control (expected {}, found {})",
+            previous.signature.unwrap_or("none"),
             current.as_deref().unwrap_or("none")
         )));
     }
@@ -887,30 +1229,30 @@ where
                 Ok(())
             } else {
                 Err(io::Error::other(format!(
-                    "PipeWire did not retain the software EQ marker (expected {signature}, found {})",
+                    "PipeWire did not retain the {filter_name} marker (expected {signature}, found {})",
                     actual.as_deref().unwrap_or("none")
                 )))
             }
         });
     if let Err(apply_error) = applied {
-        let rollback = set_filter(previous_graph.unwrap_or(""))
-            .and_then(|_| set_signature(previous_signature))
+        let rollback = set_filter(previous.graph.unwrap_or(""))
+            .and_then(|_| set_signature(previous.signature))
             .and_then(|_| {
                 let actual = read_signature()?;
-                if actual.as_deref() == previous_signature {
+                if actual.as_deref() == previous.signature {
                     Ok(())
                 } else {
                     Err(io::Error::other(format!(
                         "rollback marker read back as {}, expected {}",
                         actual.as_deref().unwrap_or("none"),
-                        previous_signature.unwrap_or("none")
+                        previous.signature.unwrap_or("none")
                     )))
                 }
             });
         return match rollback {
             Ok(()) => Err(apply_error),
             Err(rollback_error) => Err(io::Error::other(format!(
-                "{apply_error}; software EQ rollback also failed: {rollback_error}"
+                "{apply_error}; {filter_name} rollback also failed: {rollback_error}"
             ))),
         };
     }
@@ -943,6 +1285,7 @@ pub(crate) fn suspend_ae5_output(card_index: i32) -> io::Result<SuspendedAe5Outp
         return Ok(SuspendedAe5Output {
             card_index,
             resume_on_drop: false,
+            parked_inputs: None,
         });
     };
     if pactl_sink_is_suspended(&node.node_name)? {
@@ -950,14 +1293,28 @@ pub(crate) fn suspend_ae5_output(card_index: i32) -> io::Result<SuspendedAe5Outp
         return Ok(SuspendedAe5Output {
             card_index,
             resume_on_drop: false,
+            parked_inputs: None,
         });
     }
 
-    run_pactl(&["suspend-sink", &node.node_name, "1"])?;
-    let suspended = SuspendedAe5Output {
+    let parked_inputs = park_sink_inputs(&node.node_name)?;
+    let mut suspended = SuspendedAe5Output {
         card_index,
-        resume_on_drop: true,
+        resume_on_drop: false,
+        parked_inputs,
     };
+    if let Err(error) = run_pactl(&["suspend-sink", &node.node_name, "1"]) {
+        return match suspended.restore() {
+            Ok(()) => Err(error),
+            Err(restore_error) => Err(io::Error::other(format!(
+                "{error}; transition stream rollback also failed: {restore_error}"
+            ))),
+        };
+    }
+    suspended.resume_on_drop = true;
+    if let Some(parked) = suspended.parked_inputs.as_mut() {
+        parked.park_additional_inputs()?;
+    }
     wait_for_alsa_playback_closed(card_index)?;
     Ok(suspended)
 }
@@ -1758,15 +2115,18 @@ fn require_direct_filter_support(node_id: u32) -> io::Result<()> {
 }
 
 fn set_direct_filter(node_id: u32, graph: &str) -> io::Result<()> {
-    let parameter = direct_filter_parameter(graph)?;
+    let parameter = direct_filter_parameter(DIRECT_FILTER_PARAMETER, graph)?;
     run_pw_cli(&["set-param", &node_id.to_string(), "Props", &parameter]).map(|_| ())
 }
 
-fn direct_filter_parameter(graph: &str) -> io::Result<String> {
+fn set_effects_filter(node_id: u32, graph: &str) -> io::Result<()> {
+    let parameter = direct_filter_parameter(EFFECTS_FILTER_PARAMETER, graph)?;
+    run_pw_cli(&["set-param", &node_id.to_string(), "Props", &parameter]).map(|_| ())
+}
+
+fn direct_filter_parameter(property: &str, graph: &str) -> io::Result<String> {
     let graph = escape_spa_string(graph)?;
-    Ok(format!(
-        "{{ params = [ \"{DIRECT_FILTER_PARAMETER}\" \"{graph}\" ] }}"
-    ))
+    Ok(format!("{{ params = [ \"{property}\" \"{graph}\" ] }}"))
 }
 
 fn escape_spa_string(value: &str) -> io::Result<String> {
@@ -1791,12 +2151,24 @@ fn escape_spa_string(value: &str) -> io::Result<String> {
 }
 
 fn set_software_eq_signature(node_id: u32, signature: Option<&str>) -> io::Result<()> {
+    set_software_filter_signature(node_id, SOFTWARE_EQ_SIGNATURE_PROPERTY, signature)
+}
+
+fn set_software_effects_signature(node_id: u32, signature: Option<&str>) -> io::Result<()> {
+    set_software_filter_signature(node_id, SOFTWARE_EFFECTS_SIGNATURE_PROPERTY, signature)
+}
+
+fn set_software_filter_signature(
+    node_id: u32,
+    property: &str,
+    signature: Option<&str>,
+) -> io::Result<()> {
     let id = node_id.to_string();
     let mut arguments = vec!["-n", PIPEWIRE_SETTINGS_METADATA_NAME];
     if signature.is_none() {
         arguments.push("-d");
     }
-    arguments.extend([id.as_str(), SOFTWARE_EQ_SIGNATURE_PROPERTY]);
+    arguments.extend([id.as_str(), property]);
     if let Some(signature) = signature {
         arguments.extend([signature, "Spa:String"]);
     }
@@ -1815,11 +2187,31 @@ fn require_software_eq_signature(node_id: u32, expected: Option<&str>) -> io::Re
     )))
 }
 
+fn require_software_effects_signature(node_id: u32, expected: Option<&str>) -> io::Result<()> {
+    let actual = software_effects_signature(node_id)?;
+    if actual.as_deref() == expected {
+        return Ok(());
+    }
+    Err(io::Error::other(format!(
+        "PipeWire did not retain the software Effects marker (expected {}, read back {})",
+        expected.unwrap_or("not loaded"),
+        actual.as_deref().unwrap_or("not loaded")
+    )))
+}
+
 fn software_eq_signature(node_id: u32) -> io::Result<Option<String>> {
     parse_metadata_value(
         &run_pw_metadata(&["-n", PIPEWIRE_SETTINGS_METADATA_NAME])?,
         node_id,
         SOFTWARE_EQ_SIGNATURE_PROPERTY,
+    )
+}
+
+fn software_effects_signature(node_id: u32) -> io::Result<Option<String>> {
+    parse_metadata_value(
+        &run_pw_metadata(&["-n", PIPEWIRE_SETTINGS_METADATA_NAME])?,
+        node_id,
+        SOFTWARE_EFFECTS_SIGNATURE_PROPERTY,
     )
 }
 
@@ -2008,6 +2400,148 @@ fn run_pactl(arguments: &[&str]) -> io::Result<String> {
         }));
     }
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+fn park_sink_inputs(node_name: &str) -> io::Result<Option<ParkedSinkInputs>> {
+    let sink_index = pactl_sink_index(node_name)?;
+    let input_ids = pactl_sink_inputs(sink_index)?;
+    if input_ids.is_empty() {
+        return Ok(None);
+    }
+
+    let sequence = NEXT_TRANSITION_SINK.fetch_add(1, Ordering::Relaxed);
+    let sink_name = format!("ae5_control_transition_{}_{}", std::process::id(), sequence);
+    let sink_argument = format!("sink_name={sink_name}");
+    let module_output = run_pactl(&[
+        "load-module",
+        "module-null-sink",
+        &sink_argument,
+        "rate=96000",
+        "channels=2",
+        "sink_properties=device.description=AE5_Control_Transition",
+    ])?;
+    let module_id = module_output.trim().parse::<u32>().map_err(|error| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "pactl returned invalid transition module id {:?}: {error}",
+                module_output.trim()
+            ),
+        )
+    })?;
+    let mut parked = ParkedSinkInputs {
+        module_id,
+        sink_name,
+        original_sink_name: node_name.to_owned(),
+        input_ids: Vec::with_capacity(input_ids.len()),
+    };
+    for input_id in input_ids {
+        if let Err(error) = move_sink_input(input_id, &parked.sink_name) {
+            return match parked.restore() {
+                Ok(()) => Err(error),
+                Err(restore_error) => Err(io::Error::other(format!(
+                    "{error}; transition stream rollback also failed: {restore_error}"
+                ))),
+            };
+        }
+        parked.input_ids.push(input_id);
+    }
+    Ok(Some(parked))
+}
+
+fn move_sink_input(input_id: u32, sink_name: &str) -> io::Result<()> {
+    run_pactl(&["move-sink-input", &input_id.to_string(), sink_name]).map(|_| ())
+}
+
+fn pactl_sink_index(node_name: &str) -> io::Result<u32> {
+    let output = run_pactl(&["--format=json", "list", "sinks"])?;
+    parse_pactl_sink_index(&output, node_name)
+}
+
+fn parse_pactl_sink_index(output: &str, node_name: &str) -> io::Result<u32> {
+    let sinks = serde_json::from_str::<serde_json::Value>(output)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    let sinks = sinks.as_array().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "pactl did not return a sink array",
+        )
+    })?;
+    let mut matches = sinks
+        .iter()
+        .filter(|sink| sink["name"].as_str() == Some(node_name));
+    let sink = matches.next().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("pactl has no AE-5 sink named '{node_name}'"),
+        )
+    })?;
+    if matches.next().is_some() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("pactl returned duplicate sinks named '{node_name}'"),
+        ));
+    }
+    json_u32(sink, "index", "sink")
+}
+
+fn pactl_sink_inputs(sink_index: u32) -> io::Result<Vec<u32>> {
+    let output = run_pactl(&["--format=json", "list", "sink-inputs"])?;
+    parse_pactl_sink_inputs(&output, sink_index)
+}
+
+fn pactl_sink_input_ids() -> io::Result<BTreeSet<u32>> {
+    let output = run_pactl(&["--format=json", "list", "sink-inputs"])?;
+    parse_pactl_sink_input_ids(&output)
+}
+
+fn parse_pactl_sink_inputs(output: &str, sink_index: u32) -> io::Result<Vec<u32>> {
+    let inputs = pactl_sink_input_values(output)?;
+    inputs
+        .iter()
+        .filter(|input| input["sink"].as_u64() == Some(u64::from(sink_index)))
+        .map(|input| json_u32(input, "index", "sink input"))
+        .collect()
+}
+
+fn parse_pactl_sink_input_ids(output: &str) -> io::Result<BTreeSet<u32>> {
+    pactl_sink_input_values(output)?
+        .iter()
+        .map(|input| json_u32(input, "index", "sink input"))
+        .collect()
+}
+
+fn pactl_sink_input_values(output: &str) -> io::Result<Vec<serde_json::Value>> {
+    serde_json::from_str::<serde_json::Value>(output)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?
+        .as_array()
+        .cloned()
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "pactl did not return a sink-input array",
+            )
+        })
+}
+
+fn json_u32(value: &serde_json::Value, field: &str, object: &str) -> io::Result<u32> {
+    value[field]
+        .as_u64()
+        .and_then(|value| u32::try_from(value).ok())
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("pactl {object} has no valid {field}"),
+            )
+        })
+}
+
+fn combine_transition_results(first: io::Result<()>, second: io::Result<()>) -> io::Result<()> {
+    match (first, second) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
+        (Err(first), Err(second)) => Err(io::Error::other(format!("{first}; {second}"))),
+    }
 }
 
 fn pactl_sink_is_suspended(node_name: &str) -> io::Result<bool> {
@@ -2209,11 +2743,14 @@ mod tests {
         let signature = RefCell::new(Some("old".to_owned()));
         let writes = RefCell::new(Vec::new());
 
-        let error = replace_software_eq_state_with(
+        let error = replace_software_filter_state_with(
+            "software EQ",
             "new-graph",
             "new",
-            Some("old-graph"),
-            Some("old"),
+            PreviousFilterState {
+                graph: Some("old-graph"),
+                signature: Some("old"),
+            },
             |graph| {
                 writes.borrow_mut().push(format!("filter:{graph}"));
                 Ok(())
@@ -2255,11 +2792,14 @@ mod tests {
         let signature = RefCell::new(Some("old".to_owned()));
         let writes = RefCell::new(Vec::new());
 
-        let error = replace_software_eq_state_with(
+        let error = replace_software_filter_state_with(
+            "software EQ",
             "new-graph",
             "new",
-            Some("old-graph"),
-            Some("old"),
+            PreviousFilterState {
+                graph: Some("old-graph"),
+                signature: Some("old"),
+            },
             |graph| {
                 writes.borrow_mut().push(format!("filter:{graph}"));
                 if graph == "new-graph" {
@@ -2300,11 +2840,14 @@ mod tests {
     fn replacing_eq_refuses_an_unowned_runtime_graph_before_writing() {
         let writes = RefCell::new(Vec::new());
 
-        let error = replace_software_eq_state_with(
+        let error = replace_software_filter_state_with(
+            "software EQ",
             "new-graph",
             "new",
-            None,
-            None,
+            PreviousFilterState {
+                graph: None,
+                signature: None,
+            },
             |graph| {
                 writes.borrow_mut().push(format!("filter:{graph}"));
                 Ok(())
@@ -2418,16 +2961,23 @@ id 58, type PipeWire:Interface:Node
     #[test]
     fn builds_a_single_in_place_filter_parameter_without_shell_parsing() {
         assert_eq!(
-            direct_filter_parameter("{ inputs = [ \"preL:In\" ] }\n").unwrap(),
+            direct_filter_parameter(DIRECT_FILTER_PARAMETER, "{ inputs = [ \"preL:In\" ] }\n")
+                .unwrap(),
             "{ params = [ \"audioconvert.filter-graph.0\" \"{ inputs = [ \\\"preL:In\\\" ] }\\n\" ] }"
         );
         assert_eq!(
-            direct_filter_parameter("").unwrap(),
+            direct_filter_parameter(DIRECT_FILTER_PARAMETER, "").unwrap(),
             "{ params = [ \"audioconvert.filter-graph.0\" \"\" ] }"
         );
         assert_eq!(
-            direct_filter_parameter("bad\u{7f}").unwrap_err().kind(),
+            direct_filter_parameter(DIRECT_FILTER_PARAMETER, "bad\u{7f}")
+                .unwrap_err()
+                .kind(),
             io::ErrorKind::InvalidInput
+        );
+        assert_eq!(
+            direct_filter_parameter(EFFECTS_FILTER_PARAMETER, "").unwrap(),
+            "{ params = [ \"audioconvert.filter-graph.1\" \"\" ] }"
         );
     }
 
@@ -2462,10 +3012,14 @@ update: id:52 key:'ae5.control.eq.signature' value:'other' type:'Spa:String'
     #[test]
     fn parses_the_exact_pactl_sink_state_without_ambiguity() {
         let sinks = r#"[
-          {"name":"alsa_output.pci-ae5.analog-stereo","state":"SUSPENDED"},
-          {"name":"alsa_output.usb-other.analog-stereo","state":"RUNNING"}
+          {"index":68,"name":"alsa_output.pci-ae5.analog-stereo","state":"SUSPENDED"},
+          {"index":73,"name":"alsa_output.usb-other.analog-stereo","state":"RUNNING"}
         ]"#;
         assert!(parse_pactl_sink_suspended(sinks, "alsa_output.pci-ae5.analog-stereo").unwrap());
+        assert_eq!(
+            parse_pactl_sink_index(sinks, "alsa_output.pci-ae5.analog-stereo").unwrap(),
+            68
+        );
         assert_eq!(
             parse_pactl_sink_suspended(sinks, "missing")
                 .unwrap_err()
@@ -2479,6 +3033,30 @@ update: id:52 key:'ae5.control.eq.signature' value:'other' type:'Spa:String'
         ]"#;
         assert_eq!(
             parse_pactl_sink_suspended(duplicate, "duplicate")
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::InvalidData
+        );
+    }
+
+    #[test]
+    fn selects_only_streams_linked_to_the_exact_sink() {
+        let inputs = r#"[
+          {"index":118191,"sink":68,"corked":false},
+          {"index":118192,"sink":73,"corked":false},
+          {"index":118193,"sink":68,"corked":true}
+        ]"#;
+
+        assert_eq!(
+            parse_pactl_sink_inputs(inputs, 68).unwrap(),
+            vec![118191, 118193]
+        );
+        assert_eq!(
+            parse_pactl_sink_input_ids(inputs).unwrap(),
+            BTreeSet::from([118191, 118192, 118193])
+        );
+        assert_eq!(
+            parse_pactl_sink_inputs(r#"[{"index":"bad","sink":68}]"#, 68)
                 .unwrap_err()
                 .kind(),
             io::ErrorKind::InvalidData
@@ -3099,6 +3677,19 @@ update: id:0 key:'clock.force-rate' value:'96000' type:''
                 sample_rate: 96_000,
             }
         );
+    }
+
+    #[test]
+    fn idle_pipewire_format_is_reported_as_absent() {
+        let missing = parse_active_pcm_format("").unwrap_err();
+        assert_eq!(optional_active_pcm_format(Err(missing)).unwrap(), None);
+    }
+
+    #[test]
+    fn unexpected_pipewire_format_errors_are_preserved() {
+        let error = io::Error::new(io::ErrorKind::PermissionDenied, "denied");
+        let actual = optional_active_pcm_format(Err(error)).unwrap_err();
+        assert_eq!(actual.kind(), io::ErrorKind::PermissionDenied);
     }
 
     #[test]

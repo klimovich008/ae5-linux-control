@@ -4,26 +4,60 @@ Linux control software and upstream driver fixes for the Creative Sound
 BlasterX AE-5, developed from public source and reproducible hardware evidence.
 
 **New maintainer or reviewer:** start with
-[`HANDOVER.md`](HANDOVER.md). It identifies the authoritative development
+[`AGENTS.md`](AGENTS.md) for current operating rules, then
+[`HANDOVER.md`](HANDOVER.md) for the accumulated machine and investigation
+context. The handover identifies the authoritative development
 branch, current host state, non-negotiable audio-safety rules, known blockers,
 and the shortest validation path. Then use [`ROADMAP.md`](ROADMAP.md) for the
 single active milestone, completion criteria, and bounded test-rerun policy.
 This README retains cumulative milestone history and should not be read as a
 single current-state report.
 
-## Current sound-safety status
+## Current audio and Effects status
 
-The usable Linux path now fails closed around the confirmed corruption
-triggers. Hardware OutFX, its child output effects, hardware EQ, and Direct
-Mode are blocked before an ALSA write. The production kernel queue also
-initializes OutFX off and rejects an enable request with `-EOPNOTSUPP`.
-Windows Command's OutFX is a software APO master switch; it is not equivalent
-to Linux's unsafe CA0132 hardware control.
+The desktop volume control covers the normal 0–100% range. AE-5 Control does
+not impose an arbitrary product volume cap. Silent hardware transactions
+preserve the user's current PipeWire volume and mute state; audible acceptance
+tests leave the listening level under the user's control.
 
-An intentionally separate, triple-gated diagnostic build can expose that
-hardware control for physically isolated corruption testing. It is never a
-normal listening mode and does not weaken the production defaults. See
-[docs/OUTFX_HARDWARE_LAB.md](docs/OUTFX_HARDWARE_LAB.md).
+Hardware OutFX is now the primary Effects backend on the exact
+`7.1.4-ae5-outfx-lab` kernel. It remains opt-in and fail-closed behind four
+independent conditions: an `outfx-lab` application build, the exact kernel
+release, its boot-scoped module parameter, and explicit daemon-process
+confirmation. Ordinary kernels and unconfirmed daemon sessions still reject
+the write.
+
+Confirm the lab backend for the current desktop session, then restart the
+daemon:
+
+```sh
+systemctl --user set-environment \
+  AE5_OUTFX_LAB=I_ACCEPT_AE5_DSP_CORRUPTION
+systemctl --user restart ae5d.service
+```
+
+The confirmation is intentionally session-scoped. Remove it and restart the
+daemon to return to fail-closed behavior:
+
+```sh
+systemctl --user unset-environment AE5_OUTFX_LAB
+systemctl --user restart ae5d.service
+```
+
+The daemon applies an Effects profile as one checked transaction. It parks
+active PipeWire streams, suspends the AE-5 output, disables the global and
+child switches, writes modes and levels, restores child switches, enables
+OutFX last, verifies every ALSA value, and rolls back before resuming on any
+failure. The QML UI reports the confirmed hardware state. A PipeWire software
+substitute remains available as a fallback, but the daemon never permits it to
+stack with hardware OutFX. See
+[docs/OUTFX_HARDWARE_LAB.md](docs/OUTFX_HARDWARE_LAB.md) for the exact gate
+and [docs/OUTFX_HARDWARE_LAB_RESULTS_2026-07-29.md](docs/OUTFX_HARDWARE_LAB_RESULTS_2026-07-29.md)
+for the bounded qualification evidence.
+
+The following sections retain older investigation measurements as historical
+evidence. Their recorded mixer percentages are not current application
+limits.
 
 Waveform-qualified tests found a second trigger: clearing and later
 reassigning the AE-5 HDA playback converter could change a clean stream into
@@ -221,7 +255,8 @@ exact current AE-5 sink, hot-loads the graph into that sink's PipeWire
 `audioconvert` stage, verifies a runtime signature marker, and resumes it. It
 does not create a virtual sink, change the desktop default, stack a second
 cubic volume control, or require a PipeWire restart. Activation requires
-OutFX to remain readable and off and the physical target to remain current.
+the physical target to remain current. Software EQ and hardware OutFX are
+independent processing groups and may be active together.
 
 The ten imported bands receive a deterministic automatic preamp calculated
 from the combined response at 44.1, 48, and 96 kHz plus 0.25 dB margin. The
@@ -274,14 +309,14 @@ Config` selects the exact stereo, 2.1, 4.0, 4.1, or 5.1 PipeWire profile.
 The shared transaction verifies both layers and rolls back on failure. The
 packaged card rule also enables PipeWire software volume and persistent
 playback for this exact AE-5 so desktop clients cannot reload unsafe hardware
-gains or close and reopen the codec stream. Safe controls write directly
-through ALSA; unsafe hardware output-processing controls are retained only as
-profile metadata and rejected:
+gains or close and reopen the codec stream. Generic CLI mixer writes remain
+fail-closed for sensitive output-processing controls; the QML application uses
+the separate whole-profile hardware Effects transaction:
 
 ```sh
 cargo run -- get "Output Select"
 cargo run -- set-choice "Output Select" Headphone
-cargo run -- set-playback-switch "FX: Surround" off # rejected: software path only
+cargo run -- set-playback-switch "FX: Surround" off # rejected outside the guarded transaction
 cargo run -- set-playback-channel-level Front "Front Right" 82
 ```
 
@@ -484,9 +519,11 @@ live EQ Inactive/Saved only/Active/Error state.
 
 Master volume and mute use the same narrow typed D-Bus pattern with exact AE-5
 PipeWire targeting, checked readback, rollback on mismatch, and structured
-`ae5d` journal events. Effects and OutFX remain previews. Output, gain, Direct
-Mode, and hardware-effect writes remain unavailable, so the QML GUI cannot
-perform the DSP transitions associated with earlier corruption.
+`ae5d` journal events. Effects are live through the guarded hardware
+transaction described above, while software EQ remains a separate PipeWire
+group and may be active at the same time. Output switching, gain, and Direct
+Mode remain unavailable in the QML write surface until their own checked
+transactions are connected.
 
 On Fedora/Nobara, install the Qt development packages. Until the user-service
 files are included in the RPM, launch `ae5d` in one terminal:
@@ -551,8 +588,8 @@ trace lines. The **System audio** page can make the AE-5 the default
 PipeWire playback or recording device and opt into native-rate switching
 without changing its ALSA mixer controls.
 The **Equalizer** page separates the saved CA0132 hardware EQ state from the
-PipeWire software path. It labels a hardware EQ child setting as `ARMED` when
-OutFX is off instead of claiming that it is processing audio.
+checked PipeWire software path. The Qt Sound page independently reports
+whether hardware OutFX and software EQ are active.
 
 The **Lighting** page uses native GTK color dialogs for a unified color or five
 individual LED colors. It shares the CLI's verified, transactional backend and
@@ -634,8 +671,8 @@ lighting settings are preserved by upgrades and removal. It cannot install a
 kernel patch or udev permissions, so onboard-lighting writes still require the
 system package's exact rule. The isolated lifecycle check runs in CI, and the
 reference host has launched the installed Qt application under Wayland and
-X11, including daemon restart recovery, with an unchanged 20% mixer and route
-state. Full evidence and the remaining authenticated-RPM gate are in
+X11, including daemon restart recovery, without changing the existing mixer
+or route state. Full evidence and the remaining authenticated-RPM gate are in
 [docs/PACKAGING_VALIDATION.md](docs/PACKAGING_VALIDATION.md).
 
 The **Profiles** page can:
@@ -708,9 +745,9 @@ Speakers→Headphone cycle 10.88 dB above both its quiet and muted controls.
 Both restored the exact persistent mixer, route, and volume state. Repeated
 connected-headphone cold-boot and suspend/resume acceptance remains. A silent,
 user-driven suspend probe now
-rejects any playback stage above 20%, non-Low headphone gain, open PCM, wrong
-route, unreadable evidence, changed mixer state, changed boot/kernel, or new
-audio warning; it never suspends or plays audio itself. Run its paired
+requires the campaign's bounded playback state, non-High headphone gain,
+closed PCM, the expected route, readable evidence, an unchanged boot/kernel,
+and no new audio warning; it never suspends or plays audio itself. Run its paired
 `--before-suspend campaign-01` and `--after-resume campaign-01` captures, then
 check progress with `--suspend-summary 20`. A standalone read-only snapshot is
 available through `--preflight ID`; it validates the same safety conditions
@@ -730,8 +767,8 @@ be reported as healthy merely because the route names agree. Reapplying the
 already-selected Headphone value deliberately preserves a muted Front switch,
 so the CLI `route-repair` command and the conditional GTK action provide the
 separate, explicit recovery path. Both repaired a guarded real-card negative
-test, returned the raw mixer to its exact starting hash, kept PipeWire at the
-20% ceiling, and opened no PCM. Route writes still require the analog PCM to
+test, returned the raw mixer to its exact starting hash, preserved PipeWire
+volume, and opened no PCM. Route writes still require the analog PCM to
 close first; the bounded wait allows five seconds for WirePlumber startup to
 settle and otherwise fails without touching the mixer. Historical boot records
 that predate Front collection are reported as unavailable instead of being
@@ -744,8 +781,9 @@ and fixed two unsafe ACP interactions: hardware volume ownership reloaded
 saved route gains, and the old headphone path interpreted `volume=zero` as
 0 dB. The package now requires `api.alsa.soft-mixer=true` and uses
 `volume=ignore`; the backend refuses managed routing until that policy is
-active. Every matrix stage kept PipeWire at 0%, ALSA at or below 20%, Low
-gain, and all PCM devices closed; no sound was played. Evidence and transition
+active. Every matrix stage kept PipeWire muted, preserved the bounded ALSA
+state, used Low gain, and left all PCM devices closed; no sound was played.
+Evidence and transition
 matrices are documented in
 [docs/DRIVER_ROUTING_INVESTIGATION.md](docs/DRIVER_ROUTING_INVESTIGATION.md).
 The ineffective AE-5 What U Hear volume/mute controls, guarded measurements,
@@ -789,7 +827,7 @@ update `user.config`.
 All physical outputs stayed unplugged and no audio was played during that
 validation. A Speakers-to-Headphones transition caused Command to unmute the
 Windows render endpoint, despite its prior muted state. The Windows capture
-procedure therefore reapplies and independently verifies the 20% cap and mute
+procedure therefore reapplies and independently verifies its requested level and mute
 after every output, profile, format, or device transition. A guarded 997 Hz
 Windows/Linux screen subsequently exposed and fixed the silent normal
 PipeWire transport: the AE-5 requires raw read/write playback, its working

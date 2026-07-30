@@ -1,14 +1,15 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Ae5Device, AudioFormat, ControlSnapshot, DIRECT_MODE_CONTROL, EqChainConfig, PipeWireNode,
-    RuntimeSampleRate, SoftwareEqOutput, ae5_audio_format, ae5_output, eq_chain_config,
-    runtime_sample_rate, snapshot_controls, software_eq_output,
-    unsafe_playback_control_block_reason,
+    Ae5Device, AudioFormat, ControlSnapshot, DIRECT_MODE_CONTROL, EffectsChainConfig,
+    EqChainConfig, HARDWARE_OUTFX_CONTROL, HardwareEffectsConfig, PipeWireNode, RuntimeSampleRate,
+    SoftwareEffectsOutput, SoftwareEqOutput, ae5_audio_format, ae5_output, effects_chain_config,
+    eq_chain_config, hardware_effects_config, hardware_effects_profile_matches,
+    hardware_outfx_lab_active, runtime_sample_rate, snapshot_controls, software_effects_output,
+    software_eq_output, unsafe_playback_control_block_reason, validate_effects_runtime_support,
 };
 
-const READ_ONLY_REASON: &str =
-    "Hardware controls are read-only until their checked ae5d write path is connected.";
+const READ_ONLY_REASON: &str = "Output, gain, and Direct Mode writes remain read-only until their checked ae5d paths are connected.";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DeviceStatusCode {
@@ -125,6 +126,16 @@ pub struct DeviceOutputState {
     pub software_eq_active: bool,
     pub eq_apply_available: bool,
     pub eq_apply_block_reason: String,
+    pub software_effects_state: String,
+    pub software_effects_detail: String,
+    pub software_effects_active: bool,
+    pub software_effects_apply_available: bool,
+    pub software_effects_apply_block_reason: String,
+    pub hardware_effects_state: String,
+    pub hardware_effects_detail: String,
+    pub hardware_effects_active: bool,
+    pub effects_apply_available: bool,
+    pub effects_apply_block_reason: String,
     pub hardware_write_enabled: bool,
     pub volume_write_enabled: bool,
     pub mute_write_enabled: bool,
@@ -144,6 +155,11 @@ struct DeviceStateParts {
     sample_rate_policy: Result<RuntimeSampleRate, String>,
     eq_config: Result<EqChainConfig, String>,
     eq_output: Result<Option<SoftwareEqOutput>, String>,
+    effects_config: Result<EffectsChainConfig, String>,
+    effects_output: Result<Option<SoftwareEffectsOutput>, String>,
+    effects_runtime_support: Result<(), String>,
+    hardware_effects_config: Result<HardwareEffectsConfig, String>,
+    hardware_effects_gate: bool,
     output_write_block_reason: Option<String>,
 }
 
@@ -169,6 +185,12 @@ impl DeviceOutputState {
             sample_rate_policy: runtime_sample_rate().map_err(|error| error.to_string()),
             eq_config: eq_chain_config().map_err(|error| error.to_string()),
             eq_output: software_eq_output(card_index).map_err(|error| error.to_string()),
+            effects_config: effects_chain_config().map_err(|error| error.to_string()),
+            effects_output: software_effects_output(card_index).map_err(|error| error.to_string()),
+            effects_runtime_support: validate_effects_runtime_support()
+                .map_err(|error| error.to_string()),
+            hardware_effects_config: hardware_effects_config().map_err(|error| error.to_string()),
+            hardware_effects_gate: hardware_outfx_lab_active(),
             output_write_block_reason: unsafe_playback_control_block_reason("Output Select")
                 .map(str::to_owned),
         };
@@ -184,7 +206,7 @@ impl DeviceOutputState {
 
     fn unavailable(status: DeviceStatusCode, status_message: String) -> Self {
         Self {
-            schema_version: 3,
+            schema_version: 5,
             device_name: "Sound BlasterX AE-5".to_owned(),
             connected: false,
             status_code: status.as_str().to_owned(),
@@ -210,6 +232,18 @@ impl DeviceOutputState {
             software_eq_active: false,
             eq_apply_available: false,
             eq_apply_block_reason: status_message.clone(),
+            software_effects_state: "unavailable".to_owned(),
+            software_effects_detail: "No compatible AE-5 is available for software Effects."
+                .to_owned(),
+            software_effects_active: false,
+            software_effects_apply_available: false,
+            software_effects_apply_block_reason: status_message.clone(),
+            hardware_effects_state: "unavailable".to_owned(),
+            hardware_effects_detail: "No compatible AE-5 is available for hardware Effects."
+                .to_owned(),
+            hardware_effects_active: false,
+            effects_apply_available: false,
+            effects_apply_block_reason: status_message.clone(),
             hardware_write_enabled: false,
             volume_write_enabled: false,
             mute_write_enabled: false,
@@ -268,6 +302,22 @@ fn compose_state(device: Ae5Device, parts: DeviceStateParts) -> DeviceOutputStat
         output_present,
         direct_mode,
     );
+    let hardware_effects = hardware_effects_summary(
+        &parts.hardware_effects_config,
+        &controls,
+        parts.hardware_effects_gate,
+        output_present,
+        direct_mode,
+        matches!(&parts.effects_output, Ok(Some(_))),
+    );
+    let software_effects = software_effects_summary(
+        &parts.effects_config,
+        &parts.effects_output,
+        &parts.effects_runtime_support,
+        output_present,
+        direct_mode,
+        hardware_effects.active,
+    );
 
     let (master_volume, volume_available, muted, mute_available) = match parts.output_node {
         Ok(Some(node)) => {
@@ -298,10 +348,7 @@ fn compose_state(device: Ae5Device, parts: DeviceStateParts) -> DeviceOutputStat
 
     let (audio_format, audio_format_available) = match parts.audio_format {
         Ok(Some(format)) => (format_audio_format(&format), true),
-        Ok(None) => {
-            issues.push("Active PipeWire format is unavailable.".to_owned());
-            ("Unavailable".to_owned(), false)
-        }
+        Ok(None) => ("Idle".to_owned(), false),
         Err(error) => {
             specific_status =
                 specific_status.or_else(|| DeviceStatusCode::from_known_error(&error));
@@ -343,7 +390,7 @@ fn compose_state(device: Ae5Device, parts: DeviceStateParts) -> DeviceOutputStat
         .unwrap_or_else(|| READ_ONLY_REASON.to_owned());
 
     DeviceOutputState {
-        schema_version: 3,
+        schema_version: 5,
         device_name: device
             .codec_name
             .unwrap_or_else(|| "Sound BlasterX AE-5".to_owned()),
@@ -371,6 +418,16 @@ fn compose_state(device: Ae5Device, parts: DeviceStateParts) -> DeviceOutputStat
         software_eq_active: software_eq.active,
         eq_apply_available: software_eq.apply_available,
         eq_apply_block_reason: software_eq.apply_block_reason,
+        software_effects_state: software_effects.state,
+        software_effects_detail: software_effects.detail,
+        software_effects_active: software_effects.active,
+        software_effects_apply_available: software_effects.apply_available,
+        software_effects_apply_block_reason: software_effects.apply_block_reason,
+        hardware_effects_state: hardware_effects.state,
+        hardware_effects_detail: hardware_effects.detail,
+        hardware_effects_active: hardware_effects.active,
+        effects_apply_available: hardware_effects.apply_available,
+        effects_apply_block_reason: hardware_effects.apply_block_reason,
         hardware_write_enabled: volume_available || mute_available,
         volume_write_enabled: volume_available,
         mute_write_enabled: mute_available,
@@ -470,6 +527,200 @@ fn software_eq_summary(
     }
 }
 
+struct SoftwareEffectsSummary {
+    state: String,
+    detail: String,
+    active: bool,
+    apply_available: bool,
+    apply_block_reason: String,
+}
+
+struct HardwareEffectsSummary {
+    state: String,
+    detail: String,
+    active: bool,
+    apply_available: bool,
+    apply_block_reason: String,
+}
+
+fn hardware_effects_summary(
+    config: &Result<HardwareEffectsConfig, String>,
+    controls: &[ControlSnapshot],
+    gate_active: bool,
+    output_present: bool,
+    direct_mode: bool,
+    software_effects_active: bool,
+) -> HardwareEffectsSummary {
+    let master = controls
+        .iter()
+        .find(|control| control.name == HARDWARE_OUTFX_CONTROL)
+        .and_then(|control| control.playback_switch);
+    let active = master == Some(true);
+    let (state, detail) = if master.is_none() {
+        (
+            "unavailable",
+            "The current AE-5 driver does not expose the hardware OutFX master switch.".to_owned(),
+        )
+    } else if !gate_active {
+        (
+            "unavailable",
+            "Hardware OutFX is locked. Boot the exact AE-5 OutFX lab kernel and start ae5d with explicit lab confirmation."
+                .to_owned(),
+        )
+    } else {
+        match config {
+            Err(error) => (
+                "unavailable",
+                format!("Hardware Effects managed state is unavailable: {error}"),
+            ),
+            Ok(config) => match config.profile.as_ref() {
+                Some(profile)
+                    if hardware_effects_profile_matches(profile, controls, true) =>
+                {
+                    (
+                        "current",
+                        format!(
+                            "Hardware OutFX is active and verified against the saved '{}' profile.",
+                            profile.name
+                        ),
+                    )
+                }
+                Some(profile)
+                    if !active
+                        && hardware_effects_profile_matches(profile, controls, false) =>
+                {
+                    (
+                        "configured",
+                        format!(
+                            "The saved '{}' hardware profile is intact; hardware OutFX is bypassed.",
+                            profile.name
+                        ),
+                    )
+                }
+                Some(_) => (
+                    "different",
+                    "The live hardware Effects controls differ from the last profile applied by AE-5 Control."
+                        .to_owned(),
+                ),
+                None if active => (
+                    "different",
+                    "Hardware OutFX is active but has not yet been adopted by AE-5 Control."
+                        .to_owned(),
+                ),
+                None => (
+                    "inactive",
+                    "Hardware OutFX is inactive; applying a profile writes and verifies the complete hardware Effects group."
+                        .to_owned(),
+                ),
+            },
+        }
+    };
+    let apply_block_reason = if !output_present {
+        "PipeWire has no AE-5 playback output to pause safely for a hardware Effects transaction."
+            .to_owned()
+    } else if direct_mode {
+        "Turn Direct Mode off before applying hardware Effects.".to_owned()
+    } else if software_effects_active {
+        "Disable the software Effects fallback before enabling hardware OutFX; the two backends are never stacked."
+            .to_owned()
+    } else if state == "unavailable" {
+        detail.clone()
+    } else {
+        String::new()
+    };
+    HardwareEffectsSummary {
+        state: state.to_owned(),
+        detail,
+        active,
+        apply_available: apply_block_reason.is_empty(),
+        apply_block_reason,
+    }
+}
+
+fn software_effects_summary(
+    config: &Result<EffectsChainConfig, String>,
+    runtime: &Result<Option<SoftwareEffectsOutput>, String>,
+    runtime_support: &Result<(), String>,
+    output_present: bool,
+    direct_mode: bool,
+    hardware_effects_active: bool,
+) -> SoftwareEffectsSummary {
+    let (state, detail, active) = match (config, runtime, runtime_support) {
+        (_, _, Err(error)) => (
+            "unavailable",
+            format!("Software Effects are unavailable: {error}."),
+            false,
+        ),
+        (Err(error), _, _) => (
+            "unavailable",
+            format!("Software Effects configuration is unavailable: {error}"),
+            false,
+        ),
+        (_, Err(error), _) => (
+            "unavailable",
+            format!("Software Effects runtime state is unavailable: {error}"),
+            false,
+        ),
+        (Ok(config), Ok(runtime), Ok(())) => {
+            let active = runtime.is_some();
+            let current = config.signature().as_deref()
+                == runtime
+                    .as_ref()
+                    .and_then(|output| output.signature.as_deref());
+            if !config.enabled && !active {
+                (
+                    "inactive",
+                    "The software Effects fallback is inactive.".to_owned(),
+                    false,
+                )
+            } else if config.enabled && !active {
+                (
+                    "configured",
+                    "A software Effects profile is saved but not active in this PipeWire session."
+                        .to_owned(),
+                    false,
+                )
+            } else if config.enabled && current {
+                (
+                    "current",
+                    "Linux software substitutes are active in the existing AE-5 output; the hardware OutFX path was not written."
+                        .to_owned(),
+                    true,
+                )
+            } else {
+                (
+                    "different",
+                    "A different AE-5 software Effects graph is active; disable it before replacing it."
+                        .to_owned(),
+                    active,
+                )
+            }
+        }
+    };
+    let apply_block_reason = if !output_present {
+        "PipeWire has no AE-5 playback output for software Effects.".to_owned()
+    } else if direct_mode {
+        "Turn Direct Mode off before applying software Effects.".to_owned()
+    } else if hardware_effects_active {
+        "Disable hardware OutFX before enabling the software Effects fallback; the two backends are never stacked."
+            .to_owned()
+    } else if state == "unavailable" {
+        detail.clone()
+    } else if state == "different" {
+        "A different AE-5 software Effects graph is active; disable it before applying another profile."
+            .to_owned()
+    } else {
+        String::new()
+    };
+    SoftwareEffectsSummary {
+        state: state.to_owned(),
+        detail,
+        active,
+        apply_available: apply_block_reason.is_empty(),
+        apply_block_reason,
+    }
+}
+
 fn selected_choice<'a>(controls: &'a [ControlSnapshot], name: &str) -> Option<&'a str> {
     controls
         .iter()
@@ -503,7 +754,10 @@ fn format_audio_format(format: &AudioFormat) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ChannelLevel, EQ_FREQUENCIES, EqBand, EqChainConfig, SoftwareEqOutput};
+    use crate::{
+        ChannelLevel, EQ_FREQUENCIES, EffectsChainConfig, EffectsProfileEntry, EqBand,
+        EqChainConfig, HardwareEffectsConfig, SoftwareEffectsOutput, SoftwareEqOutput,
+    };
 
     fn device() -> Ae5Device {
         Ae5Device {
@@ -590,6 +844,19 @@ mod tests {
                 preamp_db: 0.0,
             }),
             eq_output: Ok(None),
+            effects_config: Ok(EffectsChainConfig {
+                path: "/tmp/ae5-test-effects".into(),
+                enabled: false,
+                target_node: None,
+                profile: None,
+            }),
+            effects_output: Ok(None),
+            effects_runtime_support: Ok(()),
+            hardware_effects_config: Ok(HardwareEffectsConfig {
+                path: "/tmp/ae5-test-hardware-effects".into(),
+                profile: None,
+            }),
+            hardware_effects_gate: true,
             output_write_block_reason: None,
         }
     }
@@ -641,6 +908,15 @@ mod tests {
                 "inactive",
                 true,
             )
+        );
+        assert_eq!(
+            (
+                state.software_effects_state.as_str(),
+                state.software_effects_apply_available,
+                state.hardware_effects_state.as_str(),
+                state.effects_apply_available,
+            ),
+            ("inactive", true, "inactive", true)
         );
     }
 
@@ -703,6 +979,114 @@ mod tests {
     }
 
     #[test]
+    fn compose_state_reports_verified_hardware_effects() {
+        let mut parts = healthy_parts();
+        let profile = EffectsProfileEntry {
+            id: "effects:hardware".to_owned(),
+            name: "Hardware".to_owned(),
+            source: "Test".to_owned(),
+            read_only: false,
+            outfx_enabled: true,
+            surround_available: false,
+            surround_enabled: false,
+            surround_level: 0,
+            crystalizer_available: false,
+            crystalizer_enabled: false,
+            crystalizer_level: 0,
+            bass_available: false,
+            bass_enabled: false,
+            bass_level: 0,
+            smart_volume_available: false,
+            smart_volume_enabled: false,
+            smart_volume_level: 0,
+            smart_volume_mode: "Normal".to_owned(),
+            dialog_available: false,
+            dialog_enabled: false,
+            dialog_level: 0,
+        };
+        parts
+            .controls
+            .as_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|control| control.name == HARDWARE_OUTFX_CONTROL)
+            .unwrap()
+            .playback_switch = Some(true);
+        parts.hardware_effects_config = Ok(HardwareEffectsConfig {
+            path: "/tmp/ae5-test-hardware-effects".into(),
+            profile: Some(profile),
+        });
+
+        let state = compose_state(device(), parts);
+
+        assert_eq!(
+            (
+                state.hardware_effects_state.as_str(),
+                state.hardware_effects_active,
+                state.effects_apply_available,
+            ),
+            ("current", true, true)
+        );
+        assert!(!state.software_effects_apply_available);
+    }
+
+    #[test]
+    fn compose_state_reports_verified_software_effects_without_hardware_outfx() {
+        let mut parts = healthy_parts();
+        let profile = EffectsProfileEntry {
+            id: "effects:test".to_owned(),
+            name: "Test".to_owned(),
+            source: "Test".to_owned(),
+            read_only: false,
+            outfx_enabled: true,
+            surround_available: true,
+            surround_enabled: true,
+            surround_level: 35,
+            crystalizer_available: false,
+            crystalizer_enabled: false,
+            crystalizer_level: 0,
+            bass_available: false,
+            bass_enabled: false,
+            bass_level: 0,
+            smart_volume_available: false,
+            smart_volume_enabled: false,
+            smart_volume_level: 0,
+            smart_volume_mode: "Normal".to_owned(),
+            dialog_available: false,
+            dialog_enabled: false,
+            dialog_level: 0,
+        };
+        let config = EffectsChainConfig {
+            path: "/tmp/ae5-test-effects".into(),
+            enabled: true,
+            target_node: Some(node().node_name),
+            profile: Some(profile),
+        };
+        parts.effects_output = Ok(Some(SoftwareEffectsOutput {
+            node: node(),
+            signature: config.signature(),
+        }));
+        parts.effects_config = Ok(config);
+
+        let state = compose_state(device(), parts);
+
+        assert_eq!(
+            (
+                state.software_effects_state.as_str(),
+                state.software_effects_active,
+                state.software_effects_apply_available,
+            ),
+            ("current", true, true)
+        );
+        assert!(!state.effects_apply_available);
+        assert!(
+            state
+                .effects_apply_block_reason
+                .contains("software Effects fallback")
+        );
+    }
+
+    #[test]
     fn compose_state_reports_pipewire_failure_as_partial() {
         let mut parts = healthy_parts();
         parts.output_node = Err("wpctl unavailable".to_owned());
@@ -715,6 +1099,23 @@ mod tests {
                 state.mute_available,
             ),
             (true, "partial", false, false)
+        );
+    }
+
+    #[test]
+    fn compose_state_treats_an_idle_pcm_as_healthy() {
+        let mut parts = healthy_parts();
+        parts.audio_format = Ok(None);
+
+        let state = compose_state(device(), parts);
+
+        assert_eq!(
+            (
+                state.status_code.as_str(),
+                state.audio_format.as_str(),
+                state.audio_format_available,
+            ),
+            ("ready", "Idle", false)
         );
     }
 

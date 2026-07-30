@@ -348,7 +348,15 @@ pub fn save_eq_preset_as(
 }
 
 impl EffectsProfileEntry {
+    pub fn validate(&self) -> Result<(), String> {
+        validate_effects_draft(self)
+    }
+
     pub fn set_control(&mut self, control: &str, enabled: bool, level: i32) -> Result<(), String> {
+        if control == "master" {
+            self.outfx_enabled = enabled;
+            return Ok(());
+        }
         let level = u16::try_from(level)
             .ok()
             .filter(|level| *level <= 100)

@@ -25,6 +25,7 @@ BuildRequires:  rust
 BuildRequires:  systemd-rpm-macros
 BuildRequires:  systemd-udev
 Requires:       hicolor-icon-theme
+Requires:       ladspa-swh-plugins
 Requires:       pipewire-libs
 Requires:       pipewire-utils
 Requires:       pulseaudio-utils

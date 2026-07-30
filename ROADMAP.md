@@ -154,8 +154,9 @@ Status: **in progress**
   the exact `-96..0 dB`, exponent-`1.75` endpoint taper. A tested PipeWire SPA
   overlay applies it only to the exact `11020051` AE-5 analog node while
   preserving ordinary desktop percentages; non-AE-5 nodes remain cubic.
-- Run the guarded physical Windows/Linux loudness comparison at no more than
-  20% and record whether the formula closes the reported level difference.
+- Run the guarded physical Windows/Linux loudness comparison at the same
+  user-selected listening level and record whether the formula closes the
+  reported level difference.
 - Prove the active PipeWire graph and ALSA PCM rates at 44.1, 48, and 96 kHz.
 - Measure neutral repeatability and three curves: the personal headphone
   profile plus two materially different factory profiles.
@@ -169,7 +170,7 @@ PipeWire policy, kernel audio-path, or rate-negotiation changes.
 
 ### M4 — Profile and Qt/QML GUI daily-use acceptance
 
-Status: **in progress — packaged Qt runtime slice complete**
+Status: **in progress — hardware Effects transaction complete**
 
 - Reproduce and fix the reported profile-card fallback to Adventure and Action.
 - Make profile application state explicit: selected profile, route variant,
@@ -256,11 +257,19 @@ Status: **in progress — packaged Qt runtime slice complete**
   and the Sound page in both dark and light themes. This closes navigation and
   layout only; typed backend integration and physical acceptance for deferred
   controls remain open.
-- Active next step: with the user present and OutFX deliberately off, run one
-  guarded apply/change/disable/restart cycle at no more than 20% and record
-  cross-rate response and persistence evidence. Effects, OutFX, output, gain,
-  and Direct Mode writes remain gated. No GUI work may relax those guards or
-  exceed the 20% hardware-test ceiling.
+- Completed the guarded hardware Effects slice on
+  `7.1.4-ae5-outfx-lab`: `ae5d` applies the complete profile with active-stream
+  parking, master-last ordering, exact ALSA readback, managed-state
+  persistence, and rollback while paused. Software EQ remained active during
+  a silent physical-card apply; the exact PipeWire stream survived, no
+  transition sink leaked, disable/reapply verified, and kernel taint stayed
+  zero. The UI now reports the confirmed hardware state and cannot stack the
+  software-Effects fallback with OutFX.
+- Active next step: run a user-controlled audible profile A/B, then verify the
+  same profile and EQ state after daemon restart and a cold boot. Keep output,
+  gain, and Direct Mode writes unavailable until their own transactions are
+  implemented. Do not spend the core-validation milestone on GUI performance
+  or visual redesign.
 - Keep hardware, profiles, state transitions, readback, rollback, and
   diagnostics outside toolkit-specific UI code so the backend can be reused by
   the future `ae5d`/CXX-Qt/QML architecture documented in
@@ -323,7 +332,8 @@ smallest related evidence set, not every result in the repository.
 
 Every physical harness must:
 
-- enforce the 20% ceiling and Low gain;
+- preserve the user's volume/mute state, hard-mute silent transactions, and
+  avoid High gain for an acoustic test;
 - fail closed when identity or state is ambiguous;
 - capture before/after state and relevant journals;
 - restore mixer, route, volume/mute, graph, and PCM state;

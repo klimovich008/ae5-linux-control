@@ -71,6 +71,18 @@ pub mod qobject {
         #[qproperty(bool, effects_read_only, cxx_name = "effectsReadOnly")]
         #[qproperty(QStringList, effects_profile_names, cxx_name = "effectsProfileNames")]
         #[qproperty(bool, effects_outfx_enabled, cxx_name = "effectsOutfxEnabled")]
+        #[qproperty(QString, software_effects_state, cxx_name = "softwareEffectsState")]
+        #[qproperty(QString, software_effects_detail, cxx_name = "softwareEffectsDetail")]
+        #[qproperty(bool, software_effects_active, cxx_name = "softwareEffectsActive")]
+        #[qproperty(QString, hardware_effects_state, cxx_name = "hardwareEffectsState")]
+        #[qproperty(QString, hardware_effects_detail, cxx_name = "hardwareEffectsDetail")]
+        #[qproperty(bool, hardware_effects_active, cxx_name = "hardwareEffectsActive")]
+        #[qproperty(bool, effects_apply_available, cxx_name = "effectsApplyAvailable")]
+        #[qproperty(
+            QString,
+            effects_apply_block_reason,
+            cxx_name = "effectsApplyBlockReason"
+        )]
         #[qproperty(bool, surround_available, cxx_name = "surroundAvailable")]
         #[qproperty(bool, surround_enabled, cxx_name = "surroundEnabled")]
         #[qproperty(i32, surround_level, cxx_name = "surroundLevel")]
@@ -192,6 +204,14 @@ pub mod qobject {
         #[qinvokable]
         #[cxx_name = "disableSoftwareEq"]
         fn disable_software_eq(self: Pin<&mut Self>);
+
+        #[qinvokable]
+        #[cxx_name = "applyEffectsDraft"]
+        fn apply_effects_draft(self: Pin<&mut Self>);
+
+        #[qinvokable]
+        #[cxx_name = "disableHardwareEffects"]
+        fn disable_hardware_effects(self: Pin<&mut Self>);
 
         #[qinvokable]
         #[cxx_name = "saveEffectsDraft"]
@@ -334,6 +354,14 @@ pub struct AppStateRust {
     effects_read_only: bool,
     effects_profile_names: QStringList,
     effects_outfx_enabled: bool,
+    software_effects_state: QString,
+    software_effects_detail: QString,
+    software_effects_active: bool,
+    hardware_effects_state: QString,
+    hardware_effects_detail: QString,
+    hardware_effects_active: bool,
+    effects_apply_available: bool,
+    effects_apply_block_reason: QString,
     surround_available: bool,
     surround_enabled: bool,
     surround_level: i32,
@@ -376,6 +404,8 @@ pub struct AppStateRust {
     catalog_warning_count: usize,
     eq_operation_in_flight: bool,
     eq_operation_generation: u64,
+    effects_operation_in_flight: bool,
+    effects_operation_generation: u64,
 }
 
 impl Default for AppStateRust {
@@ -439,6 +469,20 @@ impl Default for AppStateRust {
             effects_read_only: true,
             effects_profile_names: QStringList::default(),
             effects_outfx_enabled: false,
+            software_effects_state: QString::from("unavailable"),
+            software_effects_detail: QString::from(
+                "Live software Effects state is unavailable until ae5d connects.",
+            ),
+            software_effects_active: false,
+            hardware_effects_state: QString::from("unavailable"),
+            hardware_effects_detail: QString::from(
+                "Live hardware Effects state is unavailable until ae5d connects.",
+            ),
+            hardware_effects_active: false,
+            effects_apply_available: false,
+            effects_apply_block_reason: QString::from(
+                "ae5d is unavailable; reconnect before applying hardware Effects.",
+            ),
             surround_available: false,
             surround_enabled: false,
             surround_level: 0,
@@ -468,10 +512,10 @@ impl Default for AppStateRust {
             headphone_gain_write_enabled: false,
             direct_mode_write_enabled: false,
             hardware_write_block_reason: QString::from(
-                "Hardware controls are read-only until their checked ae5d write path is connected.",
+                "Output, gain, and Direct Mode writes remain read-only until their checked ae5d paths are connected.",
             ),
             output_write_block_reason: QString::from(
-                "Hardware controls are read-only until their checked ae5d write path is connected.",
+                "Output, gain, and Direct Mode writes remain read-only until their checked ae5d paths are connected.",
             ),
             card_index: -1,
             controls_count: 0,
@@ -485,6 +529,8 @@ impl Default for AppStateRust {
             catalog_warning_count: 0,
             eq_operation_in_flight: false,
             eq_operation_generation: 0,
+            effects_operation_in_flight: false,
+            effects_operation_generation: 0,
         };
         if let Some(scenario) = qa_fixture {
             state.apply_qa_scenario(scenario);
@@ -552,6 +598,17 @@ impl AppStateRust {
         self.effects_read_only = false;
         self.effects_profile_names = qstring_list(std::iter::once(effects.name.as_str()));
         self.effects_outfx_enabled = effects.outfx_enabled;
+        self.software_effects_state = QString::from("inactive");
+        self.software_effects_detail =
+            QString::from("QA preview never installs or changes a PipeWire Effects graph.");
+        self.software_effects_active = false;
+        self.hardware_effects_state = QString::from("inactive");
+        self.hardware_effects_detail =
+            QString::from("QA preview never writes the AE-5 hardware Effects controls.");
+        self.hardware_effects_active = false;
+        self.effects_apply_available = false;
+        self.effects_apply_block_reason =
+            QString::from("Live Effects writes are disabled in deterministic QA preview.");
         self.surround_available = effects.surround_available;
         self.surround_enabled = effects.surround_enabled;
         self.surround_level = i32::from(effects.surround_level);
@@ -601,7 +658,7 @@ impl AppStateRust {
             UiQaScenario::BothModified => {
                 self.effects_state = QString::from("Modified");
                 self.effects_detail = QString::from(
-                    "Draft changed locally. Live audio and the saved Effects profile are unchanged.",
+                    "Draft differs from the saved Effects profile. Use Apply Effects to change live audio.",
                 );
                 self.bass_level += 1;
                 self.effects_draft
@@ -640,7 +697,7 @@ impl AppStateRust {
                 self.device_status = QString::from("Write failed");
                 self.status_code = QString::from("write-failed");
                 self.status_detail = QString::from(
-                    "The requested value was not confirmed. The previous value, 20%, remains authoritative.",
+                    "The requested value was not confirmed. The previously verified value remains authoritative.",
                 );
                 self.write_error_active = true;
                 self.last_write_error = self.status_detail.clone();
@@ -735,6 +792,15 @@ impl AppStateRust {
             QString::from("Live software EQ is unavailable in this device state.");
         self.eq_apply_available = false;
         self.eq_apply_block_reason = self.status_detail.clone();
+        self.software_effects_state = QString::from("unavailable");
+        self.software_effects_detail =
+            QString::from("Live software Effects are unavailable in this device state.");
+        self.hardware_effects_state = QString::from("unavailable");
+        self.hardware_effects_detail =
+            QString::from("Live hardware Effects are unavailable in this device state.");
+        self.hardware_effects_active = false;
+        self.effects_apply_available = false;
+        self.effects_apply_block_reason = self.status_detail.clone();
         self.disable_qa_hardware_writes();
         self.card_index = -1;
         self.controls_count = 0;
@@ -766,6 +832,23 @@ impl AppStateRust {
             return false;
         }
         self.eq_operation_in_flight = false;
+        true
+    }
+
+    fn begin_effects_operation(&mut self) -> Option<u64> {
+        if self.effects_operation_in_flight {
+            return None;
+        }
+        self.effects_operation_generation = self.effects_operation_generation.saturating_add(1);
+        self.effects_operation_in_flight = true;
+        Some(self.effects_operation_generation)
+    }
+
+    fn finish_effects_operation(&mut self, generation: u64) -> bool {
+        if !self.effects_operation_in_flight || self.effects_operation_generation != generation {
+            return false;
+        }
+        self.effects_operation_in_flight = false;
         true
     }
 }
@@ -864,6 +947,22 @@ impl qobject::AppState {
                 self.as_mut().set_eq_apply_available(false);
                 self.as_mut().set_eq_apply_block_reason(QString::from(
                     "ae5d is unavailable; reconnect before applying software EQ.",
+                ));
+                self.as_mut()
+                    .set_software_effects_state(QString::from("unavailable"));
+                self.as_mut().set_software_effects_detail(QString::from(
+                    "Live software Effects state is unavailable because ae5d is not responding.",
+                ));
+                self.as_mut().set_software_effects_active(false);
+                self.as_mut()
+                    .set_hardware_effects_state(QString::from("unavailable"));
+                self.as_mut().set_hardware_effects_detail(QString::from(
+                    "Live hardware Effects state is unavailable because ae5d is not responding.",
+                ));
+                self.as_mut().set_hardware_effects_active(false);
+                self.as_mut().set_effects_apply_available(false);
+                self.as_mut().set_effects_apply_block_reason(QString::from(
+                    "ae5d is unavailable; reconnect before applying hardware Effects.",
                 ));
                 self.as_mut().set_hardware_write_enabled(false);
                 self.as_mut().set_volume_write_enabled(false);
@@ -1153,6 +1252,162 @@ impl qobject::AppState {
         });
     }
 
+    pub fn apply_effects_draft(mut self: Pin<&mut Self>) {
+        if *self.as_ref().qa_mode() {
+            self.as_mut()
+                .set_hardware_effects_state(QString::from("unavailable"));
+            self.as_mut().set_hardware_effects_detail(QString::from(
+                "Deterministic QA preview cannot write live AE-5 hardware Effects.",
+            ));
+            return;
+        }
+        let Some(draft) = self.as_ref().rust().effects_draft.clone() else {
+            self.as_mut()
+                .set_hardware_effects_state(QString::from("error"));
+            self.as_mut()
+                .set_hardware_effects_detail(QString::from("No Effects draft is selected."));
+            return;
+        };
+        if !draft.outfx_enabled {
+            self.as_mut()
+                .set_hardware_effects_state(QString::from("error"));
+            self.as_mut().set_hardware_effects_detail(QString::from(
+                "Enable the Effects master before applying this profile.",
+            ));
+            return;
+        }
+        let Some(generation) = self.as_mut().rust_mut().begin_effects_operation() else {
+            return;
+        };
+        self.as_mut()
+            .set_hardware_effects_state(QString::from("applying"));
+        self.as_mut().set_hardware_effects_detail(QString::from(
+            "Parking active streams, applying the complete hardware Effects profile, and verifying ALSA readback…",
+        ));
+        let qt_thread = self.qt_thread();
+        let watchdog_thread = qt_thread.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_secs(30));
+            watchdog_thread
+                .queue(move |mut app_state| {
+                    if app_state
+                        .as_mut()
+                        .rust_mut()
+                        .finish_effects_operation(generation)
+                    {
+                        app_state
+                            .as_mut()
+                            .set_hardware_effects_state(QString::from("error"));
+                        let detail =
+                            "Hardware Effects timed out. Live state will refresh automatically.";
+                        app_state
+                            .as_mut()
+                            .set_hardware_effects_detail(QString::from(detail));
+                        app_state.as_mut().present_write_failure(detail);
+                    }
+                })
+                .ok();
+        });
+        std::thread::spawn(move || {
+            let result = crate::device_service::apply_effects_profile(&draft).map_err(|error| {
+                (
+                    format!("Hardware Effects were not applied: {error}"),
+                    crate::device_service::read_device_state().ok(),
+                )
+            });
+            qt_thread
+                .queue(move |mut app_state| {
+                    if !app_state
+                        .as_mut()
+                        .rust_mut()
+                        .finish_effects_operation(generation)
+                    {
+                        return;
+                    }
+                    match result {
+                        Ok(state) => app_state
+                            .as_mut()
+                            .apply_successful_write_state(&state, false),
+                        Err((detail, confirmed_state)) => app_state
+                            .as_mut()
+                            .set_async_effects_runtime_failure(&detail, confirmed_state.as_ref()),
+                    }
+                })
+                .ok();
+        });
+    }
+
+    pub fn disable_hardware_effects(mut self: Pin<&mut Self>) {
+        if *self.as_ref().qa_mode() {
+            self.as_mut()
+                .set_hardware_effects_state(QString::from("inactive"));
+            self.as_mut().set_hardware_effects_detail(QString::from(
+                "Deterministic QA preview has no live hardware Effects state.",
+            ));
+            self.as_mut().set_hardware_effects_active(false);
+            return;
+        }
+        let Some(generation) = self.as_mut().rust_mut().begin_effects_operation() else {
+            return;
+        };
+        self.as_mut()
+            .set_hardware_effects_state(QString::from("applying"));
+        self.as_mut().set_hardware_effects_detail(QString::from(
+            "Parking active streams, bypassing hardware OutFX, and verifying ALSA readback…",
+        ));
+        let qt_thread = self.qt_thread();
+        let watchdog_thread = qt_thread.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_secs(30));
+            watchdog_thread
+                .queue(move |mut app_state| {
+                    if app_state
+                        .as_mut()
+                        .rust_mut()
+                        .finish_effects_operation(generation)
+                    {
+                        app_state
+                            .as_mut()
+                            .set_hardware_effects_state(QString::from("error"));
+                        let detail =
+                            "Disabling hardware Effects timed out. Live state will refresh automatically.";
+                        app_state
+                            .as_mut()
+                            .set_hardware_effects_detail(QString::from(detail));
+                        app_state.as_mut().present_write_failure(detail);
+                    }
+                })
+                .ok();
+        });
+        std::thread::spawn(move || {
+            let result = crate::device_service::disable_hardware_effects().map_err(|error| {
+                (
+                    format!("Hardware Effects were not disabled: {error}"),
+                    crate::device_service::read_device_state().ok(),
+                )
+            });
+            qt_thread
+                .queue(move |mut app_state| {
+                    if !app_state
+                        .as_mut()
+                        .rust_mut()
+                        .finish_effects_operation(generation)
+                    {
+                        return;
+                    }
+                    match result {
+                        Ok(state) => app_state
+                            .as_mut()
+                            .apply_successful_write_state(&state, false),
+                        Err((detail, confirmed_state)) => app_state
+                            .as_mut()
+                            .set_async_effects_runtime_failure(&detail, confirmed_state.as_ref()),
+                    }
+                })
+                .ok();
+        });
+    }
+
     fn set_async_eq_runtime_failure(
         mut self: Pin<&mut Self>,
         detail: &str,
@@ -1163,6 +1418,21 @@ impl qobject::AppState {
         }
         self.as_mut().set_software_eq_state(QString::from("error"));
         self.as_mut().set_software_eq_detail(QString::from(detail));
+        self.as_mut().present_write_failure(detail);
+    }
+
+    fn set_async_effects_runtime_failure(
+        mut self: Pin<&mut Self>,
+        detail: &str,
+        confirmed_state: Option<&crate::DeviceOutputState>,
+    ) {
+        if let Some(state) = confirmed_state {
+            self.as_mut().apply_device_state(state);
+        }
+        self.as_mut()
+            .set_hardware_effects_state(QString::from("error"));
+        self.as_mut()
+            .set_hardware_effects_detail(QString::from(detail));
         self.as_mut().present_write_failure(detail);
     }
 
@@ -1233,6 +1503,24 @@ impl qobject::AppState {
             .set_eq_apply_available(state.eq_apply_available);
         self.as_mut()
             .set_eq_apply_block_reason(QString::from(&state.eq_apply_block_reason));
+        self.as_mut()
+            .set_software_effects_state(QString::from(&state.software_effects_state));
+        self.as_mut()
+            .set_software_effects_detail(QString::from(&state.software_effects_detail));
+        self.as_mut()
+            .set_software_effects_active(state.software_effects_active);
+        if !self.as_ref().rust().effects_operation_in_flight {
+            self.as_mut()
+                .set_hardware_effects_state(QString::from(&state.hardware_effects_state));
+            self.as_mut()
+                .set_hardware_effects_detail(QString::from(&state.hardware_effects_detail));
+            self.as_mut()
+                .set_hardware_effects_active(state.hardware_effects_active);
+        }
+        self.as_mut()
+            .set_effects_apply_available(state.effects_apply_available);
+        self.as_mut()
+            .set_effects_apply_block_reason(QString::from(&state.effects_apply_block_reason));
         self.as_mut().set_direct_mode(state.direct_mode);
         self.as_mut()
             .set_direct_mode_available(state.direct_mode_available);
@@ -1381,7 +1669,7 @@ impl qobject::AppState {
             } else if entry.read_only {
                 "Combined imported profile loaded. Use Save as to keep Effects independent from EQ."
             } else {
-                "User Effects profile loaded. Live audio is unchanged until Effects apply is connected."
+                "User Effects profile loaded. Use Apply Effects to change live audio."
             },
         ));
         self.as_mut().apply_effects_draft_values(entry);
@@ -1733,9 +2021,9 @@ impl qobject::AppState {
             "Preview"
         }));
         self.as_mut().set_effects_detail(QString::from(if modified {
-            "Draft changed locally. Live audio and the saved Effects profile are unchanged."
+            "Draft differs from the saved Effects profile. Use Apply Effects to change live audio."
         } else {
-            "Draft matches the saved profile. Live audio is unchanged."
+            "Draft matches the saved profile. Use Apply Effects to change live audio."
         }));
         self.as_mut().refresh_unsaved_count();
     }
@@ -1814,7 +2102,7 @@ impl qobject::AppState {
         self.as_mut().apply_effects_entry(&entry);
         self.as_mut().set_effects_state(QString::from("Saved"));
         self.as_mut().set_effects_detail(QString::from(
-            "Effects profile saved independently. Live audio is unchanged.",
+            "Effects profile saved independently. Use Apply Effects to change live audio.",
         ));
         self.as_mut().refresh_unsaved_count();
     }
@@ -2094,5 +2382,22 @@ mod tests {
         assert!(second > first);
         assert!(!state.finish_eq_operation(first));
         assert!(state.finish_eq_operation(second));
+    }
+
+    #[test]
+    fn effects_operation_ownership_rejects_overlap_and_stale_completion() {
+        let mut state = AppStateRust::default();
+
+        let first = state.begin_effects_operation().expect("first operation");
+        assert!(state.begin_effects_operation().is_none());
+        assert!(!state.finish_effects_operation(first.saturating_add(1)));
+        assert!(state.effects_operation_in_flight);
+        assert!(state.finish_effects_operation(first));
+        assert!(!state.effects_operation_in_flight);
+
+        let second = state.begin_effects_operation().expect("second operation");
+        assert!(second > first);
+        assert!(!state.finish_effects_operation(first));
+        assert!(state.finish_effects_operation(second));
     }
 }

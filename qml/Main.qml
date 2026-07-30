@@ -173,6 +173,7 @@ ApplicationWindow {
             "effect-smart-volume-level",
             "effect-dialog-switch", "effect-dialog-level",
             "output-speakers", "output-headphones", "output-digital",
+            "gain-low", "gain-medium", "gain-high",
             "master-mute", "master-volume"
         )
         if (appState.qaScenario === "both-modified")

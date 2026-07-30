@@ -114,6 +114,16 @@ pub mod qobject {
             headphone_gain_write_enabled,
             cxx_name = "headphoneGainWriteEnabled"
         )]
+        #[qproperty(
+            QString,
+            headphone_gain_write_block_reason,
+            cxx_name = "headphoneGainWriteBlockReason"
+        )]
+        #[qproperty(
+            bool,
+            headphone_gain_write_in_flight,
+            cxx_name = "headphoneGainWriteInFlight"
+        )]
         #[qproperty(bool, direct_mode_write_enabled, cxx_name = "directModeWriteEnabled")]
         #[qproperty(
             QString,
@@ -144,6 +154,10 @@ pub mod qobject {
         #[qinvokable]
         #[cxx_name = "requestMuted"]
         fn request_muted(self: Pin<&mut Self>, muted: bool);
+
+        #[qinvokable]
+        #[cxx_name = "requestHeadphoneGain"]
+        fn request_headphone_gain(self: Pin<&mut Self>, gain: &QString, allow_high_gain: bool);
 
         #[qinvokable]
         #[cxx_name = "requestSampleRatePolicy"]
@@ -389,6 +403,8 @@ pub struct AppStateRust {
     mute_write_enabled: bool,
     output_write_enabled: bool,
     headphone_gain_write_enabled: bool,
+    headphone_gain_write_block_reason: QString,
+    headphone_gain_write_in_flight: bool,
     direct_mode_write_enabled: bool,
     hardware_write_block_reason: QString,
     output_write_block_reason: QString,
@@ -510,12 +526,16 @@ impl Default for AppStateRust {
             mute_write_enabled: false,
             output_write_enabled: false,
             headphone_gain_write_enabled: false,
+            headphone_gain_write_block_reason: QString::from(
+                "Headphone gain is unavailable until ae5d connects.",
+            ),
+            headphone_gain_write_in_flight: false,
             direct_mode_write_enabled: false,
             hardware_write_block_reason: QString::from(
-                "Output, gain, and Direct Mode writes remain read-only until their checked ae5d paths are connected.",
+                "Output and Direct Mode writes remain read-only until their checked ae5d paths are connected.",
             ),
             output_write_block_reason: QString::from(
-                "Output, gain, and Direct Mode writes remain read-only until their checked ae5d paths are connected.",
+                "Output and Direct Mode writes remain read-only until their checked ae5d paths are connected.",
             ),
             card_index: -1,
             controls_count: 0,
@@ -636,7 +656,9 @@ impl AppStateRust {
         self.volume_write_enabled = true;
         self.mute_write_enabled = true;
         self.output_write_enabled = true;
-        self.headphone_gain_write_enabled = false;
+        self.headphone_gain_write_enabled = true;
+        self.headphone_gain_write_block_reason = QString::default();
+        self.headphone_gain_write_in_flight = false;
         self.direct_mode_write_enabled = true;
         self.hardware_write_block_reason =
             QString::from("This deterministic QA preview cannot write hardware.");
@@ -764,11 +786,13 @@ impl AppStateRust {
         self.mute_write_enabled = false;
         self.output_write_enabled = false;
         self.headphone_gain_write_enabled = false;
+        self.headphone_gain_write_in_flight = false;
         self.direct_mode_write_enabled = false;
         self.sample_rate_write_enabled = false;
         let reason = self.status_detail.clone();
         self.hardware_write_block_reason = reason.clone();
         self.output_write_block_reason = reason.clone();
+        self.headphone_gain_write_block_reason = reason.clone();
         self.sample_rate_write_block_reason = reason;
     }
 
@@ -969,6 +993,11 @@ impl qobject::AppState {
                 self.as_mut().set_mute_write_enabled(false);
                 self.as_mut().set_output_write_enabled(false);
                 self.as_mut().set_headphone_gain_write_enabled(false);
+                self.as_mut()
+                    .set_headphone_gain_write_block_reason(QString::from(
+                        "ae5d is unavailable; reconnect before changing headphone gain.",
+                    ));
+                self.as_mut().set_headphone_gain_write_in_flight(false);
                 self.as_mut().set_direct_mode_write_enabled(false);
                 self.as_mut().set_hardware_write_block_reason(QString::from(
                     "ae5d is unavailable; reconnect before changing hardware state.",
@@ -1050,6 +1079,62 @@ impl qobject::AppState {
                 .as_mut()
                 .set_write_failure(&format!("Mute was not changed: {error}")),
         }
+    }
+
+    pub fn request_headphone_gain(mut self: Pin<&mut Self>, gain: &QString, allow_high_gain: bool) {
+        let gain = gain.to_string();
+        if !["Low", "Medium", "High"]
+            .iter()
+            .any(|candidate| candidate.eq_ignore_ascii_case(gain.trim()))
+        {
+            self.as_mut()
+                .set_write_failure("Headphone gain must be Low, Medium, or High.");
+            return;
+        }
+        if gain.eq_ignore_ascii_case("High") && !allow_high_gain {
+            self.as_mut()
+                .set_write_failure("High headphone gain requires explicit confirmation.");
+            return;
+        }
+        if *self.as_ref().qa_mode() {
+            self.as_mut().set_headphone_gain(QString::from(&gain));
+            self.as_mut().bump_hardware_state_revision();
+            return;
+        }
+        if !*self.as_ref().headphone_gain_write_enabled() {
+            let reason = self
+                .as_ref()
+                .headphone_gain_write_block_reason()
+                .to_string();
+            self.as_mut().set_write_failure(if reason.is_empty() {
+                "Headphone gain is unavailable."
+            } else {
+                &reason
+            });
+            return;
+        }
+        if *self.as_ref().headphone_gain_write_in_flight() {
+            return;
+        }
+
+        self.as_mut().clear_write_error();
+        self.as_mut().set_headphone_gain_write_in_flight(true);
+        let qt_thread = self.qt_thread();
+        std::thread::spawn(move || {
+            let result = crate::device_service::write_headphone_gain(&gain, allow_high_gain)
+                .map_err(|error| format!("Headphone gain was not changed: {error}"));
+            qt_thread
+                .queue(move |mut app_state| {
+                    app_state.as_mut().set_headphone_gain_write_in_flight(false);
+                    match result {
+                        Ok(state) => app_state
+                            .as_mut()
+                            .apply_successful_write_state(&state, true),
+                        Err(detail) => app_state.as_mut().set_write_failure(&detail),
+                    }
+                })
+                .ok();
+        });
     }
 
     pub fn request_sample_rate_policy(mut self: Pin<&mut Self>, policy: &QString) {
@@ -1534,6 +1619,10 @@ impl qobject::AppState {
             .set_output_write_enabled(state.output_write_enabled);
         self.as_mut()
             .set_headphone_gain_write_enabled(state.headphone_gain_write_enabled);
+        self.as_mut()
+            .set_headphone_gain_write_block_reason(QString::from(
+                &state.headphone_gain_write_block_reason,
+            ));
         self.as_mut()
             .set_direct_mode_write_enabled(state.direct_mode_write_enabled);
         self.as_mut()

@@ -9,6 +9,7 @@ Rectangle {
     property var appState
     property bool compact: false
     property bool wide: false
+    property var highGainReturnFocusItem: null
     signal reviewRequested
     readonly property color statusColor: appState.statusCode === "ready" ? Theme.success
                                                   : appState.statusCode === "connecting" ? Theme.accent
@@ -171,6 +172,8 @@ Rectangle {
                     model: ["Low", "Medium", "High"]
 
                     delegate: AppButton {
+                        id: gainButton
+
                         required property string modelData
                         objectName: "gain-" + modelData.toLowerCase()
                         implicitWidth: root.wide
@@ -182,11 +185,24 @@ Rectangle {
                         checkable: true
                         enabled: root.appState.headphoneGainAvailable
                                  && root.appState.headphoneGainWriteEnabled
-                        blockedReason: root.appState.headphoneGainAvailable
-                                       ? qsTr("Gain changes are read-only until guarded write verification is complete.")
-                                       : root.appState.hardwareWriteBlockReason
+                                 && !root.appState.headphoneGainWriteInFlight
+                        blockedReason: root.appState.headphoneGainWriteInFlight
+                                       ? qsTr("Wait for the current headphone-gain transaction to finish.")
+                                       : root.appState.headphoneGainWriteBlockReason
                         Accessible.name: qsTr("%1 headphone gain").arg(modelData)
-                        Accessible.description: blockedReason
+                        Accessible.description: enabled
+                                                ? modelData === "High"
+                                                  ? qsTr("Requires confirmation because High gain can produce a large loudness increase.")
+                                                  : qsTr("Briefly pauses the AE-5, applies %1 gain, and verifies hardware readback.").arg(modelData)
+                                                : blockedReason
+                        onClicked: {
+                            if (modelData === "High") {
+                                root.highGainReturnFocusItem = gainButton
+                                highGainDialog.open()
+                            } else {
+                                root.appState.requestHeadphoneGain(modelData, false)
+                            }
+                        }
                     }
                 }
             }
@@ -317,6 +333,52 @@ Rectangle {
             Accessible.name: qsTr("Review %1 unsaved changes").arg(root.appState.unsavedCount)
             Accessible.ignored: !visible
             onClicked: root.reviewRequested()
+        }
+    }
+
+    Dialog {
+        id: highGainDialog
+
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: Math.min(440, root.width - 48)
+        modal: true
+        closePolicy: Popup.CloseOnEscape
+        title: qsTr("Use High headphone gain?")
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        onOpened: {
+            const acceptButton = standardButton(Dialog.Ok)
+            if (acceptButton) {
+                acceptButton.text = qsTr("Use High gain")
+                acceptButton.forceActiveFocus()
+            }
+        }
+        onAccepted: root.appState.requestHeadphoneGain("High", true)
+        onClosed: {
+            if (root.highGainReturnFocusItem)
+                root.highGainReturnFocusItem.forceActiveFocus()
+            root.highGainReturnFocusItem = null
+        }
+
+        contentItem: ColumnLayout {
+            spacing: Theme.space3
+            Accessible.role: Accessible.Grouping
+            Accessible.name: highGainDialog.title
+            Accessible.description: qsTr("High gain is intended for high-impedance headphones and can be much louder than Low gain.")
+
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("High gain is intended for 150–600 Ω headphones. Physical AE-5 measurements were about 7 dB louder than Low gain, so remove the headphones from your ears before continuing.")
+                color: Theme.textPrimary
+                wrapMode: Text.WordWrap
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("The current PipeWire volume and mute state will be preserved.")
+                color: Theme.textSecondary
+                wrapMode: Text.WordWrap
+            }
         }
     }
 }

@@ -33,11 +33,17 @@ PageScaffold {
             Layout.fillWidth: true
             title: qsTr("Headphone gain")
             detail: root.appState.output === "Headphones"
-                    ? qsTr("Gain is reported by the AE-5 hardware state.")
+                    ? qsTr("Change gain from the footer. The AE-5 is paused briefly and hardware readback is verified.")
                     : qsTr("Available when the headphone output is selected.")
             value: root.appState.headphoneGain
-            statusText: root.appState.headphoneGainAvailable ? qsTr("Detected") : qsTr("Unavailable")
-            statusKind: root.appState.headphoneGainAvailable ? "ready" : "unavailable"
+            statusText: root.appState.headphoneGainWriteInFlight
+                        ? qsTr("Applying")
+                        : root.appState.headphoneGainAvailable
+                          ? qsTr("Current") : qsTr("Unavailable")
+            statusKind: root.appState.headphoneGainWriteInFlight
+                        ? "applying"
+                        : root.appState.headphoneGainAvailable
+                          ? "ready" : "unavailable"
         }
 
         StatusRow {

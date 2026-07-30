@@ -2,14 +2,16 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     Ae5Device, AudioFormat, ControlSnapshot, DIRECT_MODE_CONTROL, EffectsChainConfig,
-    EqChainConfig, HARDWARE_OUTFX_CONTROL, HardwareEffectsConfig, PipeWireNode, RuntimeSampleRate,
-    SoftwareEffectsOutput, SoftwareEqOutput, ae5_audio_format, ae5_output, effects_chain_config,
-    eq_chain_config, hardware_effects_config, hardware_effects_profile_matches,
-    hardware_outfx_lab_active, runtime_sample_rate, snapshot_controls, software_effects_output,
-    software_eq_output, unsafe_playback_control_block_reason, validate_effects_runtime_support,
+    EqChainConfig, HARDWARE_OUTFX_CONTROL, HardwareEffectsConfig, PipeWireNode, PipeWireRouteState,
+    RuntimeSampleRate, SoftwareEffectsOutput, SoftwareEqOutput, ae5_audio_format, ae5_output,
+    ae5_route_state, effects_chain_config, eq_chain_config, hardware_effects_config,
+    hardware_effects_profile_matches, hardware_outfx_lab_active, runtime_sample_rate,
+    snapshot_controls, software_effects_output, software_eq_output,
+    unsafe_playback_control_block_reason, validate_effects_runtime_support,
 };
 
-const READ_ONLY_REASON: &str = "Output, gain, and Direct Mode writes remain read-only until their checked ae5d paths are connected.";
+const READ_ONLY_REASON: &str =
+    "Output and Direct Mode writes remain read-only until their checked ae5d paths are connected.";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DeviceStatusCode {
@@ -141,6 +143,7 @@ pub struct DeviceOutputState {
     pub mute_write_enabled: bool,
     pub output_write_enabled: bool,
     pub headphone_gain_write_enabled: bool,
+    pub headphone_gain_write_block_reason: String,
     pub direct_mode_write_enabled: bool,
     pub hardware_write_block_reason: String,
     pub output_write_block_reason: String,
@@ -151,6 +154,7 @@ pub struct DeviceOutputState {
 struct DeviceStateParts {
     controls: Result<Vec<ControlSnapshot>, String>,
     output_node: Result<Option<PipeWireNode>, String>,
+    route_state: Result<PipeWireRouteState, String>,
     audio_format: Result<Option<AudioFormat>, String>,
     sample_rate_policy: Result<RuntimeSampleRate, String>,
     eq_config: Result<EqChainConfig, String>,
@@ -181,6 +185,7 @@ impl DeviceOutputState {
         let parts = DeviceStateParts {
             controls: snapshot_controls(card_index).map_err(|error| error.to_string()),
             output_node: ae5_output(card_index).map_err(|error| error.to_string()),
+            route_state: ae5_route_state(card_index).map_err(|error| error.to_string()),
             audio_format: ae5_audio_format(card_index).map_err(|error| error.to_string()),
             sample_rate_policy: runtime_sample_rate().map_err(|error| error.to_string()),
             eq_config: eq_chain_config().map_err(|error| error.to_string()),
@@ -206,7 +211,7 @@ impl DeviceOutputState {
 
     fn unavailable(status: DeviceStatusCode, status_message: String) -> Self {
         Self {
-            schema_version: 5,
+            schema_version: 6,
             device_name: "Sound BlasterX AE-5".to_owned(),
             connected: false,
             status_code: status.as_str().to_owned(),
@@ -249,6 +254,7 @@ impl DeviceOutputState {
             mute_write_enabled: false,
             output_write_enabled: false,
             headphone_gain_write_enabled: false,
+            headphone_gain_write_block_reason: status_message.clone(),
             direct_mode_write_enabled: false,
             hardware_write_block_reason: status_message.clone(),
             output_write_block_reason: status_message,
@@ -296,6 +302,16 @@ fn compose_state(device: Ae5Device, parts: DeviceStateParts) -> DeviceOutputStat
         .and_then(|control| control.playback_switch)
         .unwrap_or(false);
     let output_present = matches!(&parts.output_node, Ok(Some(_)));
+    let headphone_route_matches = parts.route_state.as_ref().is_ok_and(|state| {
+        state.output_route.as_deref() == Some("sound-blaster-ae5-output-headphones")
+    });
+    let headphone_gain_write_block_reason = headphone_gain_write_block_reason(
+        &output,
+        headphone_gain_available,
+        output_present,
+        headphone_route_matches,
+    );
+    let headphone_gain_write_enabled = headphone_gain_write_block_reason.is_empty();
     let software_eq = software_eq_summary(
         &parts.eq_config,
         &parts.eq_output,
@@ -390,7 +406,7 @@ fn compose_state(device: Ae5Device, parts: DeviceStateParts) -> DeviceOutputStat
         .unwrap_or_else(|| READ_ONLY_REASON.to_owned());
 
     DeviceOutputState {
-        schema_version: 5,
+        schema_version: 6,
         device_name: device
             .codec_name
             .unwrap_or_else(|| "Sound BlasterX AE-5".to_owned()),
@@ -428,11 +444,12 @@ fn compose_state(device: Ae5Device, parts: DeviceStateParts) -> DeviceOutputStat
         hardware_effects_active: hardware_effects.active,
         effects_apply_available: hardware_effects.apply_available,
         effects_apply_block_reason: hardware_effects.apply_block_reason,
-        hardware_write_enabled: volume_available || mute_available,
+        hardware_write_enabled: volume_available || mute_available || headphone_gain_write_enabled,
         volume_write_enabled: volume_available,
         mute_write_enabled: mute_available,
         output_write_enabled: false,
-        headphone_gain_write_enabled: false,
+        headphone_gain_write_enabled,
+        headphone_gain_write_block_reason,
         direct_mode_write_enabled: false,
         hardware_write_block_reason: READ_ONLY_REASON.to_owned(),
         output_write_block_reason,
@@ -479,21 +496,35 @@ fn software_eq_summary(
                     false,
                 )
             } else if config.enabled && !active {
+                let processing = if config.preamp_db == 0.0 {
+                    "No automatic attenuation is inserted; boosted curves can clip near full scale."
+                        .to_owned()
+                } else {
+                    format!(
+                        "Legacy {:+.2} dB preamp remains saved; apply the preset again to remove it.",
+                        config.preamp_db
+                    )
+                };
                 (
                     "configured",
                     format!(
-                        "A software EQ is saved but not active in this PipeWire session · automatic preamp {:+.2} dB.",
-                        config.preamp_db
+                        "A software EQ is saved but not active in this PipeWire session. {processing}"
                     ),
                     false,
                 )
             } else if config.enabled && current {
+                let processing = if config.preamp_db == 0.0 {
+                    "No automatic attenuation is inserted; boosted curves can clip near full scale."
+                        .to_owned()
+                } else {
+                    format!(
+                        "Legacy {:+.2} dB preamp is active; apply the preset again to remove it.",
+                        config.preamp_db
+                    )
+                };
                 (
                     "current",
-                    format!(
-                        "Software EQ is active in the existing AE-5 output · automatic preamp {:+.2} dB.",
-                        config.preamp_db
-                    ),
+                    format!("Software EQ is active in the existing AE-5 output. {processing}"),
                     true,
                 )
             } else {
@@ -742,6 +773,25 @@ fn short_choice(choice: &str) -> String {
         .to_owned()
 }
 
+fn headphone_gain_write_block_reason(
+    output: &str,
+    gain_available: bool,
+    output_present: bool,
+    headphone_route_matches: bool,
+) -> String {
+    if !gain_available {
+        "The AE-5 headphone gain control is unavailable.".to_owned()
+    } else if output != "Headphones" {
+        "Select Headphones before changing headphone gain.".to_owned()
+    } else if !output_present {
+        "PipeWire has no AE-5 playback output to pause for a gain change.".to_owned()
+    } else if !headphone_route_matches {
+        "The PipeWire and ALSA headphone routes must match before changing gain.".to_owned()
+    } else {
+        String::new()
+    }
+}
+
 fn format_audio_format(format: &AudioFormat) -> String {
     let rate = if format.sample_rate.is_multiple_of(1_000) {
         format!("{} kHz", format.sample_rate / 1_000)
@@ -831,6 +881,15 @@ mod tests {
         DeviceStateParts {
             controls: Ok(controls()),
             output_node: Ok(Some(node())),
+            route_state: Ok(PipeWireRouteState {
+                profile_set: Some("sound-blaster-ae5.conf".to_owned()),
+                soft_mixer: Some(true),
+                ignore_db: Some(true),
+                persistent_playback: Some(true),
+                active_profile: Some("output:analog-stereo+input:analog-stereo".to_owned()),
+                input_route: Some("sound-blaster-ae5-input-microphone".to_owned()),
+                output_route: Some("sound-blaster-ae5-output-headphones".to_owned()),
+            }),
             audio_format: Ok(Some(AudioFormat {
                 sample_format: "S16LE".to_owned(),
                 sample_rate: 96_000,
@@ -917,6 +976,38 @@ mod tests {
                 state.effects_apply_available,
             ),
             ("inactive", true, "inactive", true)
+        );
+    }
+
+    #[test]
+    fn headphone_gain_write_is_available_only_on_the_live_headphone_path() {
+        assert_eq!(
+            headphone_gain_write_block_reason("Headphones", true, true, true),
+            ""
+        );
+    }
+
+    #[test]
+    fn headphone_gain_write_explains_a_non_headphone_output() {
+        assert_eq!(
+            headphone_gain_write_block_reason("Speakers", true, true, false),
+            "Select Headphones before changing headphone gain."
+        );
+    }
+
+    #[test]
+    fn headphone_gain_write_requires_a_live_pipewire_output() {
+        assert_eq!(
+            headphone_gain_write_block_reason("Headphones", true, false, false),
+            "PipeWire has no AE-5 playback output to pause for a gain change."
+        );
+    }
+
+    #[test]
+    fn headphone_gain_write_requires_matching_pipewire_and_alsa_routes() {
+        assert_eq!(
+            headphone_gain_write_block_reason("Headphones", true, true, false),
+            "The PipeWire and ALSA headphone routes must match before changing gain."
         );
     }
 

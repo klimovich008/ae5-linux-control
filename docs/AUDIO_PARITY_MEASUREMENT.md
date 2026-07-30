@@ -229,8 +229,8 @@ bash scripts/audio-parity.sh compare-eq \
 ```
 
 This comparison checks absolute equalized-minus-neutral level at every fixture
-frequency, including automatic preamp, and passes only when the maximum error
-is at most 1 dB.
+frequency. Current direct-filter-v2 predictions contain no automatic preamp,
+and the comparison passes only when the maximum error is at most 1 dB.
 
 Compare captures of `parity-silence.wav`:
 

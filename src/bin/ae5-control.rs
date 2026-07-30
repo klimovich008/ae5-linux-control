@@ -1967,10 +1967,9 @@ fn software_equalizer_card(
                     Ok(Some(change)) => {
                         let message = match activate_software_eq(card_index) {
                             Ok(output) => format!(
-                                "Software EQ {} and applied inside {}. Automatic preamp: {:+.2} dB.",
+                                "Software EQ {} and applied inside {}. No automatic preamp is inserted.",
                                 if change.changed { "saved" } else { "was already saved" },
-                                output.node.description,
-                                change.config.preamp_db
+                                output.node.description
                             ),
                             Err(error) => {
                                 set_status(
@@ -2052,7 +2051,7 @@ fn software_equalizer_card(
     ae5_control::gui::widgets::profile_card(
         "01",
         "PipeWire in-place equalizer",
-        "Phase A processes stereo audio inside the existing physical AE-5 sink, so volume and mute remain single-stage. Response-aware preamp headroom is automatic. Software EQ can remain active alongside the separately managed OutFX effects group.",
+        "Phase A processes stereo audio inside the existing physical AE-5 sink, so volume and mute remain single-stage. No automatic preamp is inserted; boosted curves can clip near full scale. Software EQ can remain active alongside the separately managed OutFX effects group.",
         &actions,
     )
 }
@@ -2075,17 +2074,25 @@ fn software_eq_summary(
 
     let target = config.target_node.as_deref().unwrap_or("unavailable");
     match output {
-        None => format!(
-            "Saved for {target}\nNot applied in this PipeWire session · automatic preamp {:+.2} dB.",
+        None if config.preamp_db != 0.0 => format!(
+            "Saved for {target}\nLegacy {:+.2} dB preamp remains saved; apply the preset again to remove it.",
             config.preamp_db
         ),
-        Some(output) if config.signature().as_deref() != output.signature.as_deref() => format!(
-            "Saved for {target}\nA different runtime graph is active · automatic preamp {:+.2} dB.",
-            config.preamp_db
+        None => format!(
+            "Saved for {target}\nNot applied in this PipeWire session · no automatic preamp."
+        ),
+        Some(output) if config.signature().as_deref() != output.signature.as_deref() => {
+            format!(
+                "Saved for {target}\nA different runtime graph is active · no automatic preamp in the saved graph."
+            )
+        }
+        Some(output) if config.preamp_db != 0.0 => format!(
+            "Applied in place to {} · legacy {:+.2} dB preamp; reapply to remove it.",
+            output.node.description, config.preamp_db
         ),
         Some(output) => format!(
-            "Applied in place to {} · one volume stage · automatic preamp {:+.2} dB.",
-            output.node.description, config.preamp_db
+            "Applied in place to {} · one volume stage · no automatic preamp.",
+            output.node.description
         ),
     }
 }
@@ -5182,7 +5189,7 @@ mod tests {
             enabled: true,
             bands: Vec::new(),
             target_node: Some("alsa_output.pci-ae5.analog-stereo".to_owned()),
-            preamp_db: -10.25,
+            preamp_db: 0.0,
         };
         assert!(software_eq_summary(Some(&config), None).contains("Not applied"));
 

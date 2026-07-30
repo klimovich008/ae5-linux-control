@@ -21,10 +21,10 @@ pub mod volume_curve;
 pub use builtin_profiles::{BuiltinProfile, COMMAND_DEFAULT_PROFILE_COUNT, builtin_profiles};
 pub use controls::{
     Ae5Mixer, ChannelLevel, ControlError, ControlSnapshot, DIRECT_MODE_CONTROL, DecibelRange,
-    HARDWARE_OUTFX_CONTROL, Level, capture_control_block_reason, direct_mode_block_reason,
-    equalizer_band_block_reason, front_vmaster_clamp_warning, hardware_outfx_lab_active,
-    headphone_playback_issue, playback_switch_block_reason, smart_volume_level_block_reason,
-    snapshot_controls, unsafe_playback_control_block_reason,
+    HARDWARE_OUTFX_CONTROL, HEADPHONE_GAIN_CONTROL, Level, capture_control_block_reason,
+    direct_mode_block_reason, equalizer_band_block_reason, front_vmaster_clamp_warning,
+    hardware_outfx_lab_active, headphone_playback_issue, playback_switch_block_reason,
+    smart_volume_level_block_reason, snapshot_controls, unsafe_playback_control_block_reason,
 };
 pub use device::Ae5Device;
 pub use device_state::{DeviceOutputState, DeviceStatusCode};

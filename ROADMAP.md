@@ -215,8 +215,9 @@ Status: **in progress — hardware Effects transaction complete**
   typed Apply and Disable actions backed by `ae5d`. Saved preset state remains
   separate from live software-EQ state. The daemon validates the draft and
   exact output, blocks Direct Mode conflicts before writes, verifies graph
-  ownership and PipeWire markers, calculates automatic preamp, and restores
-  the prior managed config and runtime graph on failure. OutFX and software EQ
+  ownership and PipeWire markers, omits the retired fixed EQ preamp, migrates
+  managed v1 graphs, and restores the prior managed config and runtime graph
+  on failure. OutFX and software EQ
   are now permitted together, matching the recovered Windows processing
   groups; native Wayland and X11 launches showed no QML errors.
 - Completed the first Phase 7 acceptance slice: Qt Quick Controls Basic now
@@ -267,9 +268,10 @@ Status: **in progress — hardware Effects transaction complete**
   software-Effects fallback with OutFX.
 - Active next step: run a user-controlled audible profile A/B, then verify the
   same profile and EQ state after daemon restart and a cold boot. Keep output,
-  gain, and Direct Mode writes unavailable until their own transactions are
-  implemented. Do not spend the core-validation milestone on GUI performance
-  or visual redesign.
+  and Direct Mode writes unavailable until their own transactions are
+  implemented. Headphone gain now has a route-matched checked transaction,
+  exact readback/rollback, and explicit High-gain confirmation. Do not spend
+  the core-validation milestone on GUI performance or visual redesign.
 - Keep hardware, profiles, state transitions, readback, rollback, and
   diagnostics outside toolkit-specific UI code so the backend can be reused by
   the future `ae5d`/CXX-Qt/QML architecture documented in

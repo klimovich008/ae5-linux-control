@@ -121,10 +121,10 @@ bare-metal 48 kHz response gate has passed:
 
 - `src/eq_chain.rs` converts all ten profile EQ values through the live ALSA
   dB mapping and emits ten `bq_peaking` nodes per channel.
-- A builtin `linear` stage precedes each channel. Its automatic preamp is the
-  rounded-up attenuation required by the measured combined biquad response
-  across 44.1, 48, and 96 kHz, plus 0.25 dB margin. A flat or cuts-only curve
-  receives 0 dB preamp.
+- The current direct-filter-v2 graph starts at the first `bq_peaking` node and
+  inserts no linear preamp stage. Boosted curves can clip near full scale, so
+  listening-level headroom is the user's responsibility. The retired v1
+  format remains parseable only for exact rollback and one-way migration.
 - The saved state pins the exact current AE-5 PipeWire node name. A missing or
   renamed target fails before any runtime graph change.
 - Software EQ and OutFX are independent processing groups, matching the
@@ -134,8 +134,8 @@ bare-metal 48 kHz response gate has passed:
   `audioconvert.filter-graph.N`, suspends that exact sink, loads the graph at
   order zero through `pw-cli set-param`, stores a per-node runtime signature,
   verifies the signature readback, and resumes the sink.
-- The runtime signature contains the graph version, target, automatic preamp,
-  and ten gains. A PipeWire restart or node recreation drops the marker, so
+- The runtime signature contains the graph version, target, and ten gains. A
+  PipeWire restart or node recreation drops the marker, so
   the UI correctly requires reapplication instead of claiming stale state.
 - `ae5ctl eq-chain-enable FILE` only writes or updates the managed user
   state. `eq-chain-activate` applies it in place without changing the desktop
@@ -146,8 +146,9 @@ bare-metal 48 kHz response gate has passed:
   while the physical sink also remained at 5% compounded PipeWire's cubic
   software attenuation and could make output effectively inaudible.
 - The GTK Equalizer page chooses and applies a profile in one action, exposes
-  automatic preamp and saved/runtime state, and retains separate reapply and
-  disable actions. The hardware EQ pill still says `ARMED` when its child
+  saved/runtime state and the no-automatic-attenuation warning, and retains
+  separate reapply and disable actions. The hardware EQ pill still says
+  `ARMED` when its child
   switch is saved but OutFX is off.
 - `ae5ctl eq-chain-response RATE` reports the exact requested filter response
   at all ten fixture frequencies. `audio-parity.sh compare-eq` compares those
@@ -156,12 +157,15 @@ bare-metal 48 kHz response gate has passed:
 
 Validation completed before the first playback measurement:
 
+The following v1 evidence is historical: its fixed attenuation has now been
+removed and needs a fresh physical response capture.
+
 1. The imported `Windows My profile — Headphone` curve generated `+9, +6,
    +8, +4, +1, -2, -2, 0, +6, +6 dB`, targeted
    `alsa_output.pci-0000_29_00.0.analog-stereo`, and calculated −10.80 dB
    automatic preamp.
-2. `pw-config` parsed the complete graph object. Unit tests independently
-   verify flat, single-boost, and imported multi-band headroom.
+2. `pw-config` parsed the complete graph object. Current unit tests verify
+   that v2 contains no linear preamp nodes and that v1 migrates safely.
 3. A separate temporary PipeWire daemon loaded and removed the direct
    audioconvert graph API against a null sink.
 4. The real muted/unplugged AE-5 loaded the complete imported graph, exposed

@@ -102,9 +102,10 @@ Working on the target host:
 - native profiles, retained imported effect metadata, guarded PipeWire
   software EQ, and an opt-in whole-profile hardware Effects transaction on
   the exact OutFX lab kernel;
-- guarded in-place PipeWire software-EQ generation, response-aware automatic
-  preamp, runtime graph-signature verification, and suspend/load/resume on the
-  existing physical sink; no virtual sink or second volume stage is used;
+- guarded in-place PipeWire software-EQ generation without a preamp stage,
+  v1 migration, runtime graph-signature verification, and suspend/load/resume
+  on the existing physical sink; no virtual sink or second volume stage is
+  used;
 - exact-target, fail-closed track-transition stress, a client-owned in-place
   PipeWire renegotiation probe, and HDA-position trace tooling, implemented
   and self-tested but not yet run on S32;
@@ -280,28 +281,29 @@ Saved/default:     7.1.4-200.nobara.fc44.x86_64
 ALSA card:         1, HDA Creative (index is not stable across boots)
 Output:            Headphone, 2.0
 Input:             Microphone
-AE-5 sink:         default, 5%, muted
+AE-5 sink:         default, 20%, unmuted
 Listening output:  non-AE-5 output
-Hardware stages:   Master 99/off, Front 90/off
+Hardware stages:   Master 99/on, Front 90/on (both 0 dB)
 Headphone gain:    Low
 Direct Mode:       unavailable
 OutFX:             on; managed "My profile" readback verified
-Software EQ:       active "SHP Last", automatic preamp -10.8 dB
+Software EQ:       active "SHP Last", direct-filter-v2, preamp off
 Playback PCMs:     closed
 Audio services:    PipeWire, PipeWire Pulse, and WirePlumber active
 Session Windows VM: shut off
 System VMs:        both powered off
-GUI test:          installed release build opened natively on Wayland
+GUI test:          installed release build open natively on Wayland
 Diagnostics:       default-on structured trace verified in the user journal/report
 ```
 
-The latest silent transaction kept the exact Headphone route, AE-5 sink at 5%
-muted, Low gain, and both hardware output switches off. A live digital-silence
-stream survived EQ apply and hardware-Effects apply with the same PipeWire
-stream ID. The managed `My profile` hardware values and `SHP Last` EQ marker
-read back current, disable/reapply passed, no transition module leaked, both
-playback PCMs closed afterward, and kernel taint remained zero. Re-read live
-state before relying on this snapshot.
+The latest silent transactions kept the exact Headphone route and verified
+Low → Medium → Low gain through the checked daemon path. The active `SHP Last`
+EQ was then migrated from the retired −10.8 dB direct-filter-v1 graph to
+direct-filter-v2 with no linear attenuation node. The runtime marker, saved
+bands, `My profile` hardware state, 20% software volume, unmuted state,
+Master/Front 0 dB stages, Low gain, closed playback PCMs, absence of transition
+modules, and kernel taint 0 all read back correctly. Re-read live state before
+relying on this snapshot.
 
 The installed GUI and CLI are the release build from the reversible per-user
 installation. Their payload hashes matched the local release artifacts after
@@ -415,7 +417,7 @@ The latest checkpoint passed:
 | `src/device.rs` | Exact PCI/subsystem and ALSA-card discovery |
 | `src/controls.rs` | Typed ALSA controls, guards, route repair |
 | `src/pipewire.rs` | PipeWire discovery, profiles, routes, suspension, direct graph load/unload |
-| `src/eq_chain.rs` | Managed ten-band software EQ and automatic-headroom response model |
+| `src/eq_chain.rs` | Managed ten-band software EQ, v1 migration, and exact response model |
 | `src/profile*.rs` | Native profiles and profile library |
 | `src/sbcommand.rs` | Bounded Windows settings interoperability |
 | `src/bin/ae5-control.rs` | GTK 4 application |

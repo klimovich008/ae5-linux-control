@@ -111,30 +111,6 @@ Rectangle {
             x: Math.max(0, (pageScroll.availableWidth - width) / 2)
             spacing: Theme.space3
 
-            Item {
-                Layout.preferredHeight: Theme.space2
-            }
-
-            ColumnLayout {
-                Layout.fillWidth: true
-                Layout.leftMargin: root.pageGutter
-                Layout.rightMargin: root.pageGutter
-                spacing: Theme.space1
-
-                Label {
-                    text: qsTr("Sound")
-                    color: Theme.textPrimary
-                    font.pixelSize: Theme.fontPageTitle
-                    font.weight: Font.DemiBold
-                }
-
-                Label {
-                    text: qsTr("Hardware output, Effects profiles and EQ presets remain separate.")
-                    color: Theme.textSecondary
-                    font.pixelSize: Theme.fontLabel
-                }
-            }
-
             CapabilityNotice {
                 visible: root.noticeCode !== "ready"
                 Layout.fillWidth: true
@@ -422,18 +398,16 @@ Rectangle {
 
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: effectsMasterRow.implicitHeight + Theme.space3
+                    Layout.preferredHeight: Theme.controlHeightLarge
                     radius: Theme.radiusSmall
-                    color: root.appState.effectsOutfxEnabled
+                    color: root.appState.effectsOutfxEnabled || root.appState.directMode
                            ? Theme.accentSubtle
                            : Theme.surface
-                    border.color: root.appState.effectsOutfxEnabled
+                    border.color: root.appState.effectsOutfxEnabled || root.appState.directMode
                                   ? Theme.accent
                                   : Theme.separator
 
                     RowLayout {
-                        id: effectsMasterRow
-
                         anchors.left: parent.left
                         anchors.right: parent.right
                         anchors.verticalCenter: parent.verticalCenter
@@ -441,21 +415,11 @@ Rectangle {
                         anchors.rightMargin: Theme.space3
                         spacing: Theme.space3
 
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.space1
-
-                            Label {
-                                text: qsTr("Effects master")
-                                color: Theme.textPrimary
-                                font.pixelSize: Theme.fontBody
-                            }
-
-                            Label {
-                                text: qsTr("Applies enabled controls as one verified hardware transaction. OutFX is enabled last.")
-                                color: Theme.textSecondary
-                                font.pixelSize: Theme.fontCaption
-                            }
+                        Label {
+                            text: qsTr("Effects")
+                            color: Theme.textPrimary
+                            font.pixelSize: Theme.fontBody
+                            font.weight: Font.DemiBold
                         }
 
                         AppSwitch {
@@ -468,50 +432,29 @@ Rectangle {
                                            : qsTr("Effects profiles are unavailable.")
                             Accessible.name: qsTr("Effects master")
                             Accessible.description: enabled
-                                                    ? qsTr("Include or bypass the enabled controls when applying this Effects profile.")
+                                                    ? qsTr("Include or bypass enabled controls in one verified hardware transaction. OutFX is enabled last.")
                                                     : blockedReason
+                            ToolTip.visible: effectsMasterHover.hovered
+                            ToolTip.text: Accessible.description
                             onClicked: root.appState.updateEffectsDraft("master",
                                                                         checked, 0)
+
+                            HoverHandler {
+                                id: effectsMasterHover
+                            }
                         }
-                    }
-                }
 
-                Rectangle {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: directModeRow.implicitHeight + Theme.space3
-                    radius: Theme.radiusSmall
-                    color: root.appState.directMode
-                           ? Theme.accentSubtle
-                           : Theme.surface
-                    border.color: root.appState.directMode ? Theme.accent : Theme.separator
+                        Rectangle {
+                            Layout.preferredWidth: 1
+                            Layout.preferredHeight: Theme.controlHeight
+                            color: Theme.separator
+                        }
 
-                    RowLayout {
-                        id: directModeRow
-
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.verticalCenter: parent.verticalCenter
-                        anchors.leftMargin: Theme.space3
-                        anchors.rightMargin: Theme.space3
-                        spacing: Theme.space3
-
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.space1
-
-                            Label {
-                                text: qsTr("Direct Mode")
-                                color: Theme.textPrimary
-                                font.pixelSize: Theme.fontBody
-                            }
-
-                            Label {
-                                text: root.appState.directMode
-                                      ? qsTr("EQ and enhancements are visible but bypassed.")
-                                      : qsTr("Bypasses EQ and enhancements when enabled.")
-                                color: Theme.textSecondary
-                                font.pixelSize: Theme.fontCaption
-                            }
+                        Label {
+                            text: qsTr("Direct Mode")
+                            color: Theme.textPrimary
+                            font.pixelSize: Theme.fontBody
+                            font.weight: Font.DemiBold
                         }
 
                         AppSwitch {
@@ -524,11 +467,28 @@ Rectangle {
                                            : qsTr("Direct Mode is not exposed by the current driver.")
                             Accessible.name: qsTr("Direct Mode")
                             Accessible.description: enabled
-                                                    ? qsTr("Toggle Direct Mode")
-                                                    : root.appState.directModeAvailable
-                                                      ? root.appState.hardwareWriteBlockReason
-                                                      : qsTr("Direct Mode is not exposed by the current driver.")
+                                                    ? qsTr("Bypass equalizer and enhancements.")
+                                                    : blockedReason
+                            ToolTip.visible: directModeHover.hovered
+                            ToolTip.text: Accessible.description
                             onClicked: root.appState.setPreviewDirectMode(checked)
+
+                            HoverHandler {
+                                id: directModeHover
+                            }
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: root.appState.directMode
+                                  ? qsTr("EQ and enhancements bypassed")
+                                  : root.appState.effectsOutfxEnabled
+                                    ? qsTr("Hardware processing enabled")
+                                    : qsTr("Hardware processing bypassed")
+                            color: Theme.textSecondary
+                            font.pixelSize: Theme.fontCaption
+                            horizontalAlignment: Text.AlignRight
+                            elide: Text.ElideRight
                         }
                     }
                 }

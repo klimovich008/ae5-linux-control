@@ -512,7 +512,14 @@ fn print_eq_chain_status() -> Result<(), Box<dyn Error>> {
     if let Some(target) = &config.target_node {
         println!("  Physical target: {target}");
     }
-    println!("  Automatic preamp: {:+.2} dB", config.preamp_db);
+    if config.preamp_db == 0.0 {
+        println!("  Preamp: off");
+    } else {
+        println!(
+            "  Legacy preamp: {:+.2} dB (reapply the preset to remove it)",
+            config.preamp_db
+        );
+    }
     print_eq_bands(&config.bands);
     match software_eq_output(device.card_index) {
         Ok(Some(output)) => {
@@ -580,8 +587,7 @@ fn set_eq_chain(path: &str) -> Result<(), Box<dyn Error>> {
     );
     print_eq_bands(&change.config.bands);
     println!(
-        "  Automatic preamp: {:+.2} dB\nRun `ae5ctl eq-chain-activate` to apply it in place; no PipeWire restart is required.",
-        change.config.preamp_db
+        "  Preamp: off\n  Warning: boosted curves can clip near full scale.\nRun `ae5ctl eq-chain-activate` to apply it in place; no PipeWire restart is required."
     );
     Ok(())
 }

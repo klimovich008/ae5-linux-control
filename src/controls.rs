@@ -30,6 +30,7 @@ const OUTFX_LAB_CONFIRMATION: &str = "I_ACCEPT_AE5_DSP_CORRUPTION";
 pub(crate) const EQUALIZER_PRESET_CONTROL: &str = "FX: Equalizer Preset";
 pub const DIRECT_MODE_CONTROL: &str = "AE-5: Direct Mode";
 pub const HARDWARE_OUTFX_CONTROL: &str = "Enable OutFX";
+pub const HEADPHONE_GAIN_CONTROL: &str = "AE-5: Headphone Gain";
 const UNSAFE_HARDWARE_OUTFX: &str = "Hardware OutFX is disabled because AE-5 tests reproduced \
     severe stream distortion. Use software effects; recovering an already-corrupted route \
     requires a driver rebind or cold boot.";

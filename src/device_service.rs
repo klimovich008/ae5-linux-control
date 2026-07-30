@@ -1,8 +1,10 @@
+use crate::pipewire::suspend_ae5_output;
 use crate::{
-    Ae5Device, DeviceOutputState, EffectsChainConfig, EffectsProfileEntry, EqChainConfig,
-    EqPresetEntry, RuntimeSampleRate, SoftwareEffectsOutput, SoftwareEqOutput, SoundObjectCatalog,
-    ae5_output, apply_hardware_effects as apply_hardware_effects_controls,
-    bands_from_gains_tenths_db, disable_effects_chain, disable_eq_chain,
+    Ae5Device, Ae5Mixer, DeviceOutputState, EffectsChainConfig, EffectsProfileEntry, EqChainConfig,
+    EqPresetEntry, HEADPHONE_GAIN_CONTROL, RuntimeSampleRate, SoftwareEffectsOutput,
+    SoftwareEqOutput, SoundObjectCatalog, ae5_output, ae5_route_state,
+    apply_hardware_effects as apply_hardware_effects_controls, bands_from_gains_tenths_db,
+    disable_effects_chain, disable_eq_chain,
     disable_hardware_effects as disable_hardware_effects_controls, effects_chain_config,
     enable_effects_chain, enable_eq_chain_bands, eq_chain_config, remove_software_effects,
     remove_software_eq, replace_software_effects, replace_software_eq,
@@ -169,6 +171,18 @@ impl Ae5DeviceService {
                 }
                 Ok(state)
             })(),
+        )
+    }
+
+    fn set_headphone_gain(
+        &self,
+        gain: String,
+        allow_high_gain: bool,
+    ) -> zbus::fdo::Result<DeviceOutputState> {
+        log_write(
+            "headphone-gain",
+            &gain,
+            set_headphone_gain_checked(&gain, allow_high_gain),
         )
     }
 
@@ -815,6 +829,169 @@ fn live_card_index() -> zbus::fdo::Result<i32> {
         })
 }
 
+fn resolve_headphone_gain_choice<'a>(
+    requested: &str,
+    choices: &'a [String],
+) -> Result<&'a str, String> {
+    let requested = requested.trim();
+    if !["Low", "Medium", "High"]
+        .iter()
+        .any(|candidate| candidate.eq_ignore_ascii_case(requested))
+    {
+        return Err(format!(
+            "Unsupported headphone gain '{requested}'; expected Low, Medium, or High."
+        ));
+    }
+    choices
+        .iter()
+        .find(|choice| {
+            choice
+                .split_once(" (")
+                .map_or(choice.as_str(), |(short, _)| short)
+                .eq_ignore_ascii_case(requested)
+        })
+        .map(String::as_str)
+        .ok_or_else(|| {
+            format!("The AE-5 driver does not expose the requested {requested} headphone gain.")
+        })
+}
+
+fn set_headphone_gain_checked(
+    requested: &str,
+    allow_high_gain: bool,
+) -> zbus::fdo::Result<DeviceOutputState> {
+    let requested = requested.trim();
+    if requested.eq_ignore_ascii_case("High") && !allow_high_gain {
+        return Err(zbus::fdo::Error::InvalidArgs(
+            "High headphone gain requires explicit confirmation.".to_owned(),
+        ));
+    }
+
+    let initial_state = capture_state()?;
+    if !initial_state.headphone_gain_write_enabled {
+        return Err(zbus::fdo::Error::Failed(
+            initial_state.headphone_gain_write_block_reason,
+        ));
+    }
+    let card_index = initial_state.card_index;
+    let mixer =
+        Ae5Mixer::open(card_index).map_err(|error| zbus::fdo::Error::Failed(error.to_string()))?;
+    let previous = mixer
+        .snapshot(HEADPHONE_GAIN_CONTROL)
+        .map_err(|error| zbus::fdo::Error::Failed(error.to_string()))?;
+    let previous_choice = previous.selected.as_deref().ok_or_else(|| {
+        zbus::fdo::Error::Failed("The current AE-5 headphone gain is unreadable.".to_owned())
+    })?;
+    let requested_choice = resolve_headphone_gain_choice(requested, &previous.choices)
+        .map_err(zbus::fdo::Error::InvalidArgs)?;
+    if previous_choice == requested_choice {
+        return Ok(initial_state);
+    }
+
+    let suspended = suspend_ae5_output(card_index)
+        .map_err(|error| zbus::fdo::Error::Failed(error.to_string()))?;
+    let output_still_present = ae5_output(card_index)
+        .map_err(|error| zbus::fdo::Error::Failed(error.to_string()))?
+        .is_some();
+    let route_still_matches = ae5_route_state(card_index)
+        .map(|state| state.output_route.as_deref() == Some("sound-blaster-ae5-output-headphones"))
+        .unwrap_or(false);
+    if !output_still_present || !route_still_matches {
+        let resume = suspended.resume();
+        return Err(zbus::fdo::Error::Failed(format!(
+            "Headphone gain was not changed because the live headphone route changed while the output was paused; output resume: {}.",
+            io_result_detail(resume)
+        )));
+    }
+    let actual =
+        match mixer.set_choice_checked(HEADPHONE_GAIN_CONTROL, requested_choice, allow_high_gain) {
+            Ok(actual) => actual,
+            Err(error) => {
+                let rollback = mixer
+                    .set_choice_checked(HEADPHONE_GAIN_CONTROL, previous_choice, true)
+                    .map(|_| ());
+                let resume = suspended.resume();
+                return Err(zbus::fdo::Error::Failed(format!(
+                    "Headphone gain was not changed: {error}; rollback: {}; output resume: {}.",
+                    control_result_detail(rollback),
+                    io_result_detail(resume)
+                )));
+            }
+        };
+    if actual.selected.as_deref() != Some(requested_choice) {
+        let rollback = mixer
+            .set_choice_checked(HEADPHONE_GAIN_CONTROL, previous_choice, true)
+            .map(|_| ());
+        let resume = suspended.resume();
+        return Err(zbus::fdo::Error::Failed(format!(
+            "Headphone gain read back as {:?}, expected '{requested_choice}'; rollback: {}; output resume: {}.",
+            actual.selected,
+            control_result_detail(rollback),
+            io_result_detail(resume)
+        )));
+    }
+    if let Err(error) = suspended.resume() {
+        let rollback = restore_headphone_gain_paused(card_index, &mixer, previous_choice);
+        return Err(zbus::fdo::Error::Failed(format!(
+            "Headphone gain changed, but the AE-5 output did not resume: {error}; rollback: {}.",
+            control_result_detail(rollback)
+        )));
+    }
+
+    let state = match capture_state() {
+        Ok(state) => state,
+        Err(error) => {
+            let rollback = restore_headphone_gain_paused(card_index, &mixer, previous_choice);
+            return Err(zbus::fdo::Error::Failed(format!(
+                "Headphone gain changed, but confirmed device state is unavailable: {error}; rollback: {}.",
+                control_result_detail(rollback)
+            )));
+        }
+    };
+    if !state.headphone_gain.eq_ignore_ascii_case(requested) {
+        let rollback = restore_headphone_gain_paused(card_index, &mixer, previous_choice);
+        return Err(zbus::fdo::Error::Failed(format!(
+            "Headphone gain state read back as '{}', expected '{requested}'; rollback: {}.",
+            state.headphone_gain,
+            control_result_detail(rollback)
+        )));
+    }
+    Ok(state)
+}
+
+fn restore_headphone_gain_paused(
+    card_index: i32,
+    mixer: &Ae5Mixer,
+    previous_choice: &str,
+) -> Result<(), crate::ControlError> {
+    let suspended = suspend_ae5_output(card_index).map_err(crate::ControlError::from)?;
+    let restored = mixer
+        .set_choice_checked(HEADPHONE_GAIN_CONTROL, previous_choice, true)
+        .map(|_| ());
+    let resumed = suspended.resume().map_err(crate::ControlError::from);
+    match (restored, resumed) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
+        (Err(error), Err(resume_error)) => Err(crate::ControlError::Verification(format!(
+            "{error}; output resume also failed: {resume_error}"
+        ))),
+    }
+}
+
+fn control_result_detail(result: Result<(), crate::ControlError>) -> String {
+    result
+        .err()
+        .map(|error| error.to_string())
+        .unwrap_or_else(|| "verified".to_owned())
+}
+
+fn io_result_detail(result: std::io::Result<()>) -> String {
+    result
+        .err()
+        .map(|error| error.to_string())
+        .unwrap_or_else(|| "verified".to_owned())
+}
+
 #[zbus::proxy(
     interface = "io.github.klimovich008.Ae5Control.Device1",
     default_service = "io.github.klimovich008.Ae5Control",
@@ -845,6 +1022,11 @@ trait Ae5Device {
     fn disable_software_effects(&self) -> zbus::Result<DeviceOutputState>;
     fn set_master_volume(&self, percent: u16) -> zbus::Result<DeviceOutputState>;
     fn set_muted(&self, muted: bool) -> zbus::Result<DeviceOutputState>;
+    fn set_headphone_gain(
+        &self,
+        gain: &str,
+        allow_high_gain: bool,
+    ) -> zbus::Result<DeviceOutputState>;
     fn set_sample_rate_policy(&self, policy: &str) -> zbus::Result<DeviceOutputState>;
 }
 
@@ -930,6 +1112,11 @@ pub fn write_muted(muted: bool) -> zbus::Result<DeviceOutputState> {
     Ae5DeviceProxy::new(&connection)?.set_muted(muted)
 }
 
+pub fn write_headphone_gain(gain: &str, allow_high_gain: bool) -> zbus::Result<DeviceOutputState> {
+    let connection = zbus::blocking::Connection::session()?;
+    Ae5DeviceProxy::new(&connection)?.set_headphone_gain(gain, allow_high_gain)
+}
+
 pub fn write_sample_rate_policy(policy: &str) -> zbus::Result<DeviceOutputState> {
     let connection = zbus::blocking::Connection::session()?;
     Ae5DeviceProxy::new(&connection)?.set_sample_rate_policy(policy)
@@ -948,6 +1135,30 @@ mod tests {
                 "/io/github/klimovich008/Ae5Control",
                 "io.github.klimovich008.Ae5Control.Device1",
             )
+        );
+    }
+
+    #[test]
+    fn resolves_short_headphone_gain_names_to_the_driver_choice() {
+        let choices = vec![
+            "Low (16-31 Ohms)".to_owned(),
+            "Medium (32-149 Ohms)".to_owned(),
+            "High (150-600 Ohms)".to_owned(),
+        ];
+
+        assert_eq!(
+            resolve_headphone_gain_choice("Medium", &choices),
+            Ok("Medium (32-149 Ohms)")
+        );
+    }
+
+    #[test]
+    fn rejects_unknown_headphone_gain_names() {
+        let choices = vec!["Low (16-31 Ohms)".to_owned()];
+
+        assert_eq!(
+            resolve_headphone_gain_choice("Extreme", &choices),
+            Err("Unsupported headphone gain 'Extreme'; expected Low, Medium, or High.".to_owned())
         );
     }
 

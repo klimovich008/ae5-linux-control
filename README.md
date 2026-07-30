@@ -258,23 +258,24 @@ cubic volume control, or require a PipeWire restart. Activation requires
 the physical target to remain current. Software EQ and hardware OutFX are
 independent processing groups and may be active together.
 
-The ten imported bands receive a deterministic automatic preamp calculated
-from the combined response at 44.1, 48, and 96 kHz plus 0.25 dB margin. The
-GTK Equalizer page applies a chosen profile in one action and exposes the
-saved/runtime state and preamp. The real muted and unplugged AE-5 accepted the
-full imported headphone graph at −10.80 dB preamp while both playback PCMs
-remained closed; unload restored the prior PipeWire device/routing and ALSA
-state. On the true power-removal stable-kernel boot, two neutral and two
-equalized 48 kHz What U Hear captures repeated within 0.00 dB at every band.
-The measured equalized-minus-neutral response matched the requested graph
-within 0.34 dB, including automatic preamp, across 31 Hz–16 kHz. A guarded
-physical-card benchmark kept the same sink and 2048-frame quantum, adding no
-PipeWire buffer and 0.3990 percentage points of process CPU; filter work added
-178.564 µs, or 0.4185% of each 42.7 ms quantum. The 7200-second nonzero
-qualification recorded 7197 zero-error samples, 200.430 µs mean and 267.900 µs
-maximum sink work, and exact state recovery. Broader-rate/preset coverage and
-a verified post-EQ Windows measurement remain pending. Windows `What U Hear`
-was proven post-Acoustic-Engine but did not contain Command's displayed
+The current direct-filter-v2 graph contains only the ten peaking filters per
+channel. It does not insert a preamp or other fixed attenuation stage. This
+restores the 10.8 dB that the earlier imported headphone graph removed.
+Boosted curves can therefore clip near full scale; lower the source or master
+level when necessary. Managed direct-filter-v1 files remain readable only so
+applying the same preset can migrate them safely to v2.
+
+The retired v1 graph was physically validated before its attenuation was
+removed: two neutral and two equalized 48 kHz What U Hear captures repeated
+within 0.00 dB at every band, and its biquad response matched the requested
+curve within 0.34 dB across 31 Hz–16 kHz. A guarded physical-card benchmark
+kept the same sink and 2048-frame quantum, adding no PipeWire buffer and
+0.3990 percentage points of process CPU; filter work added 178.564 µs, or
+0.4185% of each 42.7 ms quantum. The 7200-second nonzero qualification
+recorded 7197 zero-error samples, 200.430 µs mean and 267.900 µs maximum sink
+work, and exact state recovery. A fresh no-preamp physical response capture
+and a verified post-EQ Windows measurement remain pending. Windows `What U
+Hear` was proven post-Acoustic-Engine but did not contain Command's displayed
 graphic-EQ curve; see
 [docs/SOFTWARE_EFFECTS_PLAN.md](docs/SOFTWARE_EFFECTS_PLAN.md) and the
 [Windows result](docs/windows-capture/VM-OUTFX-RESULTS.md).
@@ -519,11 +520,14 @@ live EQ Inactive/Saved only/Active/Error state.
 
 Master volume and mute use the same narrow typed D-Bus pattern with exact AE-5
 PipeWire targeting, checked readback, rollback on mismatch, and structured
-`ae5d` journal events. Effects are live through the guarded hardware
-transaction described above, while software EQ remains a separate PipeWire
-group and may be active at the same time. Output switching, gain, and Direct
-Mode remain unavailable in the QML write surface until their own checked
-transactions are connected.
+`ae5d` journal events. Headphone gain uses a separate checked transaction that
+requires matching ALSA and PipeWire headphone routes, pauses the exact output,
+verifies enum readback, and rolls back before resuming on failure. High gain
+requires an explicit confirmation in the UI. Effects are live through the
+guarded hardware transaction described above, while software EQ remains a
+separate PipeWire group and may be active at the same time. Output switching
+and Direct Mode remain unavailable in the QML write surface until their own
+checked transactions are connected.
 
 On Fedora/Nobara, install the Qt development packages. Until the user-service
 files are included in the RPM, launch `ae5d` in one terminal:

@@ -37,6 +37,13 @@ rewriting hardware logic.
   track-change fault has a separate physical acceptance result.
 - Preserve logs and live mixer readback before recovering from unexpected
   audio.
+- Change headphone gain only through the checked `ae5d` transaction while the
+  ALSA and PipeWire routes both identify Headphones. High gain requires an
+  explicit user confirmation; preserve and restore the exact stream, mute,
+  and mixer state around the write.
+- Current direct-filter-v2 software EQ has no preamp stage. Boosted curves can
+  clip near full scale. Keep v1 parsing only for fail-safe rollback and
+  migration; never reactivate a legacy attenuated graph as a new apply.
 
 Hardware OutFX is a supported, opt-in backend only when all four gates pass:
 

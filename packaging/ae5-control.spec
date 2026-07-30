@@ -21,6 +21,7 @@ BuildRequires:  pkgconfig(Qt6Qml)
 BuildRequires:  pkgconfig(Qt6Quick)
 BuildRequires:  pkgconfig(Qt6QuickControls2)
 BuildRequires:  pkgconfig(Qt6QuickShapes)
+BuildRequires:  pkgconfig(Qt6Widgets)
 BuildRequires:  rust
 BuildRequires:  systemd-rpm-macros
 BuildRequires:  systemd-udev
@@ -77,6 +78,8 @@ install -Dm0644 packaging/io.github.klimovich008.ae5control.svg \
   %{buildroot}%{_datadir}/icons/hicolor/scalable/apps/io.github.klimovich008.ae5control.svg
 install -Dm0644 packaging/io.github.klimovich008.ae5control.metainfo.xml \
   %{buildroot}%{_metainfodir}/io.github.klimovich008.ae5control.metainfo.xml
+install -Dm0644 packaging/io.github.klimovich008.ae5control-autostart.desktop \
+  %{buildroot}%{_sysconfdir}/xdg/autostart/io.github.klimovich008.ae5control-autostart.desktop
 install -Dm0644 packaging/io.github.klimovich008.ae5control-lighting.desktop \
   %{buildroot}%{_sysconfdir}/xdg/autostart/io.github.klimovich008.ae5control-lighting.desktop
 install -Dm0644 packaging/udev/70-ae5-control-leds.rules \
@@ -106,6 +109,7 @@ cargo test --frozen --offline --release \
 bash scripts/check-ae5-acp-profile.sh
 bash scripts/collect-linux-report.sh --self-test
 desktop-file-validate packaging/io.github.klimovich008.ae5control.desktop
+desktop-file-validate packaging/io.github.klimovich008.ae5control-autostart.desktop
 desktop-file-validate packaging/io.github.klimovich008.ae5control-lighting.desktop
 appstreamcli validate --no-net --strict \
   packaging/io.github.klimovich008.ae5control.metainfo.xml
@@ -143,6 +147,7 @@ udevadm control --reload-rules >/dev/null 2>&1 || :
 %license LICENSE-APACHE LICENSE-MIT vendor/unicode-ident/LICENSE-UNICODE
 %doc README.md PORT_PLAN.md docs
 %{_sysconfdir}/xdg/autostart/io.github.klimovich008.ae5control-lighting.desktop
+%{_sysconfdir}/xdg/autostart/io.github.klimovich008.ae5control-autostart.desktop
 %{_bindir}/ae5-control
 %{_bindir}/ae5-control-qml
 %{_bindir}/ae5-collect-report

@@ -13,6 +13,8 @@ pub mod pipewire;
 pub mod profile;
 pub mod profile_library;
 #[cfg(feature = "qml-gui")]
+pub mod qapplication;
+#[cfg(feature = "qml-gui")]
 pub mod qml_app_state;
 pub mod sbcommand;
 pub mod sound_objects;

@@ -99,6 +99,7 @@ Rectangle {
         anchors.fill: parent
         clip: true
         contentWidth: availableWidth
+        topPadding: root.compact ? Theme.space4 : Theme.space5
         bottomPadding: Theme.space5
         ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
         ScrollBar.vertical.policy: ScrollBar.AsNeeded

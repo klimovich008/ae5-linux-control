@@ -38,7 +38,8 @@ fn main() {
             .depend("QtQuick")
             .depend("QtQuick.Controls")
             .depend("QtQuick.Layouts")
-            .depend("QtQuick.Shapes"),
+            .depend("QtQuick.Shapes")
+            .depend("Qt.labs.platform"),
     )
     .qrc_resources([
         "assets/icons/phosphor/arrow-counter-clockwise.svg",
@@ -66,6 +67,8 @@ fn main() {
     ])
     .qt_module("Network")
     .qt_module("Quick")
-    .files(["src/qml_app_state.rs"])
+    .qt_module("Widgets")
+    .crate_include_root(Some("include".into()))
+    .files(["src/qml_app_state.rs", "src/qapplication.rs"])
     .build();
 }

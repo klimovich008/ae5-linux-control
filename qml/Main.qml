@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import Qt.labs.platform as Platform
 import io.github.klimovich008.ae5control
 import "components"
 import "pages"
@@ -55,7 +56,8 @@ ApplicationWindow {
     height: qaWindowDimension(1, 800)
     minimumWidth: 1024
     minimumHeight: 680
-    visible: true
+    visible: !startHiddenRequested
+             || (!appState.qaMode && !systemTray.available)
     title: qsTr("AE5 Control")
     color: Theme.background
     palette.window: Theme.background
@@ -87,9 +89,51 @@ ApplicationWindow {
         Qt.application.arguments.indexOf("--qa-focus-audit") >= 0
     readonly property bool qaStateSmokeRequested:
         Qt.application.arguments.indexOf("--qa-state-smoke") >= 0
+    readonly property bool qaTraySmokeRequested:
+        Qt.application.arguments.indexOf("--qa-tray-smoke") >= 0
+    readonly property bool qaTrayUnsavedSmokeRequested:
+        Qt.application.arguments.indexOf("--qa-tray-unsaved-smoke") >= 0
+    readonly property bool startHiddenRequested:
+        Qt.application.arguments.indexOf("--start-hidden") >= 0
     property string activePage: initialPage()
     property bool closeConfirmed: false
+    property bool exitRequested: false
     property var closeReturnFocusItem: null
+
+    function showFromTray() {
+        closeConfirmed = false
+        exitRequested = false
+        root.show()
+        root.raise()
+        root.requestActivate()
+    }
+
+    function completeCloseRequest() {
+        closeConfirmed = true
+        unsavedDialog.close()
+        if (exitRequested)
+            Qt.quit()
+        else
+            root.hide()
+    }
+
+    function requestClose(exitApplication) {
+        closeConfirmed = false
+        exitRequested = exitApplication
+        if (appState.unsavedCount > 0) {
+            if (!unsavedDialog.visible) {
+                closeReturnFocusItem = root.activeFocusItem
+                unsavedDialog.open()
+            }
+        } else {
+            completeCloseRequest()
+        }
+    }
+
+    function cancelCloseRequest() {
+        exitRequested = false
+        unsavedDialog.reject()
+    }
 
     function focusFirstUnsavedAction() {
         if (effectsSaveButton.visible)
@@ -102,9 +146,7 @@ ApplicationWindow {
 
     function finishCloseIfClean() {
         if (appState.unsavedCount === 0) {
-            closeConfirmed = true
-            unsavedDialog.close()
-            root.close()
+            completeCloseRequest()
         } else {
             Qt.callLater(root.focusFirstUnsavedAction)
         }
@@ -114,6 +156,7 @@ ApplicationWindow {
         const readOnly = objectName === "effects"
                          ? appState.effectsReadOnly : appState.eqReadOnly
         if (readOnly) {
+            exitRequested = false
             closeReturnFocusItem = null
             unsavedDialog.close()
             root.activePage = "sound"
@@ -129,9 +172,64 @@ ApplicationWindow {
     }
 
     function discardAndClose() {
-        closeConfirmed = true
-        unsavedDialog.close()
-        root.close()
+        completeCloseRequest()
+    }
+
+    function runQaTraySmoke() {
+        if (!appState.qaMode || !startHiddenRequested) {
+            console.error("AE5_QML_TRAY_SMOKE requires --qa-state and --start-hidden")
+            Qt.exit(2)
+            return
+        }
+        if (root.visible) {
+            console.error("AE5_QML_TRAY_SMOKE result=failed initial-window-visible")
+            Qt.exit(1)
+            return
+        }
+
+        root.showFromTray()
+        if (!root.visible) {
+            console.error("AE5_QML_TRAY_SMOKE result=failed show-from-tray")
+            Qt.exit(1)
+            return
+        }
+
+        root.requestClose(false)
+        Qt.callLater(function() {
+            if (root.visible) {
+                console.error("AE5_QML_TRAY_SMOKE result=failed close-did-not-hide")
+                Qt.exit(1)
+            } else {
+                console.log("AE5_QML_TRAY_SMOKE result=passed")
+                Qt.exit(0)
+            }
+        })
+    }
+
+    function runQaTrayUnsavedSmoke() {
+        if (!appState.qaMode || !startHiddenRequested
+                || appState.unsavedCount === 0) {
+            console.error("AE5_QML_TRAY_UNSAVED_SMOKE requires a modified QA state and --start-hidden")
+            Qt.exit(2)
+            return
+        }
+        if (root.visible) {
+            console.error("AE5_QML_TRAY_UNSAVED_SMOKE result=failed initial-window-visible")
+            Qt.exit(1)
+            return
+        }
+
+        root.requestClose(true)
+        Qt.callLater(function() {
+            if (!root.visible || !unsavedDialog.visible || !root.exitRequested) {
+                console.error("AE5_QML_TRAY_UNSAVED_SMOKE result=failed prompt-not-visible")
+                Qt.exit(1)
+            } else {
+                root.cancelCloseRequest()
+                console.log("AE5_QML_TRAY_UNSAVED_SMOKE result=passed")
+                Qt.exit(0)
+            }
+        })
     }
 
     function collectTabStops(item, result) {
@@ -242,12 +340,11 @@ ApplicationWindow {
     }
 
     onClosing: function(closeEvent) {
-        if (!closeConfirmed && appState.unsavedCount > 0) {
+        if (closeConfirmed) {
+            closeEvent.accepted = true
+        } else {
             closeEvent.accepted = false
-            if (!unsavedDialog.visible) {
-                closeReturnFocusItem = root.activeFocusItem
-                unsavedDialog.open()
-            }
+            requestClose(false)
         }
     }
 
@@ -287,6 +384,56 @@ ApplicationWindow {
                             + " page=" + root.activePage)
                 Qt.exit(0)
             }
+        }
+    }
+
+    Timer {
+        interval: 120
+        running: root.qaTraySmokeRequested
+        repeat: false
+        onTriggered: root.runQaTraySmoke()
+    }
+
+    Timer {
+        interval: 120
+        running: root.qaTrayUnsavedSmokeRequested
+        repeat: false
+        onTriggered: root.runQaTrayUnsavedSmoke()
+    }
+
+    Platform.SystemTrayIcon {
+        id: systemTray
+
+        visible: !appState.qaMode
+        icon.name: "io.github.klimovich008.ae5control"
+        tooltip: qsTr("AE5 Control")
+
+        menu: Platform.Menu {
+            Platform.MenuItem {
+                text: root.visible ? qsTr("Hide AE5 Control")
+                                   : qsTr("Open AE5 Control")
+                onTriggered: {
+                    if (root.visible)
+                        root.requestClose(false)
+                    else
+                        root.showFromTray()
+                }
+            }
+
+            Platform.MenuItem {
+                text: qsTr("Quit")
+                onTriggered: root.requestClose(true)
+            }
+        }
+
+        onActivated: function(reason) {
+            if (reason !== Platform.SystemTrayIcon.Trigger
+                    && reason !== Platform.SystemTrayIcon.DoubleClick)
+                return
+            if (root.visible)
+                root.requestClose(false)
+            else
+                root.showFromTray()
         }
     }
 
@@ -411,9 +558,12 @@ ApplicationWindow {
         width: Math.min(520, root.width - 48)
         modal: true
         closePolicy: Popup.CloseOnEscape
-        title: qsTr("Save changes before closing?")
+        title: root.exitRequested
+               ? qsTr("Save changes before quitting?")
+               : qsTr("Save changes before hiding?")
 
         onOpened: Qt.callLater(root.focusFirstUnsavedAction)
+        onRejected: root.exitRequested = false
         onClosed: {
             if (!root.closeConfirmed && root.closeReturnFocusItem)
                 root.closeReturnFocusItem.forceActiveFocus()
@@ -428,7 +578,9 @@ ApplicationWindow {
 
             Label {
                 Layout.fillWidth: true
-                text: qsTr("Choose each modified object you want to save. Discard closes without changing saved profiles or live audio.")
+                text: root.exitRequested
+                      ? qsTr("Choose each modified object you want to save. Discard quits without changing saved profiles or live audio.")
+                      : qsTr("Choose each modified object you want to save. Hiding keeps unsaved drafts in this running session without changing saved profiles or live audio.")
                 color: Theme.textSecondary
                 wrapMode: Text.WordWrap
             }
@@ -514,10 +666,14 @@ ApplicationWindow {
 
         footer: DialogButtonBox {
             AppButton {
-                text: qsTr("Discard and close")
+                text: root.exitRequested
+                      ? qsTr("Discard and quit")
+                      : qsTr("Hide without saving")
                 variant: "danger"
                 DialogButtonBox.buttonRole: DialogButtonBox.DestructiveRole
-                Accessible.description: qsTr("Discard local drafts and close without changing saved profiles or live audio")
+                Accessible.description: root.exitRequested
+                                        ? qsTr("Discard local drafts and quit without changing saved profiles or live audio")
+                                        : qsTr("Hide and keep local drafts in this running session")
                 onClicked: root.discardAndClose()
             }
 
@@ -527,7 +683,7 @@ ApplicationWindow {
                 text: qsTr("Cancel")
                 DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
                 Accessible.description: qsTr("Return to AE5 Control without closing")
-                onClicked: unsavedDialog.reject()
+                onClicked: root.cancelCloseRequest()
             }
         }
     }

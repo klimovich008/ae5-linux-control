@@ -1,5 +1,5 @@
 use cxx_qt::casting::Upcast;
-use cxx_qt_lib::{QGuiApplication, QQmlApplicationEngine, QQmlEngine, QQuickStyle, QString, QUrl};
+use cxx_qt_lib::{QQmlApplicationEngine, QQmlEngine, QQuickStyle, QString, QUrl};
 use std::pin::Pin;
 
 fn main() {
@@ -15,7 +15,7 @@ fn main() {
     ae5_control::qml_app_state::initialize();
     QQuickStyle::set_style(&QString::from("Basic"));
 
-    let mut app = QGuiApplication::new();
+    let mut app = ae5_control::qapplication::new_qapplication();
     let mut engine = QQmlApplicationEngine::new();
 
     if let Some(engine) = engine.as_mut() {

@@ -57,6 +57,7 @@ payload_sources=(
 	"$project_root/packaging/io.github.klimovich008.ae5control.desktop"
 	"$project_root/packaging/io.github.klimovich008.ae5control.svg"
 	"$project_root/packaging/io.github.klimovich008.ae5control.metainfo.xml"
+	"$project_root/packaging/io.github.klimovich008.ae5control-autostart.desktop"
 	"$project_root/packaging/io.github.klimovich008.ae5control-lighting.desktop"
 	"$project_root/packaging/wireplumber/90-ae5-control.conf"
 	"$project_root/packaging/alsa-card-profile/mixer/profile-sets/sound-blaster-ae5.conf"
@@ -77,6 +78,7 @@ payload_paths=(
 	share/applications/io.github.klimovich008.ae5control.desktop
 	share/icons/hicolor/scalable/apps/io.github.klimovich008.ae5control.svg
 	share/metainfo/io.github.klimovich008.ae5control.metainfo.xml
+	share/autostart/io.github.klimovich008.ae5control-autostart.desktop
 	share/autostart/io.github.klimovich008.ae5control-lighting.desktop
 	share/wireplumber/90-ae5-control.conf
 	share/alsa-card-profile/mixer/profile-sets/sound-blaster-ae5.conf
@@ -90,7 +92,7 @@ payload_paths=(
 payload_modes=(
 	0755 0755 0755 0755 0755 0755
 	0644 0644 0644 0644 0644 0644 0644 0644 0644 0644
-	0644 0644
+	0644 0644 0644
 )
 [[ ${#payload_sources[@]} -eq ${#payload_paths[@]} &&
 	${#payload_sources[@]} -eq ${#payload_modes[@]} ]] || {
@@ -144,7 +146,11 @@ add_link daemon-unit \
 	"$config_root/systemd/user/ae5d.service" \
 	"$payload_root/share/systemd/user/ae5d.service" \
 	"$daemon_unit_template" bundle
-add_link autostart \
+add_link app-autostart \
+	"$config_root/autostart/io.github.klimovich008.ae5control-autostart.desktop" \
+	"$payload_root/share/autostart/io.github.klimovich008.ae5control-autostart.desktop" \
+	"$project_root/packaging/io.github.klimovich008.ae5control-autostart.desktop" bundle
+add_link lighting-autostart \
 	"$config_root/autostart/io.github.klimovich008.ae5control-lighting.desktop" \
 	"$payload_root/share/autostart/io.github.klimovich008.ae5control-lighting.desktop" \
 	"$project_root/packaging/io.github.klimovich008.ae5control-lighting.desktop" bundle

@@ -239,6 +239,12 @@ Status: **in progress — hardware Effects transaction complete**
   Fedora 44 RPM install/remove transaction, native Wayland and X11 startup,
   and a live daemon stop/reactivation cycle passed without an audio write;
   the physical sink remained at 20%.
+- Completed the desktop lifecycle slice: RPM and rootless packages autostart
+  the Qt application hidden when a tray is available; closing hides the window,
+  the tray provides Open/Hide and Quit, unsupported tray environments fall
+  back to a visible window, and object-scoped unsaved handling remains active
+  for both hide and quit. Automated QML and installer lifecycle checks cover
+  the new paths.
 - Completed the selected Sound-screen installed-host acceptance at commit
   `b068ff9`: the transactional user install upgraded without changing any of
   the seven existing configuration/profile files; installed binaries matched

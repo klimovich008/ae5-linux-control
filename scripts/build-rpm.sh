@@ -59,7 +59,8 @@ pkg-config --exists alsa || {
 	exit 1
 }
 pkg-config --exists \
-	Qt6Core Qt6Gui Qt6Qml Qt6Quick Qt6QuickControls2 Qt6QuickShapes || {
+	Qt6Core Qt6Gui Qt6Qml Qt6Quick Qt6QuickControls2 Qt6QuickShapes \
+	Qt6Widgets || {
 	printf 'error: Qt 6 base and declarative development files are required\n' >&2
 	exit 1
 }

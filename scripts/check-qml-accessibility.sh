@@ -27,6 +27,23 @@ if ! modified_focus_output=$(run_qml_check --qa-state=both-modified --qa-focus-a
     exit 1
 fi
 
+if ! tray_output=$(
+    run_qml_check --qa-state=ready --start-hidden --qa-tray-smoke
+); then
+    printf '%s\n' "$tray_output" >&2
+    echo "QML start-hidden and tray lifecycle smoke did not pass." >&2
+    exit 1
+fi
+
+if ! tray_unsaved_output=$(
+    run_qml_check --qa-state=both-modified --start-hidden \
+        --qa-tray-unsaved-smoke
+); then
+    printf '%s\n' "$tray_unsaved_output" >&2
+    echo "QML hidden unsaved Quit lifecycle smoke did not pass." >&2
+    exit 1
+fi
+
 states=(
     ready
     no-device
@@ -69,5 +86,7 @@ for page in "${pages[@]}"; do
 done
 
 echo "QML focus-order audit passed."
+echo "QML start-hidden and tray lifecycle smoke passed."
+echo "QML hidden unsaved Quit lifecycle smoke passed."
 echo "QML accessibility and state smoke passed for ${#states[@]} scenarios."
 echo "QML page smoke passed for ${#pages[@]} destinations."

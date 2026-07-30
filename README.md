@@ -552,6 +552,15 @@ light tokens:
 QT_QPA_PLATFORM=wayland cargo run --features qml-gui --bin ae5-control-qml -- --light
 ```
 
+Installed builds start automatically after desktop login with the main window
+hidden. Closing the window also hides it without stopping `ae5d` or changing
+audio; use the AE5 Control tray icon to reopen it or choose **Quit** to end the
+UI process. If the desktop has no system-tray implementation, a hidden launch
+falls back to showing the window so the application cannot become
+inaccessible. Modified EQ or Effects drafts still receive an object-scoped
+prompt: hiding can retain unsaved drafts in the running process, while Quit
+offers save or discard.
+
 The selected Sound screen has been checked at 1024 × 680, 1280 × 800, and
 1600 × 1000. At the minimum size the sidebar collapses to a labelled icon rail
 and the workspace scrolls vertically without horizontal overflow. `Ctrl+S`
@@ -560,9 +569,10 @@ flow. If both section-owned objects need attention, the hardware faceplate's
 Review action returns focus to the relevant object rather than performing a
 combined save. Status notices, the live-EQ state, object headers, the
 equalizer graph and bands, enhancement controls, and hardware faceplate expose
-typed accessibility names and descriptions. Close-with-unsaved handling,
-fractional display-scale acceptance, and the remaining failure-state tests are
-still Phase 7 work.
+typed accessibility names and descriptions. Close-with-unsaved handling and
+the start-hidden/tray lifecycle have automated QML smoke coverage. Fractional
+display-scale acceptance and the remaining failure-state tests are still
+Phase 7 work.
 
 Stopping `ae5d` deliberately puts the UI into its daemon-unavailable state.
 Starting it again restores the live faceplate on the next five-second refresh;
@@ -649,8 +659,9 @@ Nobara/Fedora RPM build and install instructions are in
 [packaging/README.md](packaging/README.md). The package installs the Qt 6/QML
 app, unprivileged Rust `ae5d` user service, temporary GTK fallback, CLI,
 desktop entry, AppStream metadata, icon, scoped onboard-LED device rule, and
-login-time color restore without a privileged helper. The desktop entry
-launches Qt and activates `ae5d` over the session D-Bus.
+login-time color restore without a privileged helper. A separate login entry
+starts Qt hidden in the system tray; the normal desktop entry opens the window
+and activates `ae5d` over the session D-Bus.
 A clean Fedora 44 build/install/verify/remove transaction is now enforced in
 pull-request CI, and a read-only run of an exact RPM payload on the physical
 AE-5 passed.
@@ -666,8 +677,9 @@ ae5-control-user-install --uninstall
 
 This rootless path installs the Qt and GTK binaries, `ae5d`, per-user D-Bus
 and systemd activation metadata, application-menu metadata, login-time
-lighting restore, and card-scoped WirePlumber/ACP configuration under the
-normal XDG user directories. It refuses conflicting files and stages a
+application and lighting startup, and card-scoped WirePlumber/ACP
+configuration under the normal XDG user directories. It refuses conflicting
+files and stages a
 complete verified payload before replacing an earlier user installation. An
 already-running session bus is reloaded so the first Qt launch can activate
 `ae5d` without logging out. Rerun the same command to upgrade; profiles and

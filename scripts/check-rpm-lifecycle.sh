@@ -47,6 +47,8 @@ for command in ae5-control ae5-control-qml ae5ctl ae5d ae5-collect-report; do
 done
 grep -Fxq 'Exec=ae5-control-qml' \
 	/usr/share/applications/io.github.klimovich008.ae5control.desktop
+grep -Fxq 'Exec=ae5-control-qml --start-hidden' \
+	/etc/xdg/autostart/io.github.klimovich008.ae5control-autostart.desktop
 grep -Fxq 'Exec=/usr/bin/ae5d' \
 	/usr/share/dbus-1/services/io.github.klimovich008.Ae5Control.service
 grep -Fxq 'ExecStart=/usr/bin/ae5d' \

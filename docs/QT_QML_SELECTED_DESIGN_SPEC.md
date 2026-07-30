@@ -316,7 +316,14 @@ The faceplate is the only global control strip.
 
 `Ctrl+Shift+S` invokes `Save as…` for the focused object.
 
-Closing with both objects modified opens one dialog with independent choices:
+Closing the window hides it in the system tray. The tray provides Open/Hide
+and explicit Quit actions. Login autostart uses the same lifecycle with the
+window initially hidden; if no tray implementation is available, the window
+is shown instead so it cannot become inaccessible.
+
+Hiding or quitting with both objects modified opens one dialog with
+independent choices. Hiding without saving keeps the drafts in the running
+process; quitting without saving discards them:
 
 - Save Effects profile `My profile`
 - Save EQ preset `SHP Last`

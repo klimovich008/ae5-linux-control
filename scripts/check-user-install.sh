@@ -55,11 +55,16 @@ cmp "$payload/bin/ae5d" "$repo_root/target/release/ae5d"
 [[ -L $data_root/applications/io.github.klimovich008.ae5control.desktop ]]
 [[ -L $data_root/dbus-1/services/io.github.klimovich008.Ae5Control.service ]]
 [[ -L $config_root/systemd/user/ae5d.service ]]
+[[ -L $config_root/autostart/io.github.klimovich008.ae5control-autostart.desktop ]]
 [[ -L $config_root/wireplumber/wireplumber.conf.d/90-ae5-control.conf ]]
 [[ -L $config_root/alsa-card-profile/mixer/profile-sets/sound-blaster-ae5.conf ]]
 [[ -L $config_root/alsa-card-profile/mixer/profile-sets/default.conf ]]
 grep -Fxq 'Exec=ae5-control-qml' \
 	"$data_root/applications/io.github.klimovich008.ae5control.desktop"
+grep -Fxq 'Exec=ae5-control-qml --start-hidden' \
+	"$config_root/autostart/io.github.klimovich008.ae5control-autostart.desktop"
+grep -Fxq 'X-GNOME-Autostart-enabled=true' \
+	"$config_root/autostart/io.github.klimovich008.ae5control-autostart.desktop"
 grep -Fxq "Exec=\"$payload/bin/ae5d\"" \
 	"$data_root/dbus-1/services/io.github.klimovich008.Ae5Control.service"
 grep -Fxq "ExecStart=\"$payload/bin/ae5d\"" \
@@ -302,6 +307,8 @@ PATH="$test_home/.local/bin:$PATH" \
 	! -L $data_root/dbus-1/services/io.github.klimovich008.Ae5Control.service ]]
 [[ ! -e $config_root/systemd/user/ae5d.service &&
 	! -L $config_root/systemd/user/ae5d.service ]]
+[[ ! -e $config_root/autostart/io.github.klimovich008.ae5control-autostart.desktop &&
+	! -L $config_root/autostart/io.github.klimovich008.ae5control-autostart.desktop ]]
 [[ -f $config_root/ae5-control/profiles/preserve-me.json ]]
 grep -Fxq preserve "$config_root/ae5-control/lighting.json"
 
